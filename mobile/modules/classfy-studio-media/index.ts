@@ -61,6 +61,7 @@ export type StudioExportCapabilities = {
 };
 type StudioMediaEvents = { onExportProgress: (event: { requestId: string; progress: number }) => void; onTranscriptionProgress: (event: { requestId: string; stage: string; progress: number }) => void };
 declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
+  getStudioNativeCameraAudioMonitorVersionAsync?(): Promise<{ version: number; available: boolean }>;
   getStudioEditorCapabilitiesAsync?(): Promise<{ version: number; available: boolean }>;
   renderStudioRecipeThumbnailAsync?(recipeJSON: string, outputUri: string, seconds: number): Promise<{ uri: string; width: number; height: number; seconds: number }>;
   getStudioExportCapabilitiesAsync?(): Promise<StudioExportCapabilities>;
@@ -193,6 +194,16 @@ export function isStudioNativeCameraAvailable() { return !!native && ['getStudio
 export function isStudioNativeCameraEffectsAvailable() {
   return isStudioNativeCameraAvailable() && isStudioCompositionAvailable() && typeof native?.setStudioNativeCameraEffectAsync === 'function';
 }
+export function isStudioNativeCameraAudioMonitorAvailable() {
+  return isStudioNativeCameraAvailable() && typeof native?.getStudioNativeCameraAudioMonitorVersionAsync === 'function';
+}
+export type StudioCaptureAudioEvent = {
+  version: 1; generation: number; revision: number; sequence: number; timestampMs: number; active: boolean;
+  input: { id: string; name: string; type: string } | null;
+  channels: { averageDb: number; peakDb: number }[];
+  sampleRate: number | null; channelCount: number; ageMs: number | null;
+  reason?: 'routeChanged' | 'inputLost' | 'interrupted' | 'inactive' | 'preparing' | 'unavailable';
+};
 export type StudioNativeCameraEffectAck = { effectRevision: number; previewProcessed: boolean; grade: StudioGrade; generation: number };
 export type StudioNativeCameraConfiguration = { position: 'front' | 'back'; quality: StudioCameraQuality; fps: StudioCameraFPS; orientation: 'portrait' | 'landscapeLeft' | 'landscapeRight'; cinematic?: boolean; mirrored?: boolean };
 export type StudioNativeRecording = { duration?: number; width?: number; height?: number; frameRate?: number; colorPrimaries?: string; transferFunction?: string; yCbCrMatrix?: string; fileSize?: number; uri: string; operationId: string; sourceKind?: 'standard' | 'cinematic'; sourceStage?: 'standard' | 'cinematicRaw' | 'cinematicRendered'; captureSnapshot?: StudioCameraState };

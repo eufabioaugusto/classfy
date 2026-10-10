@@ -133,6 +133,7 @@ async function harness(options = {}) {
   const bridge = {
     isStudioNativeCameraAvailable: () => options.native !== false,
     isStudioNativeCameraEffectsAvailable: () => false,
+    isStudioNativeCameraAudioMonitorAvailable: () => options.audioMonitor === true,
     isStudioCameraControlsAvailable: () => options.controls !== false,
     getStudioNativeCameraCapabilitiesAsync: capabilities, getStudioCameraCapabilitiesAsync: capabilities,
     configureStudioNativeCameraAsync: configure,
@@ -163,6 +164,7 @@ async function harness(options = {}) {
     react: hooks, 'react-native': native, 'expo-screen-orientation': orientation,
     '../../../modules/classfy-studio-media': bridge, './StudioNativeCamera': cameraModule,
   }, globals);
+  const audioMonitor = load('./StudioCaptureAudio.ts', { react: hooks }, globals);
   const takes = load('./StudioCaptureTakes.tsx', {
     react: hooks, 'react/jsx-runtime': jsxRuntime, 'react-native': native, 'lucide-react-native': icons,
     '@/components/LoadingImage': { LoadingImage: 'image' }, '@/theme/colors': theme, './model': model,
@@ -193,6 +195,8 @@ async function harness(options = {}) {
     '@/features/studio/StudioCaptureCamera': controls,
     '@/features/studio/StudioCaptureZoom': { StudioCaptureFrame: 'camera-frame', StudioCaptureZoom: 'zoom-control' },
     '@/features/studio/StudioCaptureTakes': takes,
+    '@/features/studio/StudioCaptureAudio': audioMonitor,
+    '@/features/studio/StudioCaptureAudioMonitor': { StudioCaptureAudioMonitor: 'audio-monitor' },
     '@/features/studio/StudioCaptureScriptPanel': { StudioCaptureScriptPanel: 'script-panel' },
     '@/features/studio/StudioCaptureRecording': videoStop, '@/features/studio/StudioNativeCamera': cameraModule,
     '@/features/studio/timeline': timeline,
@@ -277,10 +281,18 @@ async function harness(options = {}) {
     },
     zoom: () => find(node => node.type === 'zoom-control' && (node.props.controlName ?? 'zoom') === 'zoom').props,
     takeStrip: () => find(node => node.type === takes.StudioCaptureTakes).props,
+    audioMonitor: () => find(node => node.type === 'audio-monitor').props,
     focus(value) { focused = value; dirty = true; },
     owner(value) { owner = value; runtime.setOwner(value); dirty = true; },
     project(value) { id = value; dirty = true; },
     background(value) { appState.currentState = value; for (const callback of appListeners) callback(value); dirty = true; },
+    async audioEvent(patch = {}) {
+      const host = find(node => node.type === 'native-camera-view');
+      host.props.onAudioMonitor?.({ nativeEvent: { version: 1, generation: state.generation, revision: state.revision,
+        sequence: 1, timestampMs: now, active: true, input: { id: 'qa-mic', name: 'Microfone confirmado', type: 'MicrophoneBuiltIn' },
+        channels: [{ averageDb: -24, peakDb: -8 }], sampleRate: 48000, channelCount: 1, ageMs: 0, ...patch } });
+      await pump();
+    },
     async confirmZoom(patch = {}) { assert.ok(zoomRequest); state = { ...state, ...patch }; const request = zoomRequest; zoomRequest = undefined; request.resolve(snapshot()); await pump(); },
     async rejectZoom() { assert.ok(zoomRequest); const request = zoomRequest; zoomRequest = undefined; request.reject(Error('A câmera interrompeu o zoom.')); await pump(); },
     async dispose() { for (const context of contexts.values()) for (const value of context.slots) value?.cleanup?.(); contexts.clear(); timers.clear(); await new Promise(resolve => setImmediate(resolve)); },
@@ -541,4 +553,31 @@ test('remoção reservada revalida foco quando alcança a fila do store, antes d
     h.focus(true); await h.ready();
     assert.equal(h.button('Começar gravação').disabled, false); assert.equal(h.takeStrip().disabled, false);
   } finally { await h.dispose(); }
+});
+
+test('monitor de microfone usa evento nativo na prévia e no REC sem adicionar controles nem fingir leitura legacy', async () => {
+  const h = await harness({ audioMonitor: true });
+  try {
+    await h.ready();
+    assert.equal(h.audioMonitor().status, 'waiting'); assert.deepEqual(h.audioMonitor().channels, []);
+    await h.audioEvent();
+    assert.equal(h.audioMonitor().status, 'live'); assert.equal(h.audioMonitor().input.name, 'Microfone confirmado');
+    h.button('Começar gravação').onPress(); await h.advance(3000);
+    await h.audioEvent({ sequence: 2, channels: [{ averageDb: -18, peakDb: -6 }] });
+    assert.equal(h.audioMonitor().status, 'live'); assert.deepEqual(h.audioMonitor().channels, [{ averageDb: -18, peakDb: -6 }]);
+    assert.deepEqual(h.nodes(node => node.type === 'button' && node.props.accessibilityRole === 'button').map(node => node.props.accessibilityLabel), ['Encerrar e salvar take']);
+    await h.audioEvent({ sequence: 3, reason: 'inputLost', input: null, channels: [], channelCount: 0, sampleRate: null, ageMs: null });
+    assert.deepEqual(h.audioMonitor().channels, []); assert.match(h.audioMonitor().message, /desconectado/i);
+    assert.equal(h.calls.filter(value => value.kind === 'record').length, 1, 'Monitoring does not start or restart REC');
+    h.button('Encerrar e salvar take').onPress(); await h.pump();
+    assert.equal(h.current().takes.length, 1);
+  } finally { await h.dispose(); }
+
+  const legacy = await harness();
+  try {
+    await legacy.ready();
+    assert.equal(legacy.audioMonitor().status, 'unavailable'); assert.deepEqual(legacy.audioMonitor().channels, []);
+    const host = legacy.find(node => node.type === 'native-camera-view');
+    assert.equal(host.props.onAudioMonitor, undefined);
+  } finally { await legacy.dispose(); }
 });

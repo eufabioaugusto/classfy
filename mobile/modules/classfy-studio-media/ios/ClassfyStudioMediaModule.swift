@@ -126,7 +126,7 @@ public final class ClassfyStudioMediaModule: Module {
         progress: { [weak self] value in self?.sendEvent("onExportProgress", ["requestId": options.requestId, "progress": value]) }) }
     }
     View(StudioCaptureView.self) {
-      Events("onReady", "onState", "onRecordingState", "onInterruption", "onError")
+      Events("onReady", "onState", "onRecordingState", "onInterruption", "onError", "onAudioMonitor")
       Prop("active") { (view: StudioCaptureView, active: Bool) in view.setActive(active) }
       Prop("effectRecipeJSON") { (view: StudioCaptureView, recipe: String) in view.applyEffectRecipeJSON(recipe) }
     }
@@ -143,6 +143,10 @@ public final class ClassfyStudioMediaModule: Module {
     AsyncFunction("getStudioNativeCameraCapabilitiesAsync") { (tag: Int, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.capabilities { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)
+    AsyncFunction("getStudioNativeCameraAudioMonitorVersionAsync") { () -> [String: Any] in
+      if #available(iOS 16.0, *) { return ["version": 1, "available": true] }
+      return ["version": 1, "available": false]
+    }
     AsyncFunction("configureStudioNativeCameraAsync") { (tag: Int, options: StudioNativeCaptureConfigurationRecord, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.configure(options.native) { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)

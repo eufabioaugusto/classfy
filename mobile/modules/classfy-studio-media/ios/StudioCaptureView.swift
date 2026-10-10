@@ -12,6 +12,7 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   let onRecordingState = EventDispatcher()
   let onInterruption = EventDispatcher()
   let onError = EventDispatcher()
+  let onAudioMonitor = EventDispatcher()
   let capture = StudioCaptureSession()
   private let previewLayer = AVCaptureVideoPreviewLayer()
   private var metalView: MTKView?
@@ -249,6 +250,7 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
     case "onState": onState(value)
     case "onRecordingState": onRecordingState(value)
     case "onInterruption": onInterruption(value)
+    case "onAudioMonitor": onAudioMonitor(value)
     default: onError(value)
     }
   }

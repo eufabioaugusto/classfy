@@ -26,12 +26,17 @@ enum StudioCaptureError: LocalizedError {
 // Hardware and recording state are queue-confined; the frame mailbox and its
 // callback are protected separately because AVCapture delivers on videoQueue.
 final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOutputRecordingDelegate,
-  AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureMetadataOutputObjectsDelegate {
+  AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureMetadataOutputObjectsDelegate {
   typealias Completion = (Result<[String: Any], Error>) -> Void
   let session = AVCaptureSession()
   let queue = DispatchQueue(label: "br.com.classfy.studio.capture")
   private let videoQueue = DispatchQueue(label: "br.com.classfy.studio.capture.preview", qos: .userInteractive)
+  private let audioQueue = DispatchQueue(label: "br.com.classfy.studio.capture.audio", qos: .userInitiated)
   private let movie = AVCaptureMovieFileOutput()
+  private let audioFrames = AVCaptureAudioDataOutput()
+  private let audioMonitor = StudioCaptureAudioMonitor()
+  private var audioTimer: DispatchSourceTimer?
+  private var audioMonitoringAvailable = false
   private let frames = AVCaptureVideoDataOutput()
   private let metadata = AVCaptureMetadataOutput()
   private let controls = StudioCameraControls()
@@ -71,6 +76,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   }
 
   deinit {
+    audioTimer?.cancel()
     observers.forEach { NotificationCenter.default.removeObserver($0) }
     pressureObservation?.invalidate()
   }
@@ -103,8 +109,10 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
           if !self.session.isRunning { self.session.startRunning() }
           self.frameLock.lock(); self.frameGeneration = self.generation; self.frameEnabled = self.previewProcessed; self.frameLock.unlock()
           self.emit("onReady", try self.snapshot())
+          self.startAudioMonitor()
         } catch { self.emit("onError", ["code": "E_STUDIO_CAPTURE", "message": error.localizedDescription]) }
       } else {
+        self.stopAudioMonitor(reason: "inactive")
         self.invalidateFrames()
         if let operation = self.operation {
           self.stopOwned(operation)
@@ -118,6 +126,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     queue.async {
       guard !self.disposed else { return }
       self.disposed = true; self.active = false
+      self.stopAudioMonitor(reason: "inactive")
       self.invalidateFrames()
       if let operation = self.operation { self.stopOwned(operation) }
       else { self.finishDisposal() }
@@ -127,6 +136,8 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   private func finishDisposal() {
     if session.isRunning { session.stopRunning() }
     frames.setSampleBufferDelegate(nil, queue: nil)
+    audioFrames.setSampleBufferDelegate(nil, queue: nil)
+    audioTimer?.cancel(); audioTimer = nil
     metadata.setMetadataObjectsDelegate(nil, queue: nil)
     pressureObservation?.invalidate(); pressureObservation = nil
     observers.forEach { NotificationCenter.default.removeObserver($0) }; observers.removeAll()
@@ -165,6 +176,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         if !self.session.isRunning { self.session.startRunning() }
         let state = try self.snapshot()
         self.emit("onState", state)
+        self.startAudioMonitor()
         completion(.success(state))
       } catch { completion(.failure(error)) }
     }
@@ -254,6 +266,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     let previousMin = device.activeVideoMinFrameDuration
     let previousMax = device.activeVideoMaxFrameDuration
     let previousPreset = session.sessionPreset
+    stopAudioMonitor(reason: "preparing")
     session.beginConfiguration()
     do {
       previousOutputs.forEach { session.removeOutput($0) }
@@ -282,6 +295,14 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       }
       guard session.canAddOutput(movie) else { throw StudioCaptureError.unavailable("Não foi possível preparar a gravação do vídeo.") }
       session.addOutput(movie)
+      // A branch of the SAME audio input, available alongside MovieFileOutput
+      // from iOS 16. Never replace the movie or create a second audio session.
+      audioMonitoringAvailable = false
+      if #available(iOS 16.0, *), session.canAddOutput(audioFrames) {
+        session.addOutput(audioFrames)
+        audioFrames.setSampleBufferDelegate(self, queue: audioQueue)
+        audioMonitoringAvailable = true
+      } else { audioFrames.setSampleBufferDelegate(nil, queue: nil) }
       frames.alwaysDiscardsLateVideoFrames = true
       // This output feeds the screen, never the original MovieFileOutput.
       // Preview-sized buffers avoid shading a full 4K frame just to display it
@@ -331,6 +352,9 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       }
       previousOutputs.forEach { if session.canAddOutput($0) { session.addOutput($0) } }
       session.commitConfiguration()
+      audioMonitoringAvailable = previousOutputs.contains { $0 === audioFrames }
+      if audioMonitoringAvailable { audioFrames.setSampleBufferDelegate(self, queue: audioQueue) }
+      startAudioMonitor()
       throw error
     }
   }
@@ -556,6 +580,13 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                      from connection: AVCaptureConnection) {
+    if output === audioFrames {
+      guard let ticket = audioMonitor.ticket() else { return }
+      guard let measurement = StudioCaptureAudioPCM.measure(sampleBuffer) else { audioMonitor.unsupported(ticket); return }
+      let presentation = CMSyncConvertTime(CMSampleBufferGetPresentationTimeStamp(sampleBuffer), from: ticket.clock, to: CMClockGetHostTimeClock())
+      audioMonitor.receive(measurement, ticket: ticket, hostPTS: CMTimeGetSeconds(presentation))
+      return
+    }
     guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
     frameLock.lock()
     let token = frameGeneration; let cinematic = frameIsCinematic
@@ -579,21 +610,80 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   private func observeSession() {
     let center = NotificationCenter.default
+    observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: AVAudioSession.sharedInstance(), queue: nil) { [weak self] notice in
+      let reason = (notice.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber)?.uintValue
+      let previous = notice.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription
+      let previousInputID = previous?.inputs.first?.uid
+      self?.queue.async { [weak self] in
+        guard let self, self.active, !self.disposed else { return }
+        let currentInputID = AVAudioSession.sharedInstance().currentRoute.inputs.first?.uid
+        let lost = reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue && previousInputID != nil && previousInputID != currentInputID
+        self.refreshAudioMonitor(reason: lost ? "inputLost" : "routeChanged")
+        // Audio samples can arrive between reset and snapshot. The route-loss
+        // notice must still be delivered even if the new input is already live.
+        self.emitAudioMonitor(reason: lost ? "inputLost" : "routeChanged")
+      }
+    })
     observers.append(center.addObserver(forName: .AVCaptureSessionWasInterrupted, object: session, queue: nil) { [weak self] notice in
       let reason = (notice.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue ?? 0
       self?.queue.async { [weak self] in
         guard let self else { return }
+        self.stopAudioMonitor(reason: "interrupted")
         if let operation = self.operation { self.stopOwned(operation) }
         self.emit("onInterruption", ["reason": reason, "message": "A gravação foi interrompida. Estamos finalizando o take para recuperação."])
+      }
+    })
+    observers.append(center.addObserver(forName: .AVCaptureSessionInterruptionEnded, object: session, queue: nil) { [weak self] _ in
+      self?.queue.async { [weak self] in
+        guard let self, self.active, !self.disposed else { return }
+        self.startAudioMonitor()
       }
     })
     observers.append(center.addObserver(forName: .AVCaptureSessionRuntimeError, object: session, queue: nil) { [weak self] notice in
       let error = notice.userInfo?[AVCaptureSessionErrorKey] as? Error
       self?.queue.async { [weak self] in
         guard let self else { return }
+        self.stopAudioMonitor(reason: "interrupted")
         if let operation = self.operation { self.stopOwned(operation) }
         self.emit("onError", ["code": "E_STUDIO_CAPTURE_RUNTIME", "message": error?.localizedDescription ?? "A câmera foi interrompida."])
       }
     })
+  }
+
+  private func refreshAudioMonitor(reason: String) {
+    let port = AVAudioSession.sharedInstance().currentRoute.inputs.first
+    let running = active && !disposed && session.isRunning && !session.isInterrupted
+    let input: [String: String]? = running ? port.map { ["id": $0.uid, "name": $0.portName, "type": $0.portType.rawValue] } : nil
+    let clock: CMClock?
+    if #available(iOS 15.4, *) { clock = session.synchronizationClock } else { clock = nil }
+    audioMonitor.reset(generation: generation, revision: revision, input: input,
+      enabled: running && audioMonitoringAvailable, clock: clock,
+      reason: audioMonitoringAvailable ? reason : "unavailable")
+  }
+
+  private func emitAudioMonitor(reason: String? = nil) {
+    var value = audioMonitor.snapshot()
+    if let reason { value["reason"] = reason }
+    emit("onAudioMonitor", value)
+  }
+
+  private func startAudioMonitor() {
+    guard active, !disposed, session.isRunning else { return }
+    refreshAudioMonitor(reason: "preparing")
+    emitAudioMonitor()
+    guard audioTimer == nil, audioMonitoringAvailable else { return }
+    let timer = DispatchSource.makeTimerSource(queue: queue)
+    timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(100), leeway: .milliseconds(10))
+    timer.setEventHandler { [weak self] in
+      guard let self, self.active, !self.disposed else { return }
+      self.emitAudioMonitor()
+    }
+    audioTimer = timer; timer.resume()
+  }
+
+  private func stopAudioMonitor(reason: String) {
+    audioTimer?.cancel(); audioTimer = nil
+    audioMonitor.reset(generation: generation, revision: revision, input: nil, enabled: false, clock: nil, reason: reason)
+    emitAudioMonitor()
   }
 }

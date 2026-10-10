@@ -24,10 +24,12 @@ import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
 import { studioNormalizedZoom, useStudioCaptureCamera } from '@/features/studio/StudioCaptureCamera';
 import { StudioCaptureFrame, StudioCaptureZoom } from '@/features/studio/StudioCaptureZoom';
 import { StudioCaptureTakes } from '@/features/studio/StudioCaptureTakes';
+import { StudioCaptureAudioMonitor } from '@/features/studio/StudioCaptureAudioMonitor';
+import { useStudioCaptureAudioMonitor } from '@/features/studio/StudioCaptureAudio';
 import { StudioCaptureScriptPanel } from '@/features/studio/StudioCaptureScriptPanel';
 import { createStudioVideoStopOperation } from '@/features/studio/StudioCaptureRecording';
 import { StudioNativeCamera, StudioNativeRecordingError, isStudioNativeCameraHandle, type StudioCaptureCameraHandle, type StudioCaptureRecording, type StudioNativeCameraHandle } from '@/features/studio/StudioNativeCamera';
-import { isStudioNativeCameraAvailable, isStudioNativeCameraEffectsAvailable } from '../../modules/classfy-studio-media';
+import { isStudioNativeCameraAvailable, isStudioNativeCameraEffectsAvailable, isStudioNativeCameraAudioMonitorAvailable } from '../../modules/classfy-studio-media';
 import { colors } from '@/theme/colors';
 import { controls } from '@/theme/controls';
 
@@ -69,6 +71,7 @@ export default function StudioCaptureScreen() {
   const [importing, setImporting] = useState(false);
   const [removingTake, setRemovingTake] = useState(false);
   const [cancelingAudio, setCancelingAudio] = useState(false);
+  const [audioMonitorHeight, setAudioMonitorHeight] = useState(78);
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [showScript, setShowScript] = useState(true);
   const [followScript, setFollowScript] = useState(true);
@@ -114,6 +117,9 @@ export default function StudioCaptureScreen() {
   const nativeCamera = Platform.OS === 'ios' && isStudioNativeCameraAvailable();
   const nativeEffects = !isAudio && nativeCamera && isStudioNativeCameraEffectsAvailable();
   const cameraControls = useStudioCaptureCamera(camera, facing, cameraMounted, { native: nativeCamera, orientation: project?.kind === 'aula' ? 'landscape' : 'portrait' });
+  const audioMonitorAvailable = nativeCamera && isStudioNativeCameraAudioMonitorAvailable();
+  const audioMonitor = useStudioCaptureAudioMonitor({ active: cameraMounted, available: audioMonitorAvailable,
+    scopeKey: `${user?.id}:${id}:${facing}`, generation: cameraControls.state?.generation });
   const captureReadiness = useRef({ sensorMatches, screenMatches, ready, orientationReady });
   captureReadiness.current = { sensorMatches, screenMatches, ready, orientationReady };
 
@@ -661,6 +667,11 @@ export default function StudioCaptureScreen() {
   const safeBottom = Math.max(insets.bottom, 20);
   const safeLeft = Math.max(insets.left, 18);
   const safeRight = Math.max(insets.right, 18);
+  const audioMonitorWidth = Math.max(0, Math.min(250, dimensions.width - safeLeft - safeRight - 184));
+  const landscapeZoomBottom = Math.max(insets.bottom, 16) + (project?.takes.length ? 85 : 15);
+  const landscapeZoomLeft = cameraMounted && safeTop + 70 + audioMonitorHeight + 12 > dimensions.height - landscapeZoomBottom - 62
+    ? Math.max(safeLeft + 64, Math.min((dimensions.width - 210) / 2, dimensions.width - safeRight - 116 - audioMonitorWidth - 222))
+    : (dimensions.width - 210) / 2;
   const scriptPresent = !!project?.script.trim();
   const panelTitle = panel === 'timer' ? 'Temporizador' : panel === 'quality' ? cameraState ? 'Câmera Pro' : 'Qualidade do vídeo' : panel === 'treatment' ? 'Tratamento' : 'Teleprompter';
   const readyHint = isAudio ? 'Uma conversa. Uma ideia por take.' : project?.kind === 'aula' ? 'Seu conhecimento em uma aula.' : 'Uma ideia que merece ser compartilhada.';
@@ -713,6 +724,7 @@ export default function StudioCaptureScreen() {
       zoom={zoom} onZoom={changeZoom} disabled={zoomDisabled || immersive}
       onFocus={cameraState?.supportsFocus ? point => { void cameraControls.focus(point); } : undefined} canLockFocus={cameraState?.supportsFocusLock}>
       {nativeCamera ? <StudioNativeCamera ref={camera as React.Ref<StudioNativeCameraHandle>} style={StyleSheet.absoluteFill}
+        onAudioMonitor={audioMonitorAvailable ? audioMonitor.onAudioMonitor : undefined}
         onCameraReady={() => { void cameraControls.initialize().then(result => { if (result !== undefined && mounted.current) setReady(result); }); }}
         onRecordingState={event => { if (event.phase === 'recording' && phaseRef.current === 'recording') startedAt.current = Date.now(); }}
         onInterruption={event => { if (mounted.current) {
@@ -734,6 +746,15 @@ export default function StudioCaptureScreen() {
     {!immersive && <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.55)', 'transparent']} style={[styles.topShade, { height: safeTop + 130 }]} />}
     {!immersive && <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.72)']} style={[styles.bottomShade, landscape ? { height: 110 } : { height: safeBottom + 210 }]} />}
     {!immersive && landscape && <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.72)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.rightShade, { width: safeRight + 120 }]} />}
+
+    {cameraMounted && (audioMonitorAvailable || !immersive) && <View pointerEvents="none"
+      onLayout={event => { const height = Math.ceil(event.nativeEvent.layout.height); if (height > 0 && mounted.current) setAudioMonitorHeight(height); }}
+      style={[styles.audioMonitor, landscape
+      ? { top: safeTop + 70, right: safeRight + 116, maxWidth: audioMonitorWidth }
+      : { top: safeTop + 84, left: safeLeft, maxWidth: dimensions.width - safeLeft - safeRight - 64 }]}>
+      <StudioCaptureAudioMonitor input={audioMonitor.input} channels={audioMonitor.channels}
+        status={audioMonitor.status} message={audioMonitor.message} compact />
+    </View>}
 
     <View style={[styles.topControls, { top: safeTop, left: safeLeft, right: safeRight }]}>
       {!immersive && <View style={styles.topActionSlot}>{closeButton}</View>}
@@ -791,8 +812,8 @@ export default function StudioCaptureScreen() {
     </View>}
 
     {!immersive && !gate && scriptPresent && showScript && <View style={[styles.prompter, landscape
-      ? { top: safeTop + 78, left: safeLeft + 66, right: safeRight + 114 }
-      : { top: safeTop + 102, left: safeLeft, right: safeRight + 60 }]}>
+      ? { top: safeTop + 78, left: safeLeft + 66, right: safeRight + (cameraMounted ? 384 : 114) }
+      : { top: safeTop + (cameraMounted ? 84 + audioMonitorHeight + 12 : 102), left: safeLeft, right: safeRight + 60 }]}>
       <View style={styles.prompterHeader}>
         <View style={styles.prompterIdentity}><FileText color={colors.textSecondary} size={13} strokeWidth={1.5} /><Text style={styles.prompterLabel}>ROTEIRO</Text></View>
         <Pressable accessibilityRole="button" accessibilityLabel={followScript ? 'Pausar rolagem do roteiro' : 'Ativar rolagem do roteiro'}
@@ -810,7 +831,7 @@ export default function StudioCaptureScreen() {
     </View>}
 
     {!immersive && !isAudio && captureAvailable && !gate && (!cameraControls.available || cameraControls.zoomAvailable) && <View pointerEvents="box-none" style={[styles.zoomAnchor, landscape
-      ? { bottom: Math.max(insets.bottom, 16) + (project?.takes.length ? 85 : 15), left: (dimensions.width - 210) / 2 }
+      ? { bottom: landscapeZoomBottom, left: landscapeZoomLeft }
       : { bottom: safeBottom + (project?.takes.length ? 206 : 140), alignSelf: 'center' }]}>
       <StudioCaptureZoom reversed value={zoom} onChange={changeZoom} label={zoomLabel} disabled={zoomDisabled}
         confirmedValue={cameraState ? studioNormalizedZoom(cameraState.zoom, cameraState) : undefined}
@@ -970,6 +991,7 @@ function CaptureMessage({ icon, title, detail, actionLabel, onAction, disabled }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000' },
+  audioMonitor: { position: 'absolute', width: 250 },
   topShade: { position: 'absolute', left: 0, right: 0, top: 0 },
   bottomShade: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   rightShade: { position: 'absolute', top: 0, bottom: 0, right: 0 },

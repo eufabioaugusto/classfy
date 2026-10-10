@@ -6,7 +6,7 @@ import type { CameraView } from 'expo-camera';
 import {
   isStudioNativeCameraAvailable, startStudioNativeCameraRecordingAsync, stopStudioNativeCameraRecordingAsync,
   isStudioNativeCameraEffectsAvailable, setStudioNativeCameraEffectAsync,
-  type StudioCameraState, type StudioNativeRecording, type StudioNativeCameraEffectAck,
+  type StudioCameraState, type StudioNativeRecording, type StudioNativeCameraEffectAck, type StudioCaptureAudioEvent,
 } from '../../../modules/classfy-studio-media';
 import { normalizeStudioCaptureGrade, type StudioGrade } from './model';
 
@@ -34,6 +34,7 @@ type Props = {
   style?: StyleProp<ViewStyle>; active?: boolean; effectRecipeJSON?: string;
   onCameraReady?: () => void; onMountError?: (event: { message: string }) => void;
   onRecordingState?: (event: StudioNativeRecordingState) => void;
+  onAudioMonitor?: (event: StudioCaptureAudioEvent) => void;
   onInterruption?: (event: { message?: string; reason?: string; generation: number; revision: number }) => void;
 };
 type NativeProps = {
@@ -42,6 +43,7 @@ type NativeProps = {
   onState: (event: { nativeEvent: StudioCameraState }) => void;
   onError: (event: { nativeEvent: { message: string; generation?: number; revision?: number } }) => void;
   onRecordingState: (event: { nativeEvent: StudioNativeRecordingState }) => void;
+  onAudioMonitor?: (event: { nativeEvent: StudioCaptureAudioEvent }) => void;
   onInterruption: (event: { nativeEvent: { message?: string; reason?: string; generation: number; revision: number } }) => void;
 };
 const NativeCanvas = Platform.OS === 'ios' && isStudioNativeCameraAvailable()
@@ -140,6 +142,11 @@ export const StudioNativeCamera = forwardRef<StudioNativeCameraHandle, Props>(fu
       live.current.onCameraReady?.();
     }}
     onState={event => observeState(event.nativeEvent)}
+    {...(props.onAudioMonitor ? { onAudioMonitor: (event: { nativeEvent: StudioCaptureAudioEvent }) => {
+      if (!mounted.current || live.current.active === false || nativeGeneration.current === undefined
+        || event.nativeEvent.generation !== nativeGeneration.current) return;
+      live.current.onAudioMonitor?.(event.nativeEvent);
+    } } : {})}
     onError={event => live.current.onMountError?.({ message: event.nativeEvent.message })}
     onRecordingState={event => {
       const value = event.nativeEvent; const owned = operation.current;
