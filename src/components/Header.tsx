@@ -1,6 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { ClassfyLogo } from "@/components/ClassfyLogo";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -46,7 +47,9 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
         <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
           <SidebarTrigger />
           {/* Logo visible only on mobile when menu is closed */}
-          <span className="classfy-wordmark text-xl text-foreground sm:hidden">Classfy</span>
+          <Link to="/" aria-label="Classfy — início" className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden">
+            <ClassfyLogo symbolClassName="h-6 w-6" />
+          </Link>
           {title && <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate max-w-[150px] sm:max-w-none hidden sm:block">{title}</h1>}
         </div>
 

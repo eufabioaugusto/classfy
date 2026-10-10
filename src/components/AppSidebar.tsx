@@ -1,4 +1,5 @@
 import { NavLink } from "@/components/NavLink";
+import { ClassfyLogo } from "@/components/ClassfyLogo";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudies } from "@/hooks/useStudies";
@@ -289,13 +290,13 @@ export function AppSidebar() {
             <div className={`flex items-center gap-2 cursor-pointer ${collapsed ? "w-full justify-center" : ""}`}>
               {/* Mobile: Show toggle button before logo */}
               {isMobile && <SidebarTrigger className="shrink-0" />}
-              <div
-                onClick={() => navigate("/")}
-                className={`flex items-center ${collapsed ? "h-10 w-10 justify-center" : ""}`}
+              <Link
+                to="/"
+                aria-label="Classfy — início"
+                className={`flex items-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${collapsed ? "h-10 w-10 justify-center" : ""}`}
               >
-                {!collapsed && <span className="classfy-wordmark text-xl text-foreground">Classfy</span>}
-                {collapsed && <span className="classfy-wordmark text-xl text-foreground">C</span>}
-              </div>
+                <ClassfyLogo compact={collapsed} />
+              </Link>
             </div>
 
             {/* User Profile in Header */}
