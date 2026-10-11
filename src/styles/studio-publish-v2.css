@@ -2557,3 +2557,9 @@
     padding: 1.4rem;
   }
 }
+.studio-editor-handoff { display: flex; align-items: center; gap: 14px; padding: 18px 20px; margin-bottom: 18px; border: 1px solid var(--cf2-border, #e3e3e6); border-radius: 16px; background: var(--cf2-surface, #fff); }
+.studio-editor-handoff > svg { color: var(--brand-red, #EF5066); flex: none; }
+.studio-editor-handoff > div { flex: 1; min-width: 0; }
+.studio-editor-handoff strong { display: block; font-size: 14px; }
+.studio-editor-handoff p { margin: 4px 0 0; color: var(--cf2-text-secondary, #71717a); font-size: 13px; }
+@media (max-width: 760px) { .studio-editor-handoff { flex-wrap: wrap; } .studio-editor-handoff > div { flex-basis: calc(100% - 40px); } }

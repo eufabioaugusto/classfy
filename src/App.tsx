@@ -16,6 +16,11 @@ import { MobileBottomNav } from "./components/MobileBottomNav";
 import { RouteLoadBoundary } from "./components/RouteLoadBoundary";
 import { MiniPlayer } from "./components/MiniPlayer";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { initializeStudioExitGuard } from "@/components/studio/editor/useStudioExitGuard";
+
+// Window POP listeners run at the same target; register the scoped Studio
+// dispatcher before BrowserRouter so a pending draft can finish before unmount.
+initializeStudioExitGuard();
 
 // Lazy load all pages for maximum code splitting
 const Onboarding = lazy(() => import("./pages/Onboarding"));
@@ -27,6 +32,8 @@ const Historico = lazy(() => import("./pages/Historico"));
 const Favoritos = lazy(() => import("./pages/Favoritos"));
 const Salvos = lazy(() => import("./pages/Salvos"));
 const Studio = lazy(() => import("./pages/Studio"));
+const StudioProjects = lazy(() => import("./pages/StudioProjects"));
+const StudioEditor = lazy(() => import("./pages/StudioEditor"));
 const StudioUpload = lazy(() => import("./pages/StudioUpload"));
 const StudioUploadCurso = lazy(() => import("./pages/StudioUploadCurso"));
 const StudioContents = lazy(() => import("./pages/StudioContents"));
@@ -79,13 +86,14 @@ function AppContent() {
   const { closeMiniPlayer } = useMiniPlayer();
   const backgroundLocation = isMobile ? (location.state as any)?.backgroundLocation : null;
   const isBroadcastRoute = /^\/live\/[^/]+\/broadcast\/?$/.test(location.pathname);
+  const isStudioEditor = /^\/studio\/projects\/[^/]+\/?$/.test(location.pathname);
   const liveRouteId = /^\/live\/([^/]+)\/?$/.exec(location.pathname)?.[1] ?? null;
   const [liveSessionId, setLiveSessionId] = useState<string | null>(liveRouteId);
   const [liveReturnPath, setLiveReturnPath] = useState("/");
   const previousLocation = useRef(location);
 
   useEffect(() => {
-    if (isBroadcastRoute || location.pathname === "/auth") {
+    if (isBroadcastRoute || isStudioEditor || location.pathname === "/auth") {
       setLiveSessionId(null);
     }
     if (liveRouteId) {
@@ -96,18 +104,22 @@ function AppContent() {
       setLiveSessionId(liveRouteId);
     }
     previousLocation.current = location;
-  }, [isBroadcastRoute, liveRouteId, location]);
+  }, [isBroadcastRoute, isStudioEditor, liveRouteId, location]);
 
-  const activeLiveId = isBroadcastRoute || location.pathname === "/auth" ? null : liveRouteId ?? liveSessionId;
+  const activeLiveId = isBroadcastRoute || isStudioEditor || location.pathname === "/auth" ? null : liveRouteId ?? liveSessionId;
   useEffect(() => {
     if (activeLiveId) closeMiniPlayer();
   }, [activeLiveId, closeMiniPlayer]);
+  useEffect(() => {
+    if (isStudioEditor) closeMiniPlayer();
+  }, [isStudioEditor, closeMiniPlayer]);
   const closeLive = () => {
     if (liveRouteId) navigate(liveReturnPath);
     setLiveSessionId(null);
   };
   const loadingLabels: Record<string, string> = {
     "/studio": "Carregando Studio",
+    "/studio/projects": "Carregando projetos",
     "/studio/goals": "Carregando metas",
     "/studio/analytics": "Carregando Analytics",
     "/studio/contents": "Carregando conteúdos",
@@ -144,6 +156,8 @@ function AppContent() {
       <Route path="/favoritos" element={<Favoritos />} />
       <Route path="/salvos" element={<Salvos />} />
       <Route path="/studio" element={<Studio />} />
+      <Route path="/studio/projects" element={<StudioProjects />} />
+      <Route path="/studio/projects/:projectId" element={<StudioEditor />} />
       <Route path="/studio/upload" element={<StudioUpload />} />
       <Route path="/studio/upload/curso" element={<StudioUploadCurso />} />
       <Route path="/studio/contents" element={<StudioContents />} />
@@ -191,7 +205,7 @@ function AppContent() {
   return (
     <>
       <OnboardingGate />
-      {!isBroadcastRoute && <GlobalClassy />}
+      {!isBroadcastRoute && !isStudioEditor && <GlobalClassy />}
       <RouteLoadBoundary>
         <Suspense fallback={liveOpening}>
           {backgroundLocation ? (
@@ -224,8 +238,8 @@ function AppContent() {
           />
         </Suspense>
       )}
-      {!isBroadcastRoute && !activeLiveId && location.pathname !== "/onboarding" && <MiniPlayer />}
-      {!isBroadcastRoute && !liveRouteId && location.pathname !== "/onboarding" && <MobileBottomNav />}
+      {!isBroadcastRoute && !isStudioEditor && !activeLiveId && location.pathname !== "/onboarding" && <MiniPlayer />}
+      {!isBroadcastRoute && !isStudioEditor && !liveRouteId && location.pathname !== "/onboarding" && <MobileBottomNav />}
     </>
   );
 }

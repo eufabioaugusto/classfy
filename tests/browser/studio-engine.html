@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR"><meta charset="utf-8"><title>QA do motor Studio</title>
+<body><h1>QA isolado do motor Studio</h1><p>Entrada de teste local. Sem conexão com contas ou publicação.</p>
+<input id="fixture-file" type="file" accept="video/mp4"><button id="run">Validar composição</button><button id="download">Baixar resultado</button>
+<canvas id="preview" width="1920" height="1080" style="width:640px;max-width:100%"></canvas><pre id="result"></pre>
+<script type="module">
+import { emptyStudioEditing, compileStudioRecipe, studioTicks, studioSeconds, withStudioTakes, withStudioOutputSelection } from '/shared/studio/index.ts';
+import { addMainAsset, addLayerAsset, addText, splitMainClip, patchClip } from '/src/lib/studio/editor/commands.ts';
+import { createStudioBrowserStorage, studioAssetUri } from '/src/lib/studio/editor/storage.ts';
+import { inspectStudioMedia, studioCanvasBlob } from '/src/lib/studio/editor/media.ts';
+import { StudioRenderKernel } from '/src/lib/studio/editor/renderer.ts';
+import { exportStudioProject, releaseStudioExport } from '/src/lib/studio/editor/export.ts';
+import { Input, ALL_FORMATS, BlobSource, CanvasSink, AudioBufferSink } from 'mediabunny';
+
+const owner = 'studio-browser-qa', store = createStudioBrowserStorage();
+const pixel = (canvas,x,y) => [...canvas.getContext('2d').getImageData(Math.round(x*canvas.width),Math.round(y*canvas.height),1,1).data];
+const check = (condition,message) => { if (!condition) throw new Error(message); };
+window.runStudioEngineQA = async () => {
+  const original = document.querySelector('#fixture-file').files[0]; check(original,'Escolha o MP4 de teste.');
+  let project = await store.createProject(owner,'aula','QA — cortes, camadas e áudio');
+  const importAsset = async (file) => {
+    const info = await inspectStudioMedia(file), id = crypto.randomUUID();
+    const asset = { id, kind:info.kind, name:file.name, uri:studioAssetUri(owner,project.id,id,file.name), durationTicks:studioTicks(info.duration), width:info.width, height:info.height, frameRate:info.frameRate, hasAudio:info.hasAudio };
+    await store.putAsset(owner,project.id,id,file); return asset;
+  };
+  window.studioQAPhase='import';
+  const asset = await importAsset(original); check(Math.abs(studioSeconds(asset.durationTicks)-2)<.05,'Duração da fonte inesperada.');
+  project = addMainAsset(project,asset,'source');
+  project = splitMainClip(project,'source',1,{leftId:'red',rightId:'blue'});
+  project = patchClip(project,'red',{playbackRate:2,gain:.4});
+  project = patchClip(project,'blue',{gain:.4});
+  const green = document.createElement('canvas'); green.width=200; green.height=200; green.getContext('2d').fillStyle='#00ff00'; green.getContext('2d').fillRect(0,0,200,200);
+  const overlay = await importAsset(new File([await studioCanvasBlob(green,'image/png')],'green.png',{type:'image/png'}));
+  project = addLayerAsset(project,overlay,.5,{itemId:'green'});
+  project = patchClip(project,'green',{rect:{x:.05,y:.05,width:.2,height:.2}});
+  project = addText(project,'Studio Classfy',0,1.5,{itemId:'title'});
+  project = patchClip(project,'title',{rect:{x:.25,y:.7,width:.5,height:.2},text:{color:'#ffffff',backgroundColor:'#000000',fontSize:.06}});
+  project = withStudioTakes({...project,editing:withStudioOutputSelection(project.editing,{resolution:'hd',frameRate:30})});
+  project = await store.saveProject(owner,project);
+  window.studioQAPhase='preview';
+  const resolver = id => store.getAsset(owner,project.id,id), recipe=compileStudioRecipe(project), kernel=new StudioRenderKernel(recipe,resolver), canvas=document.querySelector('#preview');
+  check(Math.abs(recipe.durationTicks/recipe.timebase-1.5)<.001,'Velocidade não mudou a duração.');
+  await kernel.draw(canvas,.25); const red=pixel(canvas,.8,.3); check(red[0]>150&&red[2]<50,'Corte vermelho incorreto.');
+  await kernel.draw(canvas,.75); const blue=pixel(canvas,.8,.3), image=pixel(canvas,.1,.1), textBackground=pixel(canvas,.26,.72);
+  check(blue[2]>150&&blue[0]<50,'Corte azul incorreto.'); check(image[1]>200&&image[0]<30,'Sobreposição fora da prévia.'); check(textBackground[0]<25,'Fundo do texto fora da prévia.');
+  const initialSound=await kernel.mixAudio(0,.1), expectedOnset=initialSound[0].findIndex(v=>Math.abs(v)>.001)/48;
+  const sound=await kernel.mixAudio(.65,.1), rms=Math.sqrt(sound[0].reduce((s,v)=>s+v*v,0)/sound[0].length); check(rms>.01,'Mixagem sem áudio.'); kernel.dispose();
+  window.studioQAPhase='export';
+  const progress=[]; const file=await exportStudioProject(project,resolver,{onProgress:p=>progress.push(p)});
+  window.studioQAPhase='store';
+  await store.storeExport(owner,project.id,file,project.revision); const stored=await store.getExport(owner,project.id,project.revision); await releaseStudioExport(file);
+  check(stored?.size>1000,'Arquivo não persistiu.'); check(progress.at(-1)===1,'Exportação não concluiu.');
+  const reopened=await createStudioBrowserStorage().getProject(owner,project.id); check(reopened.revision===project.revision&&reopened.editing.main.length===2,'Projeto não reabriu.');
+  window.studioQAPhase='read-export';
+  const input=new Input({formats:ALL_FORMATS,source:new BlobSource(stored)});
+  try {
+    const track=await input.getPrimaryVideoTrack(), audio=await input.getPrimaryAudioTrack(), sink=new CanvasSink(track,{width:640});
+    const first=await sink.getCanvas(.25), second=await sink.getCanvas(.75);
+    const outputRed=pixel(first.canvas,.8,.3), outputBlue=pixel(second.canvas,.8,.3), outputImage=pixel(second.canvas,.1,.1);
+    check(outputRed[0]>140&&outputRed[2]<60,'Exportação divergiu do corte vermelho.'); check(outputBlue[2]>140&&outputBlue[0]<60,'Exportação divergiu do corte azul.'); check(outputImage[1]>180&&outputImage[0]<50,'Exportação perdeu a imagem.');
+    check(audio,'Exportação perdeu a faixa de áudio.'); const audioBuffer=await new AudioBufferSink(audio).getBuffer(.65), samples=audioBuffer.buffer.getChannelData(0), outputRms=Math.sqrt(samples.reduce((s,v)=>s+v*v,0)/samples.length); check(outputRms>.01,'Áudio exportado silencioso.');
+    window.studioQAExport=stored;
+    const result={projectId:project.id,revision:project.revision,duration:await input.computeDuration(),width:await track.getDisplayWidth(),height:await track.getDisplayHeight(),bytes:stored.size,name:stored.name,expectedOnsetMs:expectedOnset,rms,outputRms,red,blue,image,outputRed,outputBlue,outputImage};
+    document.querySelector('#result').textContent=JSON.stringify(result,null,2); window.studioQAResult=result; return result;
+  } finally {input.dispose();}
+};
+document.querySelector('#run').onclick=()=>window.runStudioEngineQA().catch(e=>{document.querySelector('#result').textContent=e.stack;window.studioQAError=e.message;});
+document.querySelector('#download').onclick=()=>{const url=URL.createObjectURL(window.studioQAExport),link=document.createElement('a');link.href=url;link.download='studio-qa.mp4';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+</script></body></html>

@@ -227,6 +227,9 @@ export default function Studio() {
             description="Publique, acompanhe o que está funcionando e encontre o próximo passo para crescer como creator."
             action={
               <div className="studio-header-action">
+                <V2Button variant="secondary" leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate("/studio/projects")}>
+                  Novo projeto
+                </V2Button>
                 <V2Button variant="primary" leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate("/studio/upload?type=aula")}>
                   Publicar conteúdo
                 </V2Button>

@@ -9,7 +9,9 @@
     "build:dev": "vite build --mode development",
     "test": "vitest run --environment jsdom",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:studio": "vitest run shared/studio src/lib/studio/editor src/components/studio/editor --environment jsdom",
+    "typecheck:studio": "tsc -p tsconfig.studio.json --pretty false"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -61,6 +63,7 @@
     "livekit-client": "^2.22.3",
     "lucide-react": "^0.462.0",
     "mapbox-gl": "^3.16.0",
+    "mediabunny": "^1.61.3",
     "next-themes": "^0.3.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
@@ -89,6 +92,7 @@
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
+    "fake-indexeddb": "^6.2.5",
     "globals": "^15.15.0",
     "jsdom": "^25.0.1",
     "livekit-server-sdk": "^2.19.1",
