@@ -10,11 +10,14 @@ import type { StudioKind } from '../../shared/studio';
 import '../../src/index.css';
 
 const owner = 'studio-browser-recording-flow-qa';
+// This fixture is not an App entrypoint and is never bundled for production.
+const premiumScenes = new URLSearchParams(location.search).get('premium') === '1';
 function Recording() {
   const [params] = useSearchParams();
   const kind = params.get('kind');
   return <StudioRecordingWorkspace owner={owner} initialKind={kind === 'aula' || kind === 'short' || kind === 'podcast' ? kind : undefined}
-    initialTitle={params.get('title') ?? undefined} projectId={params.get('project') ?? undefined} />;
+    initialTitle={params.get('title') ?? undefined} projectId={params.get('project') ?? undefined}
+    canUseScenes={premiumScenes} onUpgradeScenes={() => { document.dispatchEvent(new Event('studio-qa-upgrade')); }} />;
 }
 function Editor() { const { id } = useParams(); return <StudioEditorWorkspace owner={owner} projectId={id!} />; }
 const initial = new URLSearchParams(location.search);

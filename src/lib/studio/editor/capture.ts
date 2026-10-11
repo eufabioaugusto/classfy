@@ -1,9 +1,13 @@
 import { inspectStudioMedia } from './media';
 import { studioGrade, type StudioGrade } from '../../../../shared/studio/model';
 import { createStudioCaptureVideoProcessor, studioCaptureGrade, studioCaptureIdentityGrade, studioCaptureVideoControls, type StudioCaptureVideoControls, type StudioCaptureVideoPatch, type StudioCaptureVideoProcessor } from './captureVideo';
+import { createStudioSceneCapture } from './sceneCapture';
+import type { StudioCaptureScene, StudioCaptureScenes, StudioSceneConfigurationPatch } from './sceneTypes';
+export { studioScenesSupport } from './sceneTypes';
+export { getStudioSceneCapabilities } from './sceneCapture';
 export type { StudioCaptureVideoControls, StudioCaptureVideoPatch } from './captureVideo';
 
-export type StudioCaptureMode = 'camera' | 'screen' | 'audio';
+export type StudioCaptureMode = 'camera' | 'screen' | 'audio' | 'scenes';
 export type StudioCaptureDevice = { id: string; name: string };
 export type StudioCaptureState = {
   phase: 'idle' | 'preparing' | 'ready' | 'recording' | 'stopping' | 'recorded' | 'error';
@@ -13,6 +17,9 @@ export type StudioCaptureState = {
   microphoneEnabled: boolean; levels: { averageDb: number; peakDb: number }[];
   width?: number; height?: number; frameRate?: number;
   videoControls?: StudioCaptureVideoControls | null;
+  scenes?: StudioCaptureScenes;
+  /** Recorded chunks still need consolidation; preparing another take would discard them. */
+  pendingRecovery?: boolean;
 };
 export type StudioCaptureController = {
   prepare(): Promise<void>; start(): void; stop(): Promise<File>; flip(): Promise<void>;
@@ -20,6 +27,9 @@ export type StudioCaptureController = {
   setMicrophoneEnabled(enabled: boolean): void;
   configureVideo(patch: StudioCaptureVideoPatch): Promise<void>;
   getMicrophoneTrack(): MediaStreamTrack | null;
+  prepareScreen?(): Promise<void>;
+  selectScene?(scene: StudioCaptureScene): void;
+  configureScene?(patch: StudioSceneConfigurationPatch): void;
   cancel(): void; dispose(): void; subscribe(listener: (state: StudioCaptureState) => void): () => void;
 };
 export function studioAudioLevels(channels: readonly Float32Array[]) {
@@ -35,7 +45,8 @@ export function studioCaptureMime(mode: StudioCaptureMode): string {
 }
 type Pipeline = { stream: MediaStream; camera: MediaStreamTrack | null; microphone: MediaStreamTrack | null; display: MediaStream | null; context: AudioContext | null; analyser: AnalyserNode | null; processor: StudioCaptureVideoProcessor | null };
 /** No permission, enumeration or device work is performed by construction. */
-export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId }: { mode: StudioCaptureMode; facing?: 'user' | 'environment'; deviceId?: string; cameraId?: string }): StudioCaptureController {
+export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId, aspectRatio = '16:9' }: { mode: StudioCaptureMode; facing?: 'user' | 'environment'; deviceId?: string; cameraId?: string; aspectRatio?: '16:9' | '9:16' }): StudioCaptureController {
+  if (mode === 'scenes') return createStudioSceneCapture({ facing, deviceId, cameraId, aspectRatio });
   let state: StudioCaptureState = { phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true, levels: [] };
   const tracks = new Set<MediaStreamTrack>(), contexts = new Set<AudioContext>(), processors = new Set<StudioCaptureVideoProcessor>(), listeners = new Set<(state: StudioCaptureState) => void>();
   const media = navigator.mediaDevices;
