@@ -266,17 +266,37 @@
 .se-recording-grid { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, transparent calc(33.333% - .5px), #fff4 33.333%, transparent calc(33.333% + .5px), transparent calc(66.666% - .5px), #fff4 66.666%, transparent calc(66.666% + .5px)), linear-gradient(to bottom, transparent calc(33.333% - .5px), #fff4 33.333%, transparent calc(33.333% + .5px), transparent calc(66.666% - .5px), #fff4 66.666%, transparent calc(66.666% + .5px)); }
 .se-recording-countdown { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 26px; background: #05060935; }
 .se-recording-countdown strong { font-size: clamp(80px, 16vw, 150px); font-weight: 400; text-shadow: 0 2px 30px #0008; font-variant-numeric: tabular-nums; }
-.se-recording-teleprompter { position: absolute; z-index: 1; top: 12%; left: 50%; transform: translateX(-50%); width: min(650px, 80%); height: 28%; max-height: 220px; background: linear-gradient(#0008, #000b); border-radius: 12px; padding: 18px 22px; mask-image: linear-gradient(transparent, #000 12%, #000 80%, transparent); }
-.se-recording-teleprompter > div { height: 100%; overflow-y: auto; white-space: pre-wrap; font-size: clamp(18px, 2.4vw, 30px); line-height: 1.6; text-align: center; color: white; scrollbar-width: none; padding-bottom: 80px; }
-.se-recording-teleprompter > div::-webkit-scrollbar { display: none; }
+.se-recording-teleprompter { position: absolute; z-index: 2; top: 11%; left: 50%; transform: translateX(-50%); width: min(640px, calc(100% - 128px)); border: 1px solid #ffffff22; border-radius: 12px; padding: 10px 18px 15px; background: #0c0e13c7; box-shadow: none; mask-image: none; backdrop-filter: none; }
+.se-recording-reading-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.se-recording-reading-status { display: flex; align-items: center; gap: 7px; min-width: 0; color: #d3d4da; font-size: 11px; }
+.se-recording-reading-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.se-recording-reading-status small { color: #9b9ea9; font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.se-recording-reading-actions { display: flex; gap: 4px; }
+.se-recording-reading-actions button { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: 0 0 32px; padding: 0; border: 1px solid #ffffff24; border-radius: 50%; background: #ffffff09; color: #f5f5f7; }
+.se-recording-reading-actions button:hover:not(:disabled) { background: #ffffff17; }
+.se-recording-reading-actions button:focus-visible, .se-recording-reading-notice button:focus-visible { outline: 2px solid #f57d98; outline-offset: 3px; }
+.se-recording-script { position: relative; max-height: 142px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: clamp(18px, 2.3vw, 28px); line-height: 1.65; text-align: center; color: #f1f1f4; scrollbar-width: none; }
+.se-recording-script::-webkit-scrollbar { display: none; }
+.se-recording-script .is-read { color: #9c9fa9; }
+.se-recording-script .is-current { color: #fff; text-decoration: underline; text-decoration-color: #f585a0; text-underline-offset: 6px; text-decoration-thickness: 2px; }
+.se-recording-reading-hint, .se-recording-reading-notice p { margin: 0 0 9px; color: #c0c2cc; font-size: 11px; line-height: 1.6; }
+.se-recording-reading-notice { margin-bottom: 12px; }
+.se-recording-reading-notice > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.se-recording-reading-notice button { border: 1px solid #ffffff2b; border-radius: 7px; padding: 7px 10px; background: #ffffff0b; font-size: 10px; color: #eeeef2; }
+@media (max-width: 700px) {
+  .se-recording-teleprompter { width: min(640px, calc(100% - 30px)); top: 13%; padding: 8px 12px 12px; }
+  .se-recording-script { max-height: 112px; font-size: 19px; }
+  .se-recording-reading-actions button { width: 36px; height: 36px; flex-basis: 36px; }
+  .se-recording-reading-status { font-size: 10px; gap: 5px; }
+}
 @media (max-width: 700px) {
   .se-recording-formats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .se-recording-tools { top: 62px; bottom: 10px; right: 10px; width: min(350px, calc(100% - 20px)); }
   .se-recording-tools > header { padding-block: 12px; }
   .se-recording-tools-body { padding: 14px; gap: 16px; }
 }
-.se-recording-quick-tools { position: absolute; z-index: 2; left: 18px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; }
-.se-recording-quick-tools button { display: flex; align-items: center; justify-content: center; gap: 5px; min-width: 42px; min-height: 42px; padding: 10px; border: 1px solid #ffffff24; border-radius: 50%; background: #121318a6; backdrop-filter: blur(10px); }
-.se-recording-quick-tools span { font-size: 9px; font-variant-numeric: tabular-nums; }
+.se-recording-quick-tools { position: absolute; z-index: 2; left: 18px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 12px; }
+.se-recording-quick-tools button { position: relative; display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; min-width: 46px; min-height: 46px; flex: 0 0 46px; aspect-ratio: 1; padding: 0; border: 1px solid #ffffff24; border-radius: 50%; background: #121318a6; backdrop-filter: blur(10px); }
+.se-recording-quick-tools span { position: absolute; right: -8px; bottom: -3px; padding: 2px 4px; border: 1px solid #ffffff24; border-radius: 5px; background: #14161ce8; font-size: 9px; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .se-recording-quick-tools button:hover:not(:disabled) { background: #333541d9; }
-@media (max-width: 700px) { .se-recording-quick-tools { left: 10px; gap: 6px; } .se-recording-quick-tools button { min-width: 38px; min-height: 38px; padding: 9px; } }
+@media (max-width: 700px) { .se-recording-quick-tools { left: 10px; gap: 10px; } .se-recording-quick-tools button { width: 42px; height: 42px; min-width: 42px; min-height: 42px; flex-basis: 42px; padding: 0; } }

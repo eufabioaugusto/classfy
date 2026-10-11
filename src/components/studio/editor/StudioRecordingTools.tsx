@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Grid3X3, Palette, SlidersHorizontal, Timer, FileText, X } from 'lucide-react';
+import { speechFollowerSupport } from '@/lib/studio/editor/teleprompter';
 import type { StudioCaptureState } from '@/lib/studio/editor/capture';
 import { studioGrade, type StudioGrade } from '../../../../shared/studio';
 
 type VideoPatch = { zoom?: number; grade?: Partial<StudioGrade>; width?: number; height?: number; frameRate?: number };
-export type RecordingGuides = { grid: boolean; mirrored: boolean; delay: number; script: string; scriptEnabled: boolean; scriptSpeed: number };
+export type RecordingGuides = { grid: boolean; mirrored: boolean; delay: number; script: string; scriptEnabled: boolean; scriptSpeed: number; scriptMode: 'voice' | 'timed' };
 
 export function StudioRecordingTools({ state, camera, disabled, guides, onGuides, onVideo, onClose, initialTab }: {
   initialTab: 'image' | 'record' | 'script'; state: StudioCaptureState; camera: boolean; disabled: boolean; guides: RecordingGuides;
@@ -20,6 +21,7 @@ export function StudioRecordingTools({ state, camera, disabled, guides, onGuides
     return () => document.removeEventListener('keydown', escape);
   }, [onClose]);
   const controls = state.videoControls, grade = controls?.grade ?? studioGrade('natural');
+  const voiceSupport = speechFollowerSupport();
   const imageDisabled = disabled || state.phase !== 'ready' || !controls?.effects;
   return <aside ref={panel} className="se-recording-tools" aria-label="Configurações da gravação">
     <header><div><small>SEU ENQUADRAMENTO</small><h2>Configurações</h2></div><button className="se-recording-icon" aria-label="Fechar configurações" onClick={onClose}><X size={18} /></button></header>
@@ -50,20 +52,18 @@ export function StudioRecordingTools({ state, camera, disabled, guides, onGuides
         <label className="se-recording-tool-select"><span><Timer size={15} />Temporizador</span><select aria-label="Temporizador" disabled={disabled} value={guides.delay} onChange={event => onGuides({ delay: Number(event.target.value) })}><option value="0">Sem contagem</option><option value="3">3 segundos</option><option value="10">10 segundos</option></select></label>
         {camera && <><label className="se-recording-tool-toggle"><span><Grid3X3 size={15} />Grade de enquadramento</span><input type="checkbox" checked={guides.grid} disabled={disabled} onChange={event => onGuides({ grid: event.target.checked })} /></label><label className="se-recording-tool-toggle"><span>Espelhar prévia</span><input type="checkbox" checked={guides.mirrored} disabled={disabled} onChange={event => onGuides({ mirrored: event.target.checked })} /></label><p className="se-recording-tools-note">Grade e espelhamento ajudam a enquadrar; não alteram o vídeo salvo.</p></>}
       </>}
-      {tab === 'script' && <><label className="se-recording-tool-toggle"><span>Teleprompter</span><input type="checkbox" checked={guides.scriptEnabled} disabled={disabled} onChange={event => onGuides({ scriptEnabled: event.target.checked })} /></label><textarea aria-label="Roteiro do teleprompter" placeholder="Cole seu roteiro ou tópicos aqui…" maxLength={30000} value={guides.script} disabled={disabled} onChange={event => onGuides({ script: event.target.value })} /><label className="se-recording-tool-range"><span>Velocidade da leitura<output>{guides.scriptSpeed}</output></span><input aria-label="Velocidade da leitura" type="range" min="8" max="60" step="2" value={guides.scriptSpeed} disabled={disabled} onChange={event => onGuides({ scriptSpeed: Number(event.target.value) })} /></label><p className="se-recording-tools-note">A leitura começa junto com REC. Seu roteiro fica apenas na tela.</p></>}
+      {tab === 'script' && <>
+        <label className="se-recording-tool-toggle"><span>Teleprompter</span><input type="checkbox" checked={guides.scriptEnabled} disabled={disabled} onChange={event => onGuides({ scriptEnabled: event.target.checked })} /></label>
+        <textarea aria-label="Roteiro do teleprompter" placeholder="Cole seu roteiro ou tópicos aqui…" maxLength={30000} value={guides.script} disabled={disabled} onChange={event => onGuides({ script: event.target.value })} />
+        <label className="se-recording-tool-select">Modo de leitura<select aria-label="Modo de leitura" value={guides.scriptMode} disabled={disabled} onChange={event => onGuides({ scriptMode: event.target.value as RecordingGuides['scriptMode'] })}><option value="voice">Acompanhar voz</option><option value="timed">Rolagem automática</option></select></label>
+        {guides.scriptMode === 'voice' ? <>
+          <p className="se-recording-tools-note">Avança conforme as palavras que você lê e espera nas suas pausas, usando o microfone selecionado.</p>
+          <p className="se-recording-tools-note">O reconhecimento usa o serviço do navegador e pode enviar áudio para processamento. Nenhuma transcrição é salva no projeto.</p>
+          {!voiceSupport.supported && <p className="se-recording-tools-note">{voiceSupport.reason}</p>}
+        </> : <label className="se-recording-tool-range"><span>Velocidade da leitura<output>{guides.scriptSpeed} palavras/min</output></span><input aria-label="Velocidade da leitura" type="range" min="60" max="240" step="10" value={guides.scriptSpeed} disabled={disabled} onChange={event => onGuides({ scriptSpeed: Number(event.target.value) })} /></label>}
+        <p className="se-recording-tools-note">Use Ensaiar na prévia ou comece a gravar para iniciar a leitura. Pause, retome ou reinicie quando precisar. O roteiro fica apenas na tela.</p>
+      </>}
+
     </div>
   </aside>;
-}
-
-export function RecordingTeleprompter({ guides, recording }: { guides: RecordingGuides; recording: boolean }) {
-  const text = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const element = text.current; if (!element) return;
-    if (!recording) { element.scrollTop = 0; return; }
-    let frame = 0, last = performance.now(), offset = element.scrollTop;
-    const tick = (now: number) => { offset += Math.min(now - last, 100) * guides.scriptSpeed / 1000; element.scrollTop = offset; last = now; frame = requestAnimationFrame(tick); };
-    frame = requestAnimationFrame(tick); return () => cancelAnimationFrame(frame);
-  }, [recording, guides.scriptSpeed, guides.scriptEnabled]);
-  if (!guides.scriptEnabled || !guides.script.trim()) return null;
-  return <div className="se-recording-teleprompter" aria-label="Teleprompter"><div ref={text}>{guides.script}</div></div>;
 }

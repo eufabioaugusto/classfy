@@ -19,6 +19,7 @@ export type StudioCaptureController = {
   selectDevices(selection: { cameraId?: string; microphoneId?: string }): Promise<void>;
   setMicrophoneEnabled(enabled: boolean): void;
   configureVideo(patch: StudioCaptureVideoPatch): Promise<void>;
+  getMicrophoneTrack(): MediaStreamTrack | null;
   cancel(): void; dispose(): void; subscribe(listener: (state: StudioCaptureState) => void): () => void;
 };
 export function studioAudioLevels(channels: readonly Float32Array[]) {
@@ -159,6 +160,7 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId 
   };
   const controller: StudioCaptureController = {
     prepare,
+    getMicrophoneTrack() { const microphone = pipeline?.microphone; return !closed && microphone?.kind === 'audio' && microphone.readyState === 'live' ? microphone : null; },
     async selectDevices(selection) {
       assertCanSelect();
       const changeCamera = selection.cameraId !== undefined, changeMicrophone = selection.microphoneId !== undefined;

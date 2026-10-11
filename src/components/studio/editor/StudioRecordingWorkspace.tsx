@@ -5,14 +5,15 @@ import { createStudioCapture, type StudioCaptureController, type StudioCaptureMo
 import { createStudioRecordingSession } from '@/lib/studio/editor/recording';
 import { getAsset } from '@/lib/studio/editor/storage';
 import { formatStudioEditorTime, formatStudioDuration, studioTakeDuration, type StudioKind, type StudioProject, type StudioTake } from '../../../../shared/studio';
-import { RecordingTeleprompter, StudioRecordingTools, type RecordingGuides } from './StudioRecordingTools';
+import { StudioRecordingTools, type RecordingGuides } from './StudioRecordingTools';
+import { RecordingTeleprompter } from './RecordingTeleprompter';
 import { useStudioExitGuard } from './useStudioExitGuard';
 import '@/styles/studio-recording.css';
 
 type RecordingSession = ReturnType<typeof createStudioRecordingSession>;
 type Candidate = { file: File; operationId: string; session: RecordingSession; token: number; work: Promise<boolean> | null; saved: boolean; notice: string | null };
 const idleCapture = (): StudioCaptureState => ({ phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, levels: [], camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true });
-const initialRecordingGuides = (): RecordingGuides => ({ grid: false, mirrored: false, delay: 0, script: '', scriptEnabled: false, scriptSpeed: 24 });
+const initialRecordingGuides = (): RecordingGuides => ({ grid: false, mirrored: false, delay: 0, script: '', scriptEnabled: false, scriptSpeed: 140, scriptMode: 'voice' });
 const kindName = (kind: StudioKind) => kind === 'aula' ? 'Aula' : kind === 'short' ? 'Short' : 'Podcast';
 const defaultTitle = (kind: StudioKind) => kind === 'aula' ? 'Nova aula' : kind === 'short' ? 'Novo short' : 'Novo podcast';
 
@@ -62,6 +63,8 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
   const [takesExpanded, setTakesExpanded] = useState(true), [changingDevice, setChangingDevice] = useState(false);
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false), [fullscreen, setFullscreen] = useState(false);
   const capture = useRef<StudioCaptureController | null>(null), session = useRef<RecordingSession | null>(null), candidate = useRef<Candidate | null>(null);
+  const getMicrophoneTrack = useCallback(() => capture.current?.getMicrophoneTrack() ?? null, []);
+  const updateGuides = useCallback((patch: Partial<RecordingGuides>) => setGuides(value => ({ ...value, ...patch })), []);
   const captureSnapshot = useRef(idleCapture()), projectSnapshot = useRef<StudioProject | null>(null), mounted = useRef(false), epoch = useRef(0), currentOwner = useRef(owner);
   const saveBusy = useRef(false), mutationWork = useRef<Promise<boolean> | null>(null), exitWork = useRef<Promise<boolean> | null>(null), exitIntent = useRef(false), attempted = useRef(new WeakSet<File>());
   const deviceWork = useRef<Promise<boolean> | null>(null), workspace = useRef<HTMLDivElement>(null);
@@ -304,7 +307,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
         <div className={`se-recording-stage ${kind}`}>
           {kind !== 'podcast' && <video ref={video} className="se-recording-live" muted playsInline autoPlay aria-label="Prévia da gravação" style={{ display: captureState.stream ? 'block' : 'none', transform: guides.mirrored ? 'scaleX(-1)' : undefined }} />}
           {guides.grid && captureState.stream && !recording && kind !== 'podcast' && <div className="se-recording-grid" aria-hidden="true" />}
-          {captureState.stream && <RecordingTeleprompter guides={guides} recording={recording} />}
+          {captureState.stream && guides.scriptEnabled && <RecordingTeleprompter guides={guides} recording={recording} active={(ready || recording) && !changingDevice && !leaving && !busy && countdown === null && !toolsOpen && !captureState.videoControls?.busy} microphoneEnabled={captureState.microphoneEnabled} inputKey={captureState.input?.id ?? ''} getMicrophoneTrack={getMicrophoneTrack} onGuides={updateGuides} />}
           {reviewing && kind !== 'podcast' && <video ref={reviewVideo} src={reviewURL} className="se-recording-review" controls playsInline aria-label="Reproduzir take salvo" />}
           {kind === 'podcast' && (captureState.stream || reviewing) && <div className="se-recording-audio-stage"><div className={recording ? 'recording' : ''}><Mic size={48} strokeWidth={1.3} /></div><span className="se-recording-audio-eyebrow">{recording ? 'GRAVANDO PODCAST' : reviewing ? 'ORIGINAL SALVO' : 'PRONTO PARA GRAVAR'}</span><h2>{recording ? 'Sua voz, em foco.' : reviewing ? `Take ${(project?.takes.findIndex(item => item.id === take?.id) ?? -1) + 1}` : 'Sua próxima ideia começa aqui.'}</h2>{reviewing && <audio ref={reviewAudio} src={reviewURL} controls aria-label="Reproduzir take salvo" />}</div>}
         </div>
@@ -313,7 +316,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
           {kind !== 'podcast' && mode === 'camera' && <><button aria-label="Ajustar zoom" title="Zoom" disabled={occupied || pendingFile} onClick={() => openTools('image')}><ZoomIn size={18} /><span>{captureState.videoControls?.zoom.value.toFixed(1) ?? '1.0'}×</span></button><button aria-label="Filtros e imagem" title="Filtros e imagem" disabled={occupied || pendingFile} onClick={() => openTools('image')}><Palette size={18} /></button></>}
           <button aria-label="Temporizador da gravação" title="Temporizador" disabled={occupied || pendingFile} onClick={() => openTools('record')}><Timer size={18} />{guides.delay > 0 && <span>{guides.delay}s</span>}</button><button aria-label="Roteiro e teleprompter" title="Roteiro" disabled={occupied || pendingFile} onClick={() => openTools('script')}><FileText size={18} /></button>
         </div>}
-        {toolsOpen && !recording && <StudioRecordingTools initialTab={toolsTab} state={captureState} camera={kind !== 'podcast' && mode === 'camera'} disabled={occupied || pendingFile} guides={guides} onGuides={patch => setGuides(value => ({ ...value, ...patch }))} onVideo={configureVideo} onClose={closeTools} />}
+        {toolsOpen && !recording && <StudioRecordingTools initialTab={toolsTab} state={captureState} camera={kind !== 'podcast' && mode === 'camera'} disabled={occupied || pendingFile} guides={guides} onGuides={updateGuides} onVideo={configureVideo} onClose={closeTools} />}
         {countdown !== null && <div className="se-recording-countdown" role="status"><strong>{countdown}</strong><button className="se-recording-button" onClick={() => { countdownRef.current = null; setCountdown(null); }}>Cancelar contagem</button></div>}
         {permissionCard && <div className="se-recording-permission" data-permission-state={occupied ? 'preparing' : permissionError ? 'error' : 'closed'}>
           <div className={`se-recording-permission-icon${permissionError ? ' error' : ''}`}>{occupied ? <Loader2 size={30} className="se-spin" /> : kind === 'podcast' ? <Mic size={31} strokeWidth={1.4} /> : mode === 'screen' ? <Monitor size={31} strokeWidth={1.4} /> : <Camera size={31} strokeWidth={1.4} />}</div>

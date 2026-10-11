@@ -141,6 +141,11 @@ describe('confirmação tardia do caminho de áudio',()=>{
     const h=watch({mode:'audio'});await h.capture.prepare();const changing=h.capture.selectDevices({microphoneId:'new'});await drain();expect(h.state().phase).toBe('preparing');h.capture.setMicrophoneEnabled(false);pending.resolve();await changing;
     expect(h.state().phase).toBe('ready');expect(h.state().microphoneEnabled).toBe(false);expect(newMic.enabled).toBe(false);await vi.advanceTimersByTimeAsync(100);expect(h.state().levels[0].averageDb).toBe(-120);h.capture.dispose();
   });
+  it('getter entrega somente mic físico vivo, nunca mix da tela, e segue swap/cancel sem assumir propriedade',async()=>{
+    const mic=new Track('audio','usb','USB'),replacement=new Track('audio','wireless','Wireless'),display=new Track('video','screen','Display');mediaDevices.getDisplayMedia.mockResolvedValue(new Stream([display]));mediaDevices.getUserMedia.mockResolvedValueOnce(new Stream([mic])).mockResolvedValueOnce(new Stream([replacement]));
+    const h=watch({mode:'screen'});expect(h.capture.getMicrophoneTrack()).toBeNull();await h.capture.prepare();expect(h.capture.getMicrophoneTrack()).toBe(mic);expect(h.capture.getMicrophoneTrack()).not.toBe(h.state().stream!.getAudioTracks()[0]);h.capture.setMicrophoneEnabled(false);expect(h.capture.getMicrophoneTrack()).toBe(mic);
+    await h.capture.selectDevices({microphoneId:'wireless'});expect(h.capture.getMicrophoneTrack()).toBe(replacement);replacement.readyState='ended';expect(h.capture.getMicrophoneTrack()).toBeNull();h.capture.cancel();expect(h.capture.getMicrophoneTrack()).toBeNull();h.capture.dispose();expect(h.capture.getMicrophoneTrack()).toBeNull();
+  });
 });
 
 describe('perfil confirmado e pixels gravados',()=>{

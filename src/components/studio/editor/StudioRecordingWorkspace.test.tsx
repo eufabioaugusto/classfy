@@ -14,9 +14,10 @@ vi.mock('@/lib/studio/editor/storage', () => ({
 }));
 
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
-class Track {
+class Track extends EventTarget {
   id: string; label: string; readyState = 'live'; onended: null | (() => void) = null; onmute = null;
-  constructor(public kind = 'audio', public deviceId = kind === 'audio' ? 'usb-id' : 'camera-id', name?: string) { this.id = `${kind}-${deviceId}`; this.label = name ?? (kind === 'audio' ? 'USB Microphone' : 'Camera autorizada'); }
+  enabled = true; muted = false;
+  constructor(public kind = 'audio', public deviceId = kind === 'audio' ? 'usb-id' : 'camera-id', name?: string) { super(); this.id = `${kind}-${deviceId}`; this.label = name ?? (kind === 'audio' ? 'USB Microphone' : 'Camera autorizada'); }
   stop = vi.fn(() => { this.readyState = 'ended'; }); getSettings() { return { deviceId: this.deviceId, width: 1920, height: 1080, frameRate: 30 }; }
 }
 class Stream {
@@ -32,6 +33,18 @@ class Recorder {
 class Audio {
   resume = vi.fn(async () => {}); close = vi.fn(async () => {}); createMediaStreamSource() { return { connect: vi.fn() }; }
   createAnalyser() { return { fftSize: 2048, getFloatTimeDomainData(samples: Float32Array) { samples.fill(.5); } }; }
+}
+class Recognition {
+  static instances: Recognition[] = [];
+  onstart: null | (() => void) = null; onresult: null | ((event: unknown) => void) = null;
+  onerror: null | ((event: { error: string }) => void) = null; onend: null | (() => void) = null;
+  constructor() { Recognition.instances.push(this); }
+  start = vi.fn((_track?: MediaStreamTrack) => { queueMicrotask(() => this.onstart?.()); }); abort = vi.fn();
+}
+function speechBoundary() {
+  Recognition.instances = []; vi.stubGlobal('SpeechRecognition', Recognition); vi.stubGlobal('webkitSpeechRecognition', undefined);
+  vi.stubGlobal('isSecureContext', true);
+  vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36');
 }
 function fixture(owner = 'owner', id = 'project', kind: StudioKind = 'aula', title = 'Aula local'): StudioProject {
   return withStudioTakes({ version: 2, id, ownerId: owner, kind, title, description: '', objective: '', audience: '', script: '', tags: [], visibility: 'free', price: '0', editing: emptyStudioEditing(kind), revision: 0, state: 'draft', progress: 0, createdAt: '2026-10-11', updatedAt: '2026-10-11' });
@@ -335,19 +348,72 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await click('Configurações da gravação'); await click('Gravação');
     await toggle('Grade de enquadramento'); await toggle('Espelhar prévia');
     await click('Roteiro'); await input('Roteiro do teleprompter', 'Um roteiro para a aula, sem gravar este texto no vídeo.'); await toggle('Teleprompter');
-    await input('Velocidade da leitura', '32'); await click('Fechar configurações');
+    await select('Modo de leitura', 'timed'); await input('Velocidade da leitura', '140'); await click('Fechar configurações');
     expect(host.querySelector('.se-recording-grid')?.getAttribute('aria-hidden')).toBe('true');
-    const prompter = host.querySelector('[aria-label="Teleprompter"] > div') as HTMLDivElement;
+    const prompter = host.querySelector('[aria-label="Texto do roteiro"]') as HTMLDivElement;
     expect(prompter.textContent).toContain('Um roteiro para a aula'); expect(preview.style.transform).toBe('scaleX(-1)'); expect(prompter.scrollTop).toBe(0);
+    Object.defineProperty(prompter, 'clientHeight', { configurable: true, value: 100 });
+    prompter.querySelectorAll<HTMLElement>('[data-word-index]').forEach(element => Object.defineProperty(element, 'offsetTop', { configurable: true, value: Number(element.dataset.wordIndex) * 40 }));
     await click('Iniciar gravação');
     expect(host.querySelector('.se-recording-grid')).toBeNull(); expect(host.querySelector('aside')).toBeNull(); expect(host.querySelector('[aria-label="Teleprompter"]')).toBeTruthy();
     expect(Recorder.instances[0].stream).toBe(stream); expect(Recorder.instances[0].stream.tracks).toEqual(tracks);
-    const [id, callback] = [...frames][0]; frames.delete(id); await act(async () => callback(performance.now() + 100));
+    const baseline = performance.now();
+    for (let n = 1; n <= 5; n++) { const [id, callback] = [...frames][0]; frames.delete(id); await act(async () => callback(baseline + n * 100)); }
+    expect(prompter.querySelectorAll('.is-read').length).toBeGreaterThan(0);
     expect(prompter.scrollTop).toBeGreaterThan(0); expect(io.create).not.toHaveBeenCalled();
     await click('Encerrar gravação'); expect(frames.size).toBe(0);
     const saved = [...projects.values()][0], recipe = compileStudioRecipe(saved);
     expect(saved.script).toBe(''); expect(recipe.clips).toHaveLength(1); expect(recipe.clips[0].kind).toBe('video'); expect(recipe.clips[0].text).toBeUndefined();
     expect(recipe.clips[0].flipHorizontal).not.toBe(true); expect(recipe.clips[0].grade).toBeUndefined(); expect(recipe.clips[0].effect).toBe('natural');
     expect(io.put.mock.calls[0][3]).toBe(io.inspect.mock.calls[0][0]); expect(io.create).toHaveBeenCalledTimes(1); expect(permissions).toHaveBeenCalledTimes(1);
+  });
+
+  it('voz usa o microfone físico da captura, pausa com mute/troca e REC mantém o mesmo original sem roteiro gravado', async () => {
+    speechBoundary(); vi.useFakeTimers(); await mount(); await click('Abrir câmera');
+    const original = await permissions.mock.results[0].value, camera = original.getVideoTracks()[0], microphone = original.getAudioTracks()[0];
+    await click('Roteiro e teleprompter'); await input('Roteiro do teleprompter', 'Aprendemos iluminação e praticamos fotografia juntos.'); await toggle('Teleprompter');
+    expect((host.querySelector('select[aria-label="Modo de leitura"]') as HTMLSelectElement).value).toBe('voice');
+    await click('Fechar configurações'); expect(Recognition.instances).toHaveLength(0);
+    await click('Ensaiar leitura'); const first = Recognition.instances.at(-1)!; expect(first.start).toHaveBeenCalledWith(microphone); expect(permissions).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTime(1000)); expect(Recognition.instances).toHaveLength(1);
+    await click('Desativar microfone'); expect(first.abort).toHaveBeenCalled(); expect(microphone.enabled).toBe(false); expect(microphone.stop).not.toHaveBeenCalled();
+    await click('Ativar microfone da gravação'); expect(Recognition.instances).toHaveLength(1); expect(microphone.enabled).toBe(true);
+    await select('Microfone', 'external-mic'); const replacement = (await permissions.mock.results[1].value).getAudioTracks()[0];
+    expect(camera.stop).not.toHaveBeenCalled(); expect(permissions).toHaveBeenCalledTimes(2);
+    await click('Retomar leitura'); expect(Recognition.instances.at(-1)!.start).toHaveBeenCalledWith(replacement);
+    await click('Iniciar gravação'); const current = Recognition.instances.at(-1)!;
+    expect(current.start).toHaveBeenCalledWith(replacement); expect(Recorder.instances).toHaveLength(1);
+    expect(Recorder.instances[0].stream.getAudioTracks()).toEqual([replacement]); expect(button('Encerrar gravação')).toBeTruthy();
+    expect(host.querySelector('select[aria-label="Microfone"]')).toBeNull(); expect(io.create).not.toHaveBeenCalled();
+    await act(async () => current.onresult?.({ resultIndex: 0, results: [Object.assign([{ transcript: 'Aprendemos iluminação e praticamos fotografia', confidence: .98 }], { isFinal: true })] }));
+    expect(host.querySelectorAll('[data-word-index].is-read').length).toBeGreaterThan(0);
+    await click('Encerrar gravação'); expect(current.abort).toHaveBeenCalled(); expect(host.querySelector('[aria-label="Teleprompter"]')).toBeNull();
+    const saved = [...projects.values()][0], recipe = compileStudioRecipe(saved);
+    expect(saved.script).toBe(''); expect(recipe.clips).toHaveLength(1); expect(recipe.clips[0].text).toBeUndefined();
+    expect(io.put.mock.calls[0][3]).toBe(io.inspect.mock.calls[0][0]); expect(io.save).toHaveBeenCalledTimes(1); expect(permissions).toHaveBeenCalledTimes(2);
+  });
+
+  it('troca de conta encerra ensaio e impede transcrição antiga de alterar a nova sessão ou criar arquivo', async () => {
+    speechBoundary(); await mount(); await click('Abrir câmera'); const original = await permissions.mock.results[0].value;
+    await click('Roteiro e teleprompter'); await input('Roteiro do teleprompter', 'Aprendemos iluminação e praticamos fotografia juntos.'); await toggle('Teleprompter'); await click('Fechar configurações');
+    await click('Ensaiar leitura'); const recognition = Recognition.instances.at(-1)!, late = recognition.onresult;
+    owner = 'other'; await mount(); expect(recognition.abort).toHaveBeenCalled(); expect(original.getTracks().every((value: Track) => value.readyState === 'ended')).toBe(true);
+    await act(async () => late?.({ resultIndex: 0, results: [Object.assign([{ transcript: 'Aprendemos iluminação e praticamos fotografia juntos', confidence: .99 }], { isFinal: true })] }));
+    expect(host.querySelector('[aria-label="Teleprompter"]')).toBeNull(); expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup');
+    expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled();
+  });
+
+  it('ocultar aba durante REC encerra voz e salva take uma vez; voltar não religa captura ou transcrição', async () => {
+    speechBoundary(); await mount(); await click('Abrir câmera');
+    await click('Roteiro e teleprompter'); await input('Roteiro do teleprompter', 'Aprendemos iluminação e praticamos fotografia juntos.'); await toggle('Teleprompter'); await click('Fechar configurações');
+    await click('Iniciar gravação'); const recognition = Recognition.instances.at(-1)!, late = recognition.onresult;
+    expect(recognition.start).toHaveBeenCalledTimes(1); await visibility('hidden');
+    expect(Recorder.instances[0].stop).toHaveBeenCalledTimes(1); expect(recognition.abort).toHaveBeenCalled(); expect(io.save).toHaveBeenCalledTimes(1);
+    expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); expect(host.textContent).toContain('gravação foi encerrada ao sair desta aba');
+    const count = Recognition.instances.length, saved = [...projects.values()][0];
+    await visibility('visible'); await act(async () => late?.({ resultIndex: 0, results: [Object.assign([{ transcript: 'Aprendemos iluminação e praticamos fotografia juntos', confidence: .99 }], { isFinal: true })] }));
+    expect(Recognition.instances).toHaveLength(count); expect(permissions).toHaveBeenCalledTimes(1); expect(Recorder.instances).toHaveLength(1);
+    expect(io.save).toHaveBeenCalledTimes(1); expect(host.querySelector('[aria-label="Teleprompter"]')).toBeNull(); expect([...projects.values()][0]).toBe(saved);
+    expect(saved.script).toBe(''); expect(compileStudioRecipe(saved).clips).toHaveLength(1);
   });
 });
