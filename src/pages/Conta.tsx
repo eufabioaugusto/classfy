@@ -356,7 +356,7 @@ export default function Conta() {
   return (
     <AppShell title="Conta">
       <AlertDialog open={downgradeOpen && billingActionOwner === user?.id} onOpenChange={setDowngradeOpen}>
-        <AlertDialogContent className="rounded-2xl border-white/10 bg-[#16171c] text-white">
+        <AlertDialogContent className="rounded-2xl border-border bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Mudar para o Pro?</AlertDialogTitle>
             <AlertDialogDescription>Seu Premium permanece disponível até o fim do período atual. Depois, a assinatura passa a R$ 29,90 por mês.</AlertDialogDescription>
@@ -368,7 +368,7 @@ export default function Conta() {
         </AlertDialogContent>
       </AlertDialog>
       <AlertDialog open={cancelSubscriptionOpen && billingActionOwner === user?.id} onOpenChange={setCancelSubscriptionOpen}>
-        <AlertDialogContent className="rounded-2xl border-white/10 bg-[#16171c] text-white">
+        <AlertDialogContent className="rounded-2xl border-border bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Cancelar a renovação?</AlertDialogTitle>
             <AlertDialogDescription>Você mantém o acesso ao {profile?.plan === "premium" ? "Premium" : "Pro"} até o fim do período já pago. Não haverá uma nova cobrança mensal.</AlertDialogDescription>
