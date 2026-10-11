@@ -24,7 +24,7 @@ export default function Planos() {
     }
 
     if (currentPlan === planType || (currentPlan === "premium" && planType === "pro")) {
-      navigate("/conta");
+      navigate("/conta?tab=plan");
       return;
     }
     startSubscription(planType);

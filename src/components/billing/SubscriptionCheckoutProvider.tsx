@@ -128,7 +128,7 @@ export function SubscriptionCheckoutProvider({ children }: { children: ReactNode
   const startSubscription = useCallback((plan: BillingPlan, onConfirmed?: () => Promise<void> | void) => {
     const current = latest.current;
     if (!current.mounted || current.loading || !current.owner || !['pro', 'premium'].includes(plan) || offerRef.current || returnedRef.current) return;
-    if (current.profile?.plan === 'premium' && hasCurrentPaidPlan(current.profile) && plan === 'pro') { navigate('/conta'); return; }
+    if (current.profile?.plan === 'premium' && hasCurrentPaidPlan(current.profile) && plan === 'pro') { navigate('/conta?tab=plan'); return; }
     const value: Offer = { owner: current.owner, plan, onConfirmed, id: ++sequence.current };
     offerRef.current = value; setOffer(value);
   }, [navigate]);

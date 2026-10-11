@@ -105,7 +105,7 @@ describe('SubscriptionCheckoutProvider: owner-scoped return and offer ownership'
   });
   it('current Premium to Pro directs to the account without preparing a new subscription', async () => {
     boundary.auth.profile = { plan: 'premium', plan_expires_at: new Date(Date.now() + 86_400_000).toISOString() }; await render(); await click('Escolher Pro');
-    expect(document.querySelector('[aria-label="Rota atual"]')?.textContent).toBe('/conta');
+    expect(document.querySelector('[aria-label="Rota atual"]')?.textContent).toBe('/conta?tab=plan');
     expect(boundary.prepare).not.toHaveBeenCalled(); expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
   it('expired Premium can request Pro and lets the backend decide without navigating to account management', async () => {

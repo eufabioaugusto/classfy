@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,11 @@ import {
   Settings as SettingsIcon,
   Loader2,
   Check,
-  X
+  X,
+  ArrowUpRight,
+  ChevronRight,
+  ReceiptText,
+  ShieldCheck
 } from "lucide-react";
 import { PlanCrown } from "@/components/plans/PlanCrown";
 import { Badge } from "@/components/ui/badge";
@@ -43,13 +47,13 @@ import { EditableAvatar } from "@/components/EditableAvatar";
 import { useProfileComplete } from "@/hooks/useProfileComplete";
 import { CoverUpload } from "@/components/CoverUpload";
 import { AppShell } from "@/components/layout";
-import { PageHeader } from "@/components/layout";
-import { LibraryTemplate } from "@/components/templates";
 import { V2Badge, V2Card, V2CardContent, V2CardHeader } from "@/components/v2";
 import { PlanOfferCard } from "@/components/plans/PlanOfferCard";
 import type { PaidPlan } from "@/config/planOffers";
 import { useSubscriptionCheckout } from "@/components/billing/SubscriptionCheckoutProvider";
 import { hasCurrentPaidPlan } from "@/lib/billing/subscriptionCheckout";
+import { SubscriptionBillingPanel } from "@/components/billing/SubscriptionBillingPanel";
+import type { Tables } from "@/integrations/supabase/types";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
 import { MessagePrivacySettings } from "@/components/settings/MessagePrivacySettings";
@@ -59,9 +63,24 @@ import { UserAchievementsCard } from "@/components/rewards/UserAchievementsCard"
 import "@/styles/economy-v2.css";
 import "@/styles/account-v2.css";
 
+type AccountSection = "profile" | "channel" | "plan" | "billing" | "wallet" | "account";
+const ACCOUNT_SECTIONS = [
+  { id: "profile", label: "Perfil", copy: "Sua identidade", icon: User },
+  { id: "channel", label: "Canal", copy: "Presença como creator", icon: Video },
+  { id: "plan", label: "Plano", copy: "Acesso e benefícios", icon: Sparkles },
+  { id: "billing", label: "Cobranças", copy: "Pagamentos da assinatura", icon: ReceiptText },
+  { id: "wallet", label: "Carteira", copy: "Ganhos e saques", icon: Wallet },
+  { id: "account", label: "Preferências", copy: "Privacidade e conta", icon: SettingsIcon },
+] as const;
+const SECTION_ALIASES: Record<string, AccountSection> = { plano: "plan", perfil: "profile", canal: "channel", cobrancas: "billing", carteira: "wallet", preferences: "account" };
+function accountError(error: unknown, fallback: string) {
+  return error && typeof error === "object" && "message" in error && typeof error.message === "string" ? error.message : fallback;
+}
+
 export default function Conta() {
-  const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
+  const { user, loading: authLoading, role, refreshProfile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { startSubscription } = useSubscriptionCheckout();
   const [downgradeOpen, setDowngradeOpen] = useState(false);
   const [cancelSubscriptionOpen, setCancelSubscriptionOpen] = useState(false);
@@ -69,14 +88,17 @@ export default function Conta() {
   useEffect(() => { setDowngradeOpen(false); setCancelSubscriptionOpen(false); setBillingActionOwner(null); }, [user?.id]);
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
-  const [wallet, setWallet] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
+  const [wallet, setWallet] = useState<Tables<"wallets"> | null>(null);
+  const [profile, setProfile] = useState<Tables<"profiles"> | null>(null);
+  const [dataOwner, setDataOwner] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [walletError, setWalletError] = useState<string | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [pixKey, setPixKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
   const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(10);
-  const [withdrawHistory, setWithdrawHistory] = useState<any[]>([]);
+  const [withdrawHistory, setWithdrawHistory] = useState<Tables<"withdraw_requests">[]>([]);
   const [isEditingChannel, setIsEditingChannel] = useState(false);
   const [channelName, setChannelName] = useState("");
   const [savingChannel, setSavingChannel] = useState(false);
@@ -86,284 +108,249 @@ export default function Conta() {
   const [editDisplayName, setEditDisplayName] = useState("");
   const [editBio, setEditBio] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
+  const busy = submitting || savingProfile || savingChannel;
 
-  useProfileComplete(user?.id, profile);
-
+  const mounted = useRef(false);
+  const ownerScope = useRef({ id: user?.id, epoch: 0 });
+  const requestSequence = useRef(0);
+  const actionBusy = useRef(false);
+  if (ownerScope.current.id !== user?.id) {
+    ownerScope.current = { id: user?.id, epoch: ownerScope.current.epoch + 1 };
+    actionBusy.current = false;
+  }
   useEffect(() => {
-    if (!authLoading && !user) {
-      navigate("/auth");
-    } else if (user) {
-      fetchData();
-    }
-  }, [user, authLoading, navigate]);
+    mounted.current = true;
+    return () => { mounted.current = false; ownerScope.current.epoch++; };
+  }, []);
+  const isCurrent = useCallback((owner: string, epoch: number) => mounted.current && ownerScope.current.id === owner && ownerScope.current.epoch === epoch, []);
+  useProfileComplete(user?.id, dataOwner === user?.id ? profile : null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async (owner = ownerScope.current.id) => {
+    if (!owner || !mounted.current || ownerScope.current.id !== owner) return;
+    const epoch = ownerScope.current.epoch;
+    const sequence = ++requestSequence.current;
+    const current = () => isCurrent(owner, epoch) && requestSequence.current === sequence;
     try {
       const [walletRes, profileRes, configRes, withdrawalsRes] = await Promise.all([
-        supabase.from("wallets").select("*").eq("user_id", user?.id).single(),
-        supabase.from("profiles").select("*").eq("id", user?.id).single(),
-        supabase
-          .from("platform_settings")
-          .select("*")
-          .eq("key", "economic_v1")
-          .maybeSingle(),
-        supabase
-          .from("withdraw_requests")
-          .select("*")
-          .eq("user_id", user?.id)
-          .order("created_at", { ascending: false })
+        supabase.from("wallets").select("*").eq("user_id", owner).single(),
+        supabase.from("profiles").select("*").eq("id", owner).single(),
+        supabase.from("platform_settings").select("*").eq("key", "economic_v1").maybeSingle(),
+        supabase.from("withdraw_requests").select("*").eq("user_id", owner).order("created_at", { ascending: false }),
       ]);
-
-      if (walletRes.error) throw walletRes.error;
+      if (!current()) return;
       if (profileRes.error) throw profileRes.error;
-
+      setWalletError(walletRes.error || withdrawalsRes.error ? "Não foi possível carregar sua carteira. Tente novamente para consultar o saldo e os saques." : null);
       setWallet(walletRes.data);
       setProfile(profileRes.data);
-
-      if (configRes.data?.value) {
-        const configValue = configRes.data.value as { minimum_withdrawal_amount?: number };
-        if (typeof configValue.minimum_withdrawal_amount === "number") {
-          setMinWithdrawalAmount(configValue.minimum_withdrawal_amount);
-        }
-      }
-
-      if (withdrawalsRes.data) {
-        setWithdrawHistory(withdrawalsRes.data);
-      }
-
-      if (profileRes.data?.creator_channel_name) {
-        setChannelName(profileRes.data.creator_channel_name);
-      }
-      // Initialize editable profile fields
-      if (profileRes.data) {
-        setEditDisplayName(profileRes.data.display_name || "");
-        setEditBio(profileRes.data.bio || "");
-      }
-    } catch (error: any) {
-      toast({
-        title: "Erro ao carregar dados",
-        description: error.message,
-        variant: "destructive",
-      });
+      setDataOwner(owner);
+      setLoadError(null);
+      const config = configRes.data?.value as { minimum_withdrawal_amount?: number } | undefined;
+      if (typeof config?.minimum_withdrawal_amount === "number") setMinWithdrawalAmount(config.minimum_withdrawal_amount);
+      setWithdrawHistory(withdrawalsRes.data ?? []);
+      setChannelName(profileRes.data?.creator_channel_name ?? "");
+      setEditDisplayName(profileRes.data?.display_name ?? "");
+      setEditBio(profileRes.data?.bio ?? "");
+    } catch (error) {
+      if (current()) { setDataOwner(owner); setLoadError(accountError(error, "Não foi possível carregar sua conta.")); }
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
+  }, [isCurrent]);
+
+  useEffect(() => {
+    setProfile(null); setWallet(null); setDataOwner(null); setLoadError(null); setWalletError(null);
+    setWithdrawHistory([]); setWithdrawAmount(""); setPixKey("");
+    setIsEditingProfile(false); setIsEditingChannel(false);
+    setSavingProfile(false); setSavingChannel(false); setSubmitting(false); setCreatorModalOpen(false);
+    setMinWithdrawalAmount(10); setLoading(true);
+    if (!authLoading && !user?.id) navigate("/auth", { replace: true });
+    else if (user?.id && !authLoading) void fetchData(user.id);
+  }, [user?.id, authLoading, navigate, fetchData]);
+
+  const isCreator = dataOwner === user?.id && profile?.creator_status === "approved";
+  const requestedSection = new URLSearchParams(location.search).get("tab") ?? "profile";
+  const resolvedSection = SECTION_ALIASES[requestedSection] ?? requestedSection;
+  const activeSection: AccountSection = ACCOUNT_SECTIONS.some(section => section.id === resolvedSection && (section.id !== "channel" || isCreator)) ? resolvedSection as AccountSection : "profile";
+  const sections = ACCOUNT_SECTIONS.filter(section => section.id !== "channel" || isCreator);
+  const changeSection = (section: string) => {
+    if (!sections.some(item => item.id === section) || section === activeSection) return;
+    const params = new URLSearchParams(location.search);
+    params.set("tab", section);
+    navigate({ pathname: location.pathname, search: `?${params.toString()}`, hash: location.hash }, { state: location.state });
+  };
+  const paidPlanActive = hasCurrentPaidPlan(profile);
+  const effectivePlan = paidPlanActive && (profile?.plan === "premium" || profile?.plan === "pro") ? profile.plan : "free";
+  const planLabel = effectivePlan === "premium" ? "Premium" : effectivePlan === "pro" ? "Pro" : "Free";
+
+  const verifyOwner = async (owner: string, epoch: number) => {
+    const session = await supabase.auth.getSession();
+    if (!isCurrent(owner, epoch)) return false;
+    if (session.data.session?.user.id !== owner) throw new Error("Sua sessão mudou. Entre novamente.");
+    return true;
   };
 
   const handleSaveProfile = async () => {
-    if (!editDisplayName.trim()) {
-      toast({ title: "Nome obrigatório", description: "Digite seu nome de exibição.", variant: "destructive" });
-      return;
-    }
-    setSavingProfile(true);
+    const owner = user?.id;
+    const epoch = ownerScope.current.epoch;
+    const displayName = editDisplayName.trim();
+    const bio = editBio.trim() || null;
+    if (!owner || !isCurrent(owner, epoch) || actionBusy.current) return;
+    if (!displayName) { toast({ title: "Nome obrigatório", description: "Digite seu nome de exibição.", variant: "destructive" }); return; }
+    actionBusy.current = true; setSavingProfile(true);
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ display_name: editDisplayName.trim(), bio: editBio.trim() || null })
-        .eq("id", user?.id);
+      if (!await verifyOwner(owner, epoch)) return;
+      const { error } = await supabase.from("profiles").update({ display_name: displayName, bio }).eq("id", owner);
+      if (!isCurrent(owner, epoch)) return;
       if (error) throw error;
-      setProfile({ ...profile, display_name: editDisplayName.trim(), bio: editBio.trim() || null });
+      setProfile(current => current && ({ ...current, display_name: displayName, bio }));
       setIsEditingProfile(false);
       toast({ title: "Perfil atualizado!" });
       await refreshProfile();
-    } catch (error: any) {
-      toast({ title: "Erro", description: error.message, variant: "destructive" });
+    } catch (error) {
+      if (isCurrent(owner, epoch)) toast({ title: "Erro ao salvar perfil", description: accountError(error, "Tente novamente."), variant: "destructive" });
     } finally {
-      setSavingProfile(false);
+      if (isCurrent(owner, epoch)) { actionBusy.current = false; setSavingProfile(false); }
     }
   };
 
   const handleSaveChannelName = async () => {
-    if (!channelName.trim()) {
-      toast({
-        title: "Nome obrigatório",
-        description: "Digite um nome para o seu canal.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const validFormat = /^[a-z0-9_-]+$/;
-    if (!validFormat.test(channelName)) {
-      toast({
-        title: "Formato inválido",
-        description: "Use apenas letras minúsculas, números, traços (-) e underscores (_).",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (channelName.length < 3) {
-      toast({
-        title: "Nome muito curto",
-        description: "O nome do canal deve ter no mínimo 3 caracteres.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setSavingChannel(true);
-
+    const owner = user?.id;
+    const epoch = ownerScope.current.epoch;
+    const name = channelName.trim();
+    if (!owner || !isCurrent(owner, epoch) || actionBusy.current) return;
+    if (!name) { toast({ title: "Nome obrigatório", description: "Digite um nome para o seu canal.", variant: "destructive" }); return; }
+    if (!/^[a-z0-9_-]+$/.test(name)) { toast({ title: "Formato inválido", description: "Use apenas letras minúsculas, números, traços (-) e underscores (_).", variant: "destructive" }); return; }
+    if (name.length < 3) { toast({ title: "Nome muito curto", description: "O nome do canal deve ter no mínimo 3 caracteres.", variant: "destructive" }); return; }
+    actionBusy.current = true; setSavingChannel(true);
     try {
-      const { data: existingChannel } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("creator_channel_name", channelName)
-        .neq("id", user?.id)
-        .maybeSingle();
-
-      if (existingChannel) {
-        toast({
-          title: "Nome indisponível",
-          description: "Este nome de canal já está em uso. Escolha outro.",
-          variant: "destructive",
-        });
-        setSavingChannel(false);
-        return;
-      }
-
-      const { error } = await supabase
-        .from("profiles")
-        .update({ creator_channel_name: channelName })
-        .eq("id", user?.id);
-
+      if (!await verifyOwner(owner, epoch)) return;
+      const { data: existingChannel, error: availabilityError } = await supabase.from("profiles").select("id").eq("creator_channel_name", name).neq("id", owner).maybeSingle();
+      if (!isCurrent(owner, epoch)) return;
+      if (availabilityError) throw availabilityError;
+      if (existingChannel) { toast({ title: "Nome indisponível", description: "Este nome de canal já está em uso. Escolha outro.", variant: "destructive" }); return; }
+      if (!await verifyOwner(owner, epoch)) return;
+      const { error } = await supabase.from("profiles").update({ creator_channel_name: name }).eq("id", owner);
+      if (!isCurrent(owner, epoch)) return;
       if (error) throw error;
-
-      setProfile({ ...profile, creator_channel_name: channelName });
+      setProfile(current => current && ({ ...current, creator_channel_name: name }));
       setIsEditingChannel(false);
-      
-      toast({
-        title: "Sucesso!",
-        description: "Nome do canal atualizado.",
-      });
-
+      toast({ title: "Canal atualizado", description: "Seu endereço público está pronto." });
       await refreshProfile();
-    } catch (error: any) {
-      toast({
-        title: "Erro",
-        description: error.message || "Não foi possível atualizar o nome do canal.",
-        variant: "destructive",
-      });
+    } catch (error) {
+      if (isCurrent(owner, epoch)) toast({ title: "Erro ao salvar canal", description: accountError(error, "Não foi possível atualizar o nome do canal."), variant: "destructive" });
     } finally {
-      setSavingChannel(false);
+      if (isCurrent(owner, epoch)) { actionBusy.current = false; setSavingChannel(false); }
     }
   };
 
-  const handleWithdraw = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-
-    const amount = parseFloat(withdrawAmount);
-    
-    if (!amount || amount <= 0) {
-      toast({
-        title: "Valor inválido",
-        description: "Insira um valor válido para saque.",
-        variant: "destructive",
-      });
-      setSubmitting(false);
-      return;
-    }
-
-    if (amount < minWithdrawalAmount) {
-      toast({
-        title: "Valor abaixo do mínimo",
-        description: `O valor mínimo para saque é R$ ${minWithdrawalAmount.toFixed(2)}.`,
-        variant: "destructive",
-      });
-      setSubmitting(false);
-      return;
-    }
-
-    const availableBalance = Number(wallet.balance || 0) - Number(wallet.reserved_balance || 0);
-    if (amount > availableBalance) {
-      toast({
-        title: "Saldo insuficiente",
-        description: "Você não tem saldo suficiente para este saque.",
-        variant: "destructive",
-      });
-      setSubmitting(false);
-      return;
-    }
-
-    if (!pixKey.trim()) {
-      toast({
-        title: "Chave PIX obrigatória",
-        description: "Insira sua chave PIX para receber o pagamento.",
-        variant: "destructive",
-      });
-      setSubmitting(false);
-      return;
-    }
-
+  const handleWithdraw = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const owner = user?.id;
+    const epoch = ownerScope.current.epoch;
+    if (!owner || !isCurrent(owner, epoch) || actionBusy.current) return;
+    const amount = Number(withdrawAmount);
+    const key = pixKey.trim();
+    const available = Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0);
+    if (!Number.isFinite(amount) || amount <= 0) { toast({ title: "Valor inválido", description: "Insira um valor válido para saque.", variant: "destructive" }); return; }
+    if (amount < minWithdrawalAmount) { toast({ title: "Valor abaixo do mínimo", description: `O valor mínimo para saque é R$ ${minWithdrawalAmount.toFixed(2)}.`, variant: "destructive" }); return; }
+    if (amount > available) { toast({ title: "Saldo insuficiente", description: "Você não tem saldo suficiente para este saque.", variant: "destructive" }); return; }
+    if (!key) { toast({ title: "Chave PIX obrigatória", description: "Insira sua chave PIX para receber o pagamento.", variant: "destructive" }); return; }
+    actionBusy.current = true; setSubmitting(true);
     try {
-      const { error } = await supabase.rpc("request_withdrawal", {
-        p_amount: amount,
-        p_pix_key: pixKey,
-      });
-
+      if (!await verifyOwner(owner, epoch)) return;
+      const { error } = await supabase.rpc("request_withdrawal", { p_amount: amount, p_pix_key: key });
+      if (!isCurrent(owner, epoch)) return;
       if (error) throw error;
-
-      toast({
-        title: "Solicitação enviada!",
-        description: "Seu saque será analisado pela equipe.",
-      });
-
-      setWithdrawAmount("");
-      setPixKey("");
-      fetchData();
-    } catch (error: any) {
-      toast({
-        title: "Erro ao solicitar saque",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Solicitação enviada!", description: "Seu saque será analisado pela equipe." });
+      setWithdrawAmount(""); setPixKey("");
+      await fetchData(owner);
+    } catch (error) {
+      if (isCurrent(owner, epoch)) toast({ title: "Erro ao solicitar saque", description: accountError(error, "Tente novamente."), variant: "destructive" });
     } finally {
-      setSubmitting(false);
+      if (isCurrent(owner, epoch)) { actionBusy.current = false; setSubmitting(false); }
     }
   };
 
-  const handlePaidPlanAction = async (plan: PaidPlan) => {
-    if (plan === "pro" && profile?.plan === "premium" && hasCurrentPaidPlan(profile)) { setBillingActionOwner(user?.id ?? null); setDowngradeOpen(true); return; }
-    startSubscription(plan, async () => { await fetchData(); });
+  const handlePaidPlanAction = (plan: PaidPlan) => {
+    const owner = user?.id;
+    const epoch = ownerScope.current.epoch;
+    if (!owner || !isCurrent(owner, epoch) || actionBusy.current) return;
+    if (plan === "pro" && profile?.plan === "premium" && hasCurrentPaidPlan(profile)) { setBillingActionOwner(owner); setDowngradeOpen(true); return; }
+    startSubscription(plan, async () => { if (isCurrent(owner, epoch)) await fetchData(owner); });
   };
 
-  const confirmDowngrade = async () => {
+  const manageSubscription = async (action: "downgrade" | "cancel") => {
     const owner = billingActionOwner;
-    if (!owner || user?.id !== owner || submitting) return;
+    const epoch = ownerScope.current.epoch;
+    if (!owner || !isCurrent(owner, epoch) || actionBusy.current) return;
+    actionBusy.current = true; setSubmitting(true);
     try {
-      setSubmitting(true);
-      const session = await supabase.auth.getSession();
-      if (session.data.session?.user.id !== owner) throw new Error("Sua sessão mudou. Entre novamente.");
-      const { data, error } = await supabase.functions.invoke("manage-subscription", { body: { action: "downgrade", newPlan: "pro" } });
+      if (!await verifyOwner(owner, epoch)) return;
+      const body = action === "downgrade" ? { action, newPlan: "pro" } : { action };
+      const { data, error } = await supabase.functions.invoke("manage-subscription", { body });
+      if (!isCurrent(owner, epoch)) return;
       if (error) throw error;
-      const current = await supabase.auth.getSession();
-      if (current.data.session?.user.id !== owner) return;
-      toast({ title: "Solicitação recebida", description: data.message });
+      if (!await verifyOwner(owner, epoch)) return;
+      toast({ title: action === "cancel" ? "Renovação cancelada" : "Solicitação recebida", description: data.message });
       await refreshProfile();
-      await fetchData();
-      setDowngradeOpen(false);
-    } catch (error: any) {
-      toast({ title: "Erro", description: error.message, variant: "destructive" });
+      if (!isCurrent(owner, epoch)) return;
+      await fetchData(owner);
+      if (!isCurrent(owner, epoch)) return;
+      setDowngradeOpen(false); setCancelSubscriptionOpen(false);
+    } catch (error) {
+      if (isCurrent(owner, epoch)) toast({ title: action === "cancel" ? "Não foi possível cancelar" : "Não foi possível mudar o plano", description: accountError(error, "Tente novamente."), variant: "destructive" });
     } finally {
-      setSubmitting(false);
+      if (isCurrent(owner, epoch)) { actionBusy.current = false; setSubmitting(false); }
     }
   };
 
-  if (authLoading || loading || !user) {
+  const openBillingPortal = async () => {
+    const owner = user?.id;
+    const epoch = ownerScope.current.epoch;
+    if (!owner || !isCurrent(owner, epoch) || actionBusy.current) return;
+    actionBusy.current = true; setSubmitting(true);
+    try {
+      if (!await verifyOwner(owner, epoch)) return;
+      const { data, error } = await supabase.functions.invoke("customer-portal");
+      if (!isCurrent(owner, epoch)) return;
+      if (error) throw error;
+      if (!await verifyOwner(owner, epoch)) return;
+      const url = new URL(data?.url ?? "");
+      if (url.origin !== "https://billing.stripe.com") throw new Error("Não foi possível abrir o gerenciamento seguro da assinatura.");
+      window.location.assign(url.href);
+    } catch (error) {
+      if (isCurrent(owner, epoch)) toast({ title: "Não foi possível abrir a Stripe", description: accountError(error, "Tente novamente."), variant: "destructive" });
+    } finally {
+      if (isCurrent(owner, epoch)) { actionBusy.current = false; setSubmitting(false); }
+    }
+  };
+
+  if (authLoading || loading || !user || dataOwner !== user.id) {
     return (
-      <AppShell title="Configurações">
-        <div className="flex items-center justify-center h-96">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <AppShell title="Conta">
+        <div className="account-v2__loading" role="status">
+          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+          <span>Carregando sua conta…</span>
         </div>
       </AppShell>
     );
   }
 
-  const isCreator = profile?.creator_status === "approved";
+  if (loadError) return (
+    <AppShell title="Conta">
+      <div className="account-v2__load-error" role="alert">
+        <User className="h-6 w-6" aria-hidden="true" />
+        <h1>Não foi possível abrir sua conta</h1>
+        <p>{loadError}</p>
+        <Button onClick={() => { setLoading(true); void fetchData(user.id); }}>Tentar novamente</Button>
+      </div>
+    </AppShell>
+  );
+  const renderOwner = user.id;
+  const renderEpoch = ownerScope.current.epoch;
 
   return (
-    <AppShell title="Configurações">
+    <AppShell title="Conta">
       <AlertDialog open={downgradeOpen && billingActionOwner === user?.id} onOpenChange={setDowngradeOpen}>
         <AlertDialogContent className="rounded-2xl border-white/10 bg-[#16171c] text-white">
           <AlertDialogHeader>
@@ -371,8 +358,8 @@ export default function Conta() {
             <AlertDialogDescription>Seu Premium permanece disponível até o fim do período atual. Depois, a assinatura passa a R$ 29,90 por mês.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={submitting}>Manter Premium</AlertDialogCancel>
-            <AlertDialogAction disabled={submitting} onClick={event => { event.preventDefault(); void confirmDowngrade(); }}>{submitting ? "Confirmando…" : "Confirmar mudança"}</AlertDialogAction>
+            <AlertDialogCancel disabled={busy}>Manter Premium</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); void manageSubscription("downgrade"); }}>{submitting ? "Confirmando…" : "Confirmar mudança"}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -383,68 +370,46 @@ export default function Conta() {
             <AlertDialogDescription>Você mantém o acesso ao {profile?.plan === "premium" ? "Premium" : "Pro"} até o fim do período já pago. Não haverá uma nova cobrança mensal.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={submitting}>Manter assinatura</AlertDialogCancel>
-            <AlertDialogAction disabled={submitting} onClick={async event => {
-              event.preventDefault();
-              const owner = billingActionOwner;
-              if (!owner || user.id !== owner || submitting) return;
-              try {
-                setSubmitting(true);
-                const session = await supabase.auth.getSession();
-                if (session.data.session?.user.id !== owner) throw new Error("Sua sessão mudou. Entre novamente.");
-                const { data, error } = await supabase.functions.invoke('manage-subscription', { body: { action: 'cancel' } });
-                if (error) throw error;
-                const current = await supabase.auth.getSession();
-                if (current.data.session?.user.id !== owner) return;
-                toast({ title: "Renovação cancelada", description: data.message });
-                await refreshProfile();
-                await fetchData();
-                setCancelSubscriptionOpen(false);
-              } catch (error: any) {
-                toast({ title: "Não foi possível cancelar", description: error.message, variant: "destructive" });
-              } finally { setSubmitting(false); }
-            }}>{submitting ? "Confirmando…" : "Cancelar renovação"}</AlertDialogAction>
+            <AlertDialogCancel disabled={busy}>Manter assinatura</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); void manageSubscription("cancel"); }}>{submitting ? "Confirmando…" : "Cancelar renovação"}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <LibraryTemplate className="account-v2" width="contained" header={
-        <PageHeader
-          eyebrow="Sua conta"
-          title="Configurações"
-          description="Cuide do seu perfil, canal, assinatura e preferências em um só lugar."
-        />
-      }>
-
-        <Button variant="outline" className="mb-5" onClick={()=>navigate("/onboarding")}>
-          <Play className="w-4 h-4 mr-2" /> Conheça a Classfy e seus Points
-        </Button>
-        {/* Main Tabs */}
-        <Tabs defaultValue="profile" className="account-v2__tabs">
-          <TabsList className="account-v2__nav" aria-label="Seções de configurações">
-            <TabsTrigger value="profile" className="account-v2__nav-item">
-              <User className="w-4 h-4" />
-              <span>Perfil</span>
-            </TabsTrigger>
-            {isCreator && (
-              <TabsTrigger value="channel" className="account-v2__nav-item">
-                <Video className="w-4 h-4" />
-                <span>Canal</span>
-              </TabsTrigger>
-            )}
-            <TabsTrigger value="wallet" className="account-v2__nav-item">
-              <Wallet className="w-4 h-4" />
-              <span>Carteira</span>
-            </TabsTrigger>
-            <TabsTrigger value="plan" className="account-v2__nav-item">
-              <Trophy className="w-4 h-4" />
-              <span>Plano</span>
-            </TabsTrigger>
-            <TabsTrigger value="account" className="account-v2__nav-item">
-              <SettingsIcon className="w-4 h-4" />
-              <span>Conta</span>
-            </TabsTrigger>
-          </TabsList>
-
+      <div className="account-v2">
+        <header className="account-v2__page-heading">
+          <div>
+            <p className="account-v2__eyebrow">SEU ESPAÇO NA CLASSFY</p>
+            <h1>Conta</h1>
+            <p>Seu perfil, seu plano e tudo o que você precisa gerenciar.</p>
+          </div>
+          <div className="account-v2__account-summary">
+            <span className="account-v2__avatar" aria-hidden="true">{(profile?.display_name || user.email || "C").slice(0, 1).toUpperCase()}</span>
+            <div><strong>{profile?.display_name || "Sua conta"}</strong><span>{planLabel}{isCreator ? " · Creator" : ""}</span></div>
+          </div>
+        </header>
+        <Tabs value={activeSection} onValueChange={changeSection} orientation="vertical" className="account-v2__layout">
+          <aside className="account-v2__sidebar">
+            <p className="account-v2__nav-heading">CONFIGURAÇÕES</p>
+            <TabsList className="account-v2__nav" aria-label="Seções da conta">
+              {sections.map(({ id, icon: Icon, label, copy }) => (
+                <TabsTrigger key={id} value={id} aria-label={label} className="account-v2__nav-item">
+                  <Icon className="account-v2__nav-icon" aria-hidden="true" />
+                  <span><strong>{label}</strong><small>{copy}</small></span>
+                  <ChevronRight className="account-v2__nav-chevron" aria-hidden="true" />
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <div className="account-v2__mobile-nav">
+              <Label htmlFor="account-section">Seção da conta</Label>
+              <select id="account-section" value={activeSection} onChange={event => changeSection(event.target.value)}>
+                {sections.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </div>
+            <button type="button" className="account-v2__onboarding" onClick={() => navigate("/onboarding")}>
+              <Play aria-hidden="true" /><span>Conheça a Classfy<small>Aprendizado e Points</small></span><ArrowUpRight aria-hidden="true" />
+            </button>
+          </aside>
+          <div className="account-v2__content">
           {/* Profile Tab */}
           <TabsContent value="profile" className="space-y-6">
             <Card className="account-v2__profile-card">
@@ -463,24 +428,22 @@ export default function Conta() {
                       displayName={profile?.display_name || ""}
                       size="xl"
                       editable={true}
+                      key={renderOwner}
                       onUploadSuccess={(avatarUrl) => {
-                        setProfile((currentProfile: any) => ({
-                          ...currentProfile,
-                          avatar_url: avatarUrl,
-                        }));
+                        if (isCurrent(renderOwner, renderEpoch)) setProfile(current => current && ({ ...current, avatar_url: avatarUrl }));
                       }}
                     />
                     <div className="account-v2__identity-copy">
                       <p className="account-v2__identity-name">{profile?.display_name}</p>
-                      <V2Badge variant={profile?.plan === "premium" ? "premium" : profile?.plan === "pro" ? "accent" : "success"}>
-                        {(profile?.plan === "pro" || profile?.plan === "premium") && <PlanCrown plan={profile.plan} className="h-3 w-3" />}
-                        {profile?.plan || "free"}
+                      <V2Badge variant={effectivePlan === "premium" ? "premium" : effectivePlan === "pro" ? "accent" : "neutral"}>
+                        {effectivePlan !== "free" && <PlanCrown plan={effectivePlan} className="h-3 w-3" />}
+                        {planLabel}
                       </V2Badge>
                     </div>
                   </div>
 
                   <div className="account-v2__profile-fields">
-                    <div className="grid gap-5">
+                    <div className="account-v2__field-grid">
                       <div className="grid gap-2">
                         <Label htmlFor="email">Email</Label>
                         <Input 
@@ -501,30 +464,31 @@ export default function Conta() {
                           id="displayName" 
                           value={isEditingProfile ? editDisplayName : (profile?.display_name || "")} 
                           onChange={(e) => setEditDisplayName(e.target.value)}
-                          disabled={!isEditingProfile || savingProfile}
+                          disabled={!isEditingProfile || busy}
                           className={!isEditingProfile ? "bg-muted" : ""}
                           maxLength={50}
                         />
                       </div>
 
-                      <div className="grid gap-2">
+                      <div className="grid gap-2 account-v2__field-wide">
                         <Label htmlFor="bio">Bio</Label>
                         <Input 
                           id="bio" 
                           value={isEditingProfile ? editBio : (profile?.bio || "")} 
                           onChange={(e) => setEditBio(e.target.value)}
-                          disabled={!isEditingProfile || savingProfile}
+                          disabled={!isEditingProfile || busy}
                           className={!isEditingProfile ? "bg-muted" : ""}
                           placeholder="Conte um pouco sobre você..."
                           maxLength={200}
                         />
                       </div>
 
-                      <div className="flex flex-wrap gap-2 pt-2">
+                      <div className="account-v2__field-wide flex flex-wrap gap-2 pt-2">
                         {!isEditingProfile ? (
                           <Button
                             variant="outline"
                             size="sm"
+                            disabled={busy}
                             onClick={() => {
                               setEditDisplayName(profile?.display_name || "");
                               setEditBio(profile?.bio || "");
@@ -538,7 +502,7 @@ export default function Conta() {
                             <Button
                               size="sm"
                               onClick={handleSaveProfile}
-                              disabled={savingProfile || !editDisplayName.trim()}
+                              disabled={busy || !editDisplayName.trim()}
                             >
                               {savingProfile ? (
                                 <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Salvando...</>
@@ -603,7 +567,7 @@ export default function Conta() {
                             }}
                             placeholder="nomedocanal"
                             className="font-mono pl-8"
-                            disabled={!isEditingChannel || savingChannel}
+                            disabled={!isEditingChannel || busy}
                             maxLength={30}
                           />
                         </div>
@@ -612,7 +576,7 @@ export default function Conta() {
                             type="button"
                             variant="outline"
                             onClick={() => setIsEditingChannel(true)}
-                            disabled={savingChannel}
+                            disabled={busy}
                           >
                             Editar
                           </Button>
@@ -621,7 +585,7 @@ export default function Conta() {
                             <Button
                               type="button"
                               onClick={handleSaveChannelName}
-                              disabled={savingChannel || !channelName.trim()}
+                              disabled={busy || !channelName.trim()}
                             >
                               {savingChannel ? (
                                 <>
@@ -684,9 +648,11 @@ export default function Conta() {
                     <CoverUpload 
                       userId={user?.id || ""} 
                       currentCoverUrl={profile?.cover_image_url}
+                      key={renderOwner}
                       onUploadComplete={(url) => {
-                        setProfile({ ...profile, cover_image_url: url });
-                        refreshProfile();
+                        if (!isCurrent(renderOwner, renderEpoch)) return;
+                        setProfile(current => current && ({ ...current, cover_image_url: url }));
+                        void refreshProfile();
                       }}
                     />
                   </div>
@@ -704,10 +670,14 @@ export default function Conta() {
                   Carteira
                 </CardTitle>
                 <CardDescription>
-                  Gerencie seus ganhos e solicitações de saque
+                  Consulte seus ganhos e acompanhe os pedidos de saque.
                 </CardDescription>
+                <Button variant="outline" size="sm" className="account-v2__wallet-link" onClick={() => navigate("/carteira")}>
+                  Abrir Carteira <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+                </Button>
               </CardHeader>
               <CardContent>
+                {walletError ? <div className="account-v2__inline-error" role="alert"><p>{walletError}</p><Button variant="outline" onClick={() => void fetchData(user.id)}>Tentar novamente</Button></div> : (
                 <Tabs defaultValue="overview" className="space-y-6">
                   <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="overview">Visão Geral</TabsTrigger>
@@ -826,7 +796,7 @@ export default function Conta() {
                           value={withdrawAmount}
                           onChange={(e) => setWithdrawAmount(e.target.value)}
                           required
-                          disabled={submitting}
+                          disabled={busy}
                           className="text-lg"
                         />
                       </div>
@@ -840,7 +810,7 @@ export default function Conta() {
                           value={pixKey}
                           onChange={(e) => setPixKey(e.target.value)}
                           required
-                          disabled={submitting}
+                          disabled={busy}
                         />
                         <p className="text-xs text-muted-foreground">
                           Insira a chave PIX onde deseja receber o pagamento
@@ -851,7 +821,7 @@ export default function Conta() {
                         type="submit"
                         className="w-full"
                         size="lg"
-                        disabled={submitting || (Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0)) <= 0}
+                        disabled={busy || (Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0)) <= 0}
                       >
                         {submitting ? (
                           <>
@@ -955,8 +925,13 @@ export default function Conta() {
                     )}
                   </TabsContent>
                 </Tabs>
+                )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="billing" className="account-v2__billing">
+            <SubscriptionBillingPanel key={user.id} ownerId={user.id} onViewPlan={() => changeSection("plan")} />
           </TabsContent>
 
           {/* Plan Tab */}
@@ -964,65 +939,33 @@ export default function Conta() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  {profile?.plan === "pro" || profile?.plan === "premium" ? <PlanCrown plan={profile.plan} className="w-5 h-5" /> : <User className="w-5 h-5 text-primary" />}
-                  Plano de Assinatura
+                  Plano
                 </CardTitle>
                 <CardDescription>
-                  Gerencie sua assinatura e benefícios
+                  Seus benefícios, mudanças de plano e opções de assinatura.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Current Plan Badge */}
                 <div className="account-v2__current-plan">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-xl font-bold">
-                          Plano {profile?.plan?.toUpperCase() || "FREE"}
-                        </h3>
-                        <V2Badge variant={profile?.plan === "premium" ? "premium" : profile?.plan === "pro" ? "accent" : "success"}>
-                          {(profile?.plan === "pro" || profile?.plan === "premium") && <PlanCrown plan={profile.plan} className="h-3 w-3" />}
-                          Atual
-                        </V2Badge>
-                      </div>
-                      {profile?.plan_expires_at && (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          Renova em: {new Date(profile.plan_expires_at).toLocaleDateString("pt-BR")}
-                        </p>
-                      )}
-                    </div>
-                    {(profile?.plan === "pro" || profile?.plan === "premium") && (
-                      <div className="flex gap-2">
-                        <Button 
-                          variant="outline"
-                          size="sm"
-                          onClick={async () => {
-                            try {
-                              const { data, error } = await supabase.functions.invoke('customer-portal');
-                              if (error) throw error;
-                              if (data?.url && new URL(data.url).origin === 'https://billing.stripe.com') window.location.assign(data.url);
-                            } catch (error: any) {
-                              toast({
-                                title: "Erro",
-                                description: error.message,
-                                variant: "destructive",
-                              });
-                            }
-                          }}
-                        >
-                          <CreditCard className="w-4 h-4 mr-1" />
-                          Gerenciar
-                        </Button>
-                      </div>
-                    )}
+                  <span className="account-v2__plan-emblem" aria-hidden="true">{effectivePlan === "free" ? <User /> : <PlanCrown plan={effectivePlan} size={28} />}</span>
+                  <div className="account-v2__current-plan-copy">
+                    <p className="account-v2__eyebrow">SEU PLANO</p>
+                    <div className="account-v2__plan-title"><h3>{planLabel}</h3><V2Badge variant={paidPlanActive ? "success" : "neutral"}>{paidPlanActive ? "Ativo" : "Gratuito"}</V2Badge></div>
+                    {paidPlanActive && profile?.plan_expires_at && <p className="account-v2__plan-validity"><Clock aria-hidden="true" />Acesso até {new Date(profile.plan_expires_at).toLocaleDateString("pt-BR")}</p>}
+                    {!paidPlanActive && profile?.plan && profile.plan !== "free" && <p className="account-v2__plan-validity">O período do {profile.plan === "premium" ? "Premium" : "Pro"} terminou.</p>}
+                    {effectivePlan === "free" && profile?.plan === "free" && <p className="account-v2__plan-validity">Explore conteúdos gratuitos e comece a aprender.</p>}
+                  </div>
+                  <div className="account-v2__plan-management">
+                    {(profile?.plan === "pro" || profile?.plan === "premium") && <Button variant="outline" size="sm" disabled={busy} onClick={() => void openBillingPortal()}><CreditCard className="h-4 w-4" aria-hidden="true" />Gerenciar na Stripe<ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" /></Button>}
+                    <Button variant="ghost" size="sm" onClick={() => changeSection("billing")}><ReceiptText className="h-4 w-4" aria-hidden="true" />Ver cobranças</Button>
                   </div>
                 </div>
+                <div className="account-v2__plan-options-heading"><h3>Encontre seu próximo passo</h3><p>Escolha o plano que acompanha seu jeito de aprender e criar.</p></div>
 
                 {/* Plan Cards Comparison */}
                 <div className="account-v2__plan-grid">
-                  <article className="plans-price-card plan-offer-card plan-offer-card--compact plan-offer-card--free" data-current={profile?.plan === "free"}>
-                    <div className="plans-price-card__topline"><span className="plans-price-card__icon"><User className="w-5 h-5" /></span><span>{profile?.plan === "free" ? "SEU PLANO" : "PONTO DE PARTIDA"}</span></div>
+                  <article className="plans-price-card plan-offer-card plan-offer-card--compact plan-offer-card--free" data-current={effectivePlan === "free"}>
+                    <div className="plans-price-card__topline"><span className="plans-price-card__icon"><User className="w-5 h-5" /></span><span>{effectivePlan === "free" ? "SEU PLANO" : "PONTO DE PARTIDA"}</span></div>
                     <div className="plans-price-card__head"><div><h3>Free</h3><p>Explore a Classfy no seu ritmo.</p></div></div>
                     <div className="plans-price-card__price"><span>R$</span><strong>0</strong><span>/ mês</span></div>
                     <div className="plans-price-card__divider" />
@@ -1034,17 +977,15 @@ export default function Conta() {
                       key={plan}
                       plan={plan}
                       compact
-                      current={profile?.plan === plan}
-                      action={profile?.plan === plan ? null : <Button className="plans-button account-v2__plan-action" disabled={submitting} onClick={() => handlePaidPlanAction(plan)}>{submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : profile?.plan === "premium" ? "Mudar para Pro" : profile?.plan === "pro" ? "Mudar para Premium" : `Escolher ${plan === "pro" ? "Pro" : "Premium"}`}</Button>}
+                      current={effectivePlan === plan}
+                      action={effectivePlan === plan ? null : <Button className="plans-button account-v2__plan-action" disabled={busy} onClick={() => handlePaidPlanAction(plan)}>{submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : effectivePlan === "premium" ? "Mudar para Pro" : effectivePlan === "pro" ? "Mudar para Premium" : `Escolher ${plan === "pro" ? "Pro" : "Premium"}`}</Button>}
                     />
                   ))}
                 </div>
 
                 {/* Comparison Table */}
-                <div className="mt-6">
-                  <h4 className="font-semibold mb-4 text-sm uppercase tracking-wider text-muted-foreground">
-                    Comparar recursos
-                  </h4>
+                <details className="account-v2__comparison">
+                  <summary>Comparar todos os recursos <ChevronRight aria-hidden="true" /></summary>
                   <div className="rounded-lg border overflow-hidden">
                     <Table>
                       <TableHeader>
@@ -1101,20 +1042,21 @@ export default function Conta() {
                       </TableBody>
                     </Table>
                   </div>
-                </div>
+                </details>
 
                 {/* Cancel subscription for paid users */}
                 {(profile?.plan === "pro" || profile?.plan === "premium") && (
-                  <div className="pt-4 border-t">
+                  <div className="account-v2__cancel-renewal">
+                    <div><h3>Renovação da assinatura</h3><p>Ao cancelar, você mantém o acesso até o fim do período já pago.</p></div>
                     <Button 
                       variant="ghost"
                       size="sm"
                       className="text-muted-foreground hover:text-destructive"
-                      disabled={submitting}
+                      disabled={busy}
                       onClick={() => { setBillingActionOwner(user.id); setCancelSubscriptionOpen(true); }}
                     >
                       {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                      Cancelar assinatura
+                      Cancelar renovação
                     </Button>
                   </div>
                 )}
@@ -1126,20 +1068,21 @@ export default function Conta() {
           <TabsContent value="account" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Configurações da Conta</CardTitle>
+                <CardTitle>Preferências</CardTitle>
                 <CardDescription>
-                  Gerencie suas preferências e opções de conta
+                  Escolha como você se conecta e compartilha na Classfy.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 rounded-lg border bg-card">
+                  <div className="account-v2__email-row">
                     <div className="space-y-1">
                       <p className="font-medium">Email da Conta</p>
                       <p className="text-sm text-muted-foreground">{user?.email}</p>
                     </div>
-                    <Badge variant="secondary">Verificado</Badge>
+                    <Badge variant="secondary" className="account-v2__email-status">{user.email_confirmed_at ? <><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" /> Verificado</> : "Não verificado"}</Badge>
                   </div>
+                  <Button variant="ghost" className="account-v2__preferences-guide" onClick={() => navigate("/onboarding")}><Play className="h-4 w-4" aria-hidden="true" />Conheça a Classfy e seus Points<ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" /></Button>
                 </div>
               </CardContent>
             </Card>
@@ -1170,8 +1113,9 @@ export default function Conta() {
               </Card>
             )}
           </TabsContent>
+          </div>
         </Tabs>
-      </LibraryTemplate>
+      </div>
 
       <BecomeCreatorModal 
         open={creatorModalOpen} 
