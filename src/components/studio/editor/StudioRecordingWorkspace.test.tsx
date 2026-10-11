@@ -128,6 +128,8 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await act(async () => vi.advanceTimersByTime(100)); expect(host.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).toBe('-6.020599913279624');
     await click('Iniciar gravação'); expect(host.querySelector('header')).toBeNull(); expect(host.querySelector('.se-recording-takes')).toBeNull(); expect(button('Trocar câmera')).toBeUndefined(); expect(host.querySelector('[role="timer"]')).toBeTruthy();
     await click('Encerrar gravação'); expect(io.save).toHaveBeenCalledTimes(1); expect(Recorder.instances).toHaveLength(1); expect(host.textContent).toContain('Takes salvos');
+    const review = host.querySelector<HTMLAudioElement>('audio[aria-label="Reproduzir take salvo"]');
+    expect(review).toBeTruthy(); expect(review!.controls).toBe(false); expect(button('Reproduzir take')).toBeTruthy();
     await act(async () => root.unmount()); expect(activeVisibility()).toBe(0);
   });
 
@@ -136,6 +138,8 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await mount(); await record(); expect(button('Ir para edição')?.disabled).toBe(true); expect(host.querySelector('.se-recording-take')).toBeNull();
     await act(async () => saved.resolve(fixture())); expect(button('Ir para edição')?.disabled).toBe(false); expect(host.querySelector('[data-location]')?.textContent).toContain('?project=');
     expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production'); expect(activeVisibility()).toBe(2);
+    const review = host.querySelector<HTMLVideoElement>('video[aria-label="Reproduzir take salvo"]');
+    expect(review).toBeTruthy(); expect(review!.controls).toBe(false); expect(button('Reproduzir take')).toBeTruthy();
     await click('Gravar outro take'); await click('Iniciar gravação'); await click('Encerrar gravação'); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(2); expect(io.create).toHaveBeenCalledTimes(1); expect(io.save).toHaveBeenCalledTimes(2);
     const value = [...projects.values()][0]; expect(compileStudioRecipe(value).durationTicks).toBe(480000);
     await click('Excluir take 1'); await answer('Excluir take'); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); expect(assets.size).toBe(4);

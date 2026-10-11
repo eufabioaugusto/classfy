@@ -81,8 +81,8 @@
 .se-recording-stage-header .se-recording-icon { width: 40px; height: 40px; border-radius: 50%; background: #14161b9c; border: 1px solid #ffffff13; }
 .se-recording-stage-header .se-recording-icon:hover:not(:disabled) { background: #30333bbf; }
 .se-recording-save-state { display: flex; gap: 6px; align-items: center; color: #bec0c9; font-size: 10px; flex-shrink: 0; margin-right: 8px; }
-.se-recording-live, .se-recording-review { position: absolute; width: 100%; height: 100%; object-fit: contain; inset: 0; }
-.short .se-recording-live, .short .se-recording-review { object-fit: cover; }
+.se-recording-live { position: absolute; width: 100%; height: 100%; object-fit: contain; inset: 0; }
+.short .se-recording-live, .short .se-take-player__media { object-fit: cover; }
 .se-recording-stage-empty { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; color: #6e707b; }
 .se-recording-stage-empty p { font-size: 12px; }
 .se-recording-permission, .se-recording-recovery { position: absolute; z-index: 1; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; text-align: center; width: min(460px, calc(100% - 40px)); max-height: calc(100% - 116px); overflow: auto; padding: 20px 14px; }
@@ -100,11 +100,10 @@
 .se-recording-recovery .se-recording-feedback button:first-child { background: #ed365b; border-color: #ed365b; color: #fff; }
 .se-recording-stage-feedback { position: absolute; z-index: 3; left: 18px; right: 18px; bottom: 16px; margin: 0; max-height: 30%; overflow: auto; }
 .se-recording-audio-stage { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 13px; align-items: center; justify-content: center; padding: 32px; }
-.se-recording-audio-stage > div { display: flex; align-items: center; justify-content: center; width: 84px; height: 84px; border-radius: 50%; color: #a58cba; border: 1px solid #4a3958; background: #31243e; }
-.se-recording-audio-stage > div.recording { color: #ffa4b6; border-color: #8a3a52; background: #442532; }
+.se-recording-audio-artwork { display: flex; align-items: center; justify-content: center; width: 84px; height: 84px; border-radius: 50%; color: #a58cba; border: 1px solid #4a3958; background: #31243e; }
+.se-recording-audio-artwork.recording { color: #ffa4b6; border-color: #8a3a52; background: #442532; }
 .se-recording-audio-eyebrow { font-size: 9px; letter-spacing: .18em; color: #9e87b0; margin-top: 18px; }
 .se-recording-audio-stage h2 { font-size: clamp(22px, 3vw, 34px); font-weight: 400; letter-spacing: -.025em; color: #e0d8e7; margin: 0; text-align: center; }
-.se-recording-audio-stage audio { width: min(100%, 380px); height: 35px; }
 .se-recording-monitor { position: absolute; z-index: 2; left: 20px; bottom: 20px; width: min(235px, calc(100% - 40px)); padding: 11px 13px; background: #08090cbf; border: 1px solid #ffffff13; border-radius: 11px; backdrop-filter: blur(12px); color: #e4e4e8; pointer-events: none; }
 .se-recording-monitor > div:first-child { display: flex; align-items: center; gap: 7px; font-size: 10px; }
 .se-recording-monitor span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -138,7 +137,8 @@
 .se-recording-rec.stop { background: #ef3657; border-color: #ff8196; }
 .se-recording-small-dot { width: 8px; height: 8px; background: #f15b7a; border-radius: 50%; }
 .se-recording-working { display: flex; gap: 9px; color: var(--sr-muted); align-items: center; font-size: 12px; }
-.se-recording-review-badge { position: absolute; z-index: 2; right: 18px; bottom: 55px; display: flex; align-items: center; gap: 6px; padding: 8px 11px; border-radius: 8px; border: 1px solid #ffffff1a; color: #dce0e8; background: #08090cbf; font-size: 10px; pointer-events: none; }
+.se-recording-review-badge { position: absolute; z-index: 2; right: 18px; top: 82px; display: flex; align-items: center; gap: 6px; padding: 8px 11px; border-radius: 8px; border: 1px solid #ffffff1a; color: #dce0e8; background: #08090cbf; font-size: 10px; pointer-events: none; }
+.is-reviewing .se-recording-stage-feedback { bottom: 104px; }
 .se-recording-takes { display: grid; grid-template-columns: 134px minmax(0, 1fr); align-items: center; gap: 12px; margin-top: 10px; min-height: 64px; flex: none; }
 .se-recording-takes.collapsed { min-height: 40px; margin-top: 6px; grid-template-columns: 1fr; }
 .se-recording-takes-toggle { display: flex; align-items: center; gap: 10px; width: fit-content; min-height: 44px; padding: 6px 4px; background: transparent; border: 0; color: #a8acb9 !important; text-align: left; }
@@ -216,7 +216,7 @@
   .se-recording-takes-toggle > svg:first-child { display: none; }
   .se-recording-takes-toggle > span { font-size: 9px; }
   .se-recording-take-remove { width: 38px; height: 38px; }
-  .se-recording-review-badge { bottom: 52px; right: 10px; font-size: 9px; }
+  .se-recording-review-badge { top: 70px; right: 10px; font-size: 9px; }
   .se-recording-stage-feedback { left: 10px; right: 10px; bottom: 10px; font-size: 11px; }
   .se-recording-feedback { align-items: stretch; flex-direction: column; }
   .is-recording .se-recording-controls { min-height: 86px; }
