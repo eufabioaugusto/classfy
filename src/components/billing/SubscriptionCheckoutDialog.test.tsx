@@ -129,10 +129,30 @@ describe('SubscriptionCheckoutDialog: Stripe protocol and account lifecycle', ()
     const sdk = deferred<unknown>(); boundary.checkoutConfirm.mockReturnValue(sdk.promise); await render(); await click('Confirmar assinatura'); await render({ owner: 'owner-two' });
     await act(async () => sdk.resolve({ type: 'success', session: {} })); expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(changed).toHaveBeenCalledWith(false); expect(boundary.prepare.mock.calls.every(call => call[0] === 'owner-one')).toBe(true); expect(boundary.status).not.toHaveBeenCalled(); expect(boundary.cancel).not.toHaveBeenCalled(); expect(confirmed).not.toHaveBeenCalled();
   });
-  it('close aborts a pending server result; explicit close cancels only the owned Checkout', async () => {
+  it('close aborts a pending server result without canceling a payment already submitted', async () => {
     const server = deferred<unknown>(); boundary.status.mockReturnValue(server.promise); await render(); await click('Confirmar assinatura'); const signal = boundary.status.mock.calls[0][2];
-    await click('Fechar pagamento'); expect(signal.aborted).toBe(true); expect(boundary.cancel).toHaveBeenCalledWith('owner-one', 'cs_ui_fixture');
+    await click('Fechar pagamento'); expect(signal.aborted).toBe(true); expect(boundary.cancel).not.toHaveBeenCalled();
     await act(async () => server.resolve({ kind: 'status', state: 'active', plan: 'premium' })); expect(confirmed).not.toHaveBeenCalled();
+  });
+  it('closing a ready Checkout aborts only local work and immediate reopening resumes the same session', async () => {
+    await render(); const close = button('Fechar pagamento'); await act(async () => { close.click(); close.click(); }); expect(boundary.cancel).not.toHaveBeenCalled(); expect(boundary.checkoutConfirm).not.toHaveBeenCalled();
+    await render({ open: false }); await render(); expect(button('Confirmar assinatura').disabled).toBe(false); expect(boundary.checkoutOptions).toHaveBeenLastCalledWith(expect.objectContaining({ clientSecret: checkout.clientSecret })); expect(boundary.cancel).not.toHaveBeenCalled();
+    await click('Confirmar assinatura'); expect(boundary.checkoutConfirm).toHaveBeenCalledWith(expect.objectContaining({ returnUrl: `${window.location.origin}/conta?billing_session_id=cs_ui_fixture` })); expect(confirmed).toHaveBeenCalledTimes(1);
+  });
+  it('submit and close before React renders confirming cannot expire the same Checkout', async () => {
+    await render(); const form = document.querySelector('form')!, close = button('Fechar pagamento');
+    await act(async () => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); close.click(); });
+    expect(boundary.cancel).not.toHaveBeenCalled(); expect(boundary.status).not.toHaveBeenCalled(); expect(confirmed).not.toHaveBeenCalled();
+  });
+  it('a late prepare after close never expires the same session resumed by a new opening', async () => {
+    const original = deferred<unknown>(); boundary.prepare.mockReturnValue(original.promise); await render(); const oldSignal = boundary.prepare.mock.calls.at(-1)![3]; await click('Fechar pagamento'); expect(oldSignal.aborted).toBe(true); await render({ open: false });
+    boundary.prepare.mockResolvedValue(checkout); await render(); const newForm = document.querySelector('form'); expect(button('Confirmar assinatura').disabled).toBe(false);
+    await act(async () => original.resolve(checkout)); expect(document.querySelector('form')).toBe(newForm); expect(boundary.cancel).not.toHaveBeenCalled(); expect(confirmed).not.toHaveBeenCalled();
+    await click('Confirmar assinatura'); expect(boundary.checkoutConfirm).toHaveBeenCalledTimes(1); expect(confirmed).toHaveBeenCalledTimes(1);
+  });
+  it('close while the SDK is confirming or its result is pending never expires the Checkout', async () => {
+    const sdk = deferred<unknown>(); boundary.checkoutConfirm.mockReturnValue(sdk.promise); await render(); await click('Confirmar assinatura'); await click('Fechar pagamento'); expect(boundary.cancel).not.toHaveBeenCalled(); await act(async () => sdk.resolve({ type: 'success', session: {} })); expect(confirmed).not.toHaveBeenCalled();
+    await render({ open: false }); boundary.checkoutConfirm.mockResolvedValue({ type: 'success', session: {} }); await render(); Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); await click('Confirmar assinatura'); expect(body().textContent).toContain('Volte a esta página'); await click('Fechar pagamento'); expect(boundary.cancel).not.toHaveBeenCalled();
   });
   it('closing a quote or confirmed checkout never issues cancel; payment failure never grants access', async () => {
     boundary.prepare.mockResolvedValue(quote); await render(); await click('Fechar pagamento'); expect(boundary.cancel).not.toHaveBeenCalled();

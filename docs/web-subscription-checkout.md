@@ -8,6 +8,8 @@ O checkout de `/planos`, Conta, ofertas de upgrade e Cenas Premium abre um modal
 - Valores e IDs de preços são definidos no servidor. A prévia vence em cinco minutos; a Checkout Session vence em uma hora.
 - Uma trava por usuário e um registro durável das operações compartilham idempotência com `create-subscription-checkout`, que mantém o contrato de URL para consumidores antigos.
 - Pagamentos e 3DS pendentes retomam a mesma operação. A interface libera o plano somente após a confirmação do servidor; resultado do SDK sozinho não concede acesso.
+- Fechar o modal interrompe apenas o trabalho local. Não cancela nem expira a sessão na Stripe; reabrir o mesmo plano pode retomar o formulário, inclusive depois de atualizar a página.
+- Uma sessão aberta na Stripe não comprova que outra aba esteja aberta. Sessões compatíveis são retomadas; sessões antigas ou de outro plano só são substituídas após verificar que nenhum pagamento foi iniciado e confirmar sua expiração. Pagamentos iniciados continuam protegidos contra uma segunda cobrança.
 - Troca de conta descarta resultados antigos. O retorno consulta a sessão, PaymentIntent/assinatura ou assinatura existente e limpa os parâmetros de pagamento da URL.
 - O modal cede foco ao iframe bancário e sai de fullscreen antes da autenticação, preservando o formulário e a sessão.
 - Downgrade Premium → Pro futuro preserva os campos pendentes e não oferece outro upgrade pago no intervalo.

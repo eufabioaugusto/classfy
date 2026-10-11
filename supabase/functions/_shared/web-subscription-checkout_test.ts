@@ -235,7 +235,25 @@ function fixture() {
               ui_mode: params.ui_mode,
               status: "open",
               payment_status: "unpaid",
-              client_secret: "cs_fixture_secret",
+              client_secret: params.ui_mode === "custom"
+                ? "cs_fixture_secret"
+                : null,
+              subscription: null,
+              invoice: null,
+              payment_intent: null,
+              setup_intent: null,
+              currency: "brl",
+              client_reference_id: params.client_reference_id,
+              line_items: {
+                has_more: false,
+                data: [{
+                  quantity: 1,
+                  price: {
+                    id: STRIPE_PLANS[plan as "pro" | "premium"].priceId,
+                    product: STRIPE_PLANS[plan as "pro" | "premium"].productId,
+                  },
+                }],
+              },
               url: "https://checkout.stripe.com/fixture",
               amount_total: plan === "pro" ? 2990 : 4990,
               expires_at: params.expires_at,
@@ -305,6 +323,45 @@ function fixture() {
     profiles.get(owner.id)!.plan = plan;
     return sub;
   }
+  function addSession(
+    sessionId = "cs_test_old",
+    plan: "pro" | "premium" = "pro",
+    mode: "custom" | "hosted" = "hosted",
+  ) {
+    const session = {
+      id: sessionId,
+      customer: "cus_owner",
+      metadata: { user_id: owner.id, plan_type: plan } as Record<
+        string,
+        string
+      >,
+      mode: "subscription",
+      ui_mode: mode,
+      status: "open",
+      payment_status: "unpaid",
+      subscription: null,
+      invoice: null,
+      payment_intent: null,
+      setup_intent: null,
+      currency: "brl",
+      line_items: {
+        has_more: false,
+        data: [{
+          quantity: 1,
+          price: {
+            id: STRIPE_PLANS[plan].priceId,
+            product: STRIPE_PLANS[plan].productId,
+          },
+        }],
+      },
+      client_secret: mode === "custom" ? `${sessionId}_secret_fixture` : null,
+      url: "https://checkout.stripe.com/old",
+      amount_total: plan === "pro" ? 2990 : 4990,
+      expires_at: Math.floor(time / 1000) + 3600,
+    };
+    sessions.set(sessionId, session);
+    return session;
+  }
   const makeService = (mode: "custom" | "hosted" = "custom") =>
     createWebSubscriptionCheckoutService({
       repository: repo,
@@ -337,6 +394,7 @@ function fixture() {
     effects,
     failures,
     addSubscription,
+    addSession,
     advance: (ms: number) => {
       time += ms;
     },
@@ -629,7 +687,7 @@ Deno.test("status de checkout completo não concede unpaid/past_due nem aceita p
   );
   equal(f.effects.synced, 1);
 });
-Deno.test("legado e Elements compartilham receipt: hosted segue URL e novo fluxo não abre segundo checkout", async () => {
+Deno.test("legado e Elements compartilham receipt: hosted não iniciado migra para custom antes de trocar plano", async () => {
   const f = fixture();
   const legacy = await f.makeService("hosted").execute(owner, {
     action: "prepare",
@@ -637,10 +695,15 @@ Deno.test("legado e Elements compartilham receipt: hosted segue URL e novo fluxo
     operationId: request(1),
   });
   assert(legacy.url);
-  equal((await f.prepare("pro", 2)).kind, "manage");
-  equal((await f.prepare("premium", 3)).kind, "manage");
-  equal(f.effects.created, 1);
-  equal(f.effects.expired, 0);
+  const integrated = await f.prepare("pro", 2);
+  equal(integrated.kind, "checkout");
+  equal(f.sessions.get("cs_test_take1").status, "expired");
+  equal((await f.prepare("pro", 4)).sessionId, integrated.sessionId);
+  const premium = await f.prepare("premium", 3);
+  equal([premium.kind, premium.plan], ["checkout", "premium"]);
+  equal(f.sessions.get(integrated.sessionId).status, "expired");
+  equal(f.effects.created, 3);
+  equal(f.effects.expired, 2);
   const g = fixture();
   await g.prepare();
   await rejects(
@@ -654,20 +717,24 @@ Deno.test("legado e Elements compartilham receipt: hosted segue URL e novo fluxo
   );
   equal(g.effects.created, 1);
 });
-Deno.test("sessão hospedada anterior ao ledger é reconhecida, nunca expirada automaticamente", async () => {
+Deno.test("sessão hospedada anterior ao ledger é validada e encerrada antes de substituir", async () => {
   const f = fixture();
-  f.sessions.set("cs_test_old", {
-    id: "cs_test_old",
-    customer: "cus_owner",
-    mode: "subscription",
-    status: "open",
-    ui_mode: "hosted",
-    metadata: { user_id: owner.id, plan_type: "pro" },
-    url: "https://checkout.stripe.com/old",
-  });
-  equal((await f.prepare()).kind, "manage");
-  equal(f.effects.created, 0);
-  equal(f.effects.expired, 0);
+  f.addSession();
+  equal((await f.prepare()).kind, "checkout");
+  equal(f.effects.created, 1);
+  equal(f.effects.expired, 1);
+  equal(f.sessions.get("cs_test_old").status, "expired");
+  const adopted = Array.from(f.ledger.values()).find((op) =>
+    op.sessionId === "cs_test_old"
+  )!;
+  equal(adopted.state, "canceled");
+  equal(
+    (await f.makeService().execute(owner, {
+      action: "status",
+      sessionId: "cs_test_old",
+    })).state,
+    "expired",
+  );
 });
 Deno.test("receipt terminal conserva referências e intenção nova não reaproveita criação expirada", async () => {
   const f = fixture(), first = await f.prepare();
@@ -882,4 +949,333 @@ Deno.test("request inválido e configuração ausente falham sem IO/cobrança", 
     "checkout_not_configured",
   );
   equal(f.effects.created, 0);
+});
+
+Deno.test("custom órfão do mesmo plano é adotado duravelmente e retomado sem cache nem novo create", async () => {
+  for (const metadataReceipt of [false, true]) {
+    const f = fixture(), session = f.addSession("cs_orphan", "pro", "custom");
+    if (metadataReceipt) session.metadata.web_checkout_operation = request(50);
+    const first = await f.prepare("pro", 1);
+    equal([first.kind, first.sessionId, first.clientSecret], [
+      "checkout",
+      session.id,
+      session.client_secret,
+    ]);
+    const receipt = f.ledger.get(first.operationId)!;
+    equal([receipt.ownerId, receipt.sessionId, receipt.state], [
+      owner.id,
+      session.id,
+      "prepared",
+    ]);
+    equal((await f.prepare("pro", 2)).sessionId, session.id);
+    equal([f.effects.created, f.effects.expired], [0, 0]);
+    equal(
+      (await f.makeService().execute(owner, {
+        action: "status",
+        sessionId: session.id,
+      })).state,
+      "pending",
+    );
+    await rejects(
+      f.makeService().execute(other, {
+        action: "status",
+        sessionId: session.id,
+      }),
+      "not_found",
+    );
+  }
+});
+
+Deno.test("falha ao gravar adoção não expõe segredo nem cria outra cobrança; retry usa a mesma sessão", async () => {
+  const f = fixture();
+  f.addSession("cs_orphan", "pro", "custom");
+  f.failures.savePrepared = true;
+  await rejects(f.prepare());
+  equal([f.effects.created, f.effects.expired, f.ledger.size], [0, 0, 0]);
+  equal((await f.prepare()).sessionId, "cs_orphan");
+  equal(f.ledger.size, 1);
+});
+
+Deno.test("troca de plano encerra todas as sessões próprias não iniciadas e ignora compras avulsas", async () => {
+  const f = fixture();
+  f.addSession("cs_old1", "pro", "hosted");
+  f.addSession("cs_old2", "pro", "custom");
+  const purchase = f.addSession("cs_course", "pro", "hosted");
+  purchase.mode = "payment";
+  const seen: string[] = [], expire = f.stripe.checkout.sessions.expire;
+  f.stripe.checkout.sessions.expire = async (id, params, options) => {
+    equal(f.effects.created, 0);
+    seen.push(id);
+    return await expire(id, params, options);
+  };
+  const response = await f.prepare("premium");
+  equal([response.kind, response.plan], ["checkout", "premium"]);
+  equal(seen, ["cs_old1", "cs_old2"]);
+  equal([f.effects.created, f.effects.expired, purchase.status], [
+    1,
+    2,
+    "open",
+  ]);
+  equal((await f.prepare("premium", 2)).sessionId, response.sessionId);
+  equal(f.effects.created, 1);
+});
+
+Deno.test("vários custom do mesmo plano preservam um único checkout retomável", async () => {
+  const f = fixture();
+  f.addSession("cs_keep", "pro", "custom");
+  f.addSession("cs_extra", "pro", "custom");
+  const resumed = await f.prepare();
+  equal(resumed.sessionId, "cs_keep");
+  equal([f.sessions.get("cs_keep").status, f.sessions.get("cs_extra").status], [
+    "open",
+    "expired",
+  ]);
+  equal([f.effects.created, f.effects.expired], [0, 1]);
+});
+
+Deno.test("sessões estrangeiras ou sem ownership/preço comprovado impedem recuperação sem qualquer expiração", async () => {
+  const alterations: ((session: any) => void)[] = [
+    (session) => {
+      session.metadata.user_id = other.id;
+    },
+    (session) => {
+      delete session.metadata.user_id;
+    },
+    (session) => {
+      session.metadata.plan_type = "free";
+    },
+    (session) => {
+      session.line_items.data[0].price.id = "price_foreign";
+    },
+    (session) => {
+      session.line_items.data[0].price.product = "prod_foreign";
+    },
+    (session) => {
+      session.line_items.data[0].quantity = 2;
+    },
+    (session) => {
+      session.line_items.has_more = true;
+    },
+    (session) => {
+      session.currency = "usd";
+    },
+    (session) => {
+      session.client_reference_id = other.id;
+    },
+    (session) => {
+      session.metadata.web_checkout_operation = "invalid";
+    },
+  ];
+  for (const alter of alterations) {
+    const f = fixture();
+    f.addSession("cs_valid");
+    alter(f.addSession("cs_unverified"));
+    await rejects(f.prepare());
+    equal([f.effects.created, f.effects.expired, f.ledger.size], [0, 0, 0]);
+    equal(f.sessions.get("cs_valid").status, "open");
+  }
+  const f = fixture();
+  f.addSession();
+  const list = f.stripe.checkout.sessions.list;
+  f.stripe.checkout.sessions.list = async (params) => ({
+    ...await list(params),
+    has_more: true,
+  });
+  await rejects(f.prepare(), "billing_history_unavailable");
+  equal([f.effects.created, f.effects.expired], [0, 0]);
+});
+
+Deno.test("pagamento iniciado ou referências desconhecidas nunca são expirados para trocar plano", async () => {
+  for (
+    const reference of [
+      "subscription",
+      "invoice",
+      "payment_intent",
+      "setup_intent",
+      "missing",
+    ]
+  ) {
+    const f = fixture();
+    f.addSession("cs_safe");
+    const protectedSession = f.addSession("cs_started", "pro", "custom") as any;
+    if (reference === "missing") delete protectedSession.invoice;
+    else protectedSession[reference] = `${reference}_started`;
+    const result = await f.prepare("premium");
+    equal([result.kind, result.plan], ["manage", "pro"]);
+    assert(result.message.includes("ainda precisa ser confirmado"));
+    equal([f.effects.created, f.effects.expired], [0, 0]);
+    equal(f.sessions.get("cs_safe").status, "open");
+  }
+});
+
+Deno.test("expire com resposta perdida só libera novo checkout depois de reler expired", async () => {
+  const f = fixture();
+  f.addSession();
+  const expire = f.stripe.checkout.sessions.expire;
+  f.stripe.checkout.sessions.expire = async (...args) => {
+    await expire(...args);
+    throw new Error("Stripe expired but reply was lost");
+  };
+  equal((await f.prepare()).kind, "checkout");
+  equal([f.effects.created, f.effects.expired], [1, 1]);
+});
+
+Deno.test("expire recusado ou resposta ainda open não autoriza nova sessão nem receipt cancelado", async () => {
+  for (const throws of [true, false]) {
+    const f = fixture();
+    f.addSession();
+    f.stripe.checkout.sessions.expire = async (id) => {
+      if (throws) throw new Error("cannot expire now");
+      return clone(f.sessions.get(id));
+    };
+    const result = await f.prepare();
+    equal([result.kind, result.state], ["status", "pending"]);
+    equal([f.effects.created, f.effects.expired], [0, 0]);
+    equal(Array.from(f.ledger.values())[0].state, "prepared");
+    equal(f.sessions.get("cs_test_old").status, "open");
+  }
+});
+
+Deno.test("Checkout complete durante expire é reconciliado e nunca seguido por nova assinatura", async () => {
+  for (const paid of [true, false]) {
+    const f = fixture();
+    f.addSession();
+    f.stripe.checkout.sessions.expire = async (id) => {
+      const session = f.sessions.get(id);
+      session.status = "complete";
+      session.payment_status = paid ? "paid" : "unpaid";
+      session.subscription =
+        f.addSubscription("pro", paid ? "active" : "incomplete").id;
+      throw new Error("Checkout completed before expiration");
+    };
+    const result = await f.prepare("premium");
+    equal([result.kind, result.plan], ["manage", "pro"]);
+    assert(
+      result.message.includes(
+        paid ? "foi confirmado" : "ainda precisa ser confirmado",
+      ),
+    );
+    equal([f.effects.created, f.effects.expired, f.effects.synced], [
+      0,
+      0,
+      paid ? 1 : 0,
+    ]);
+  }
+});
+
+Deno.test("assinatura descoberta depois de expire impede create mesmo ausente no primeiro list", async () => {
+  const f = fixture();
+  f.addSession();
+  const expire = f.stripe.checkout.sessions.expire;
+  f.stripe.checkout.sessions.expire = async (...args) => {
+    const result = await expire(...args);
+    f.addSubscription("pro");
+    return result;
+  };
+  const result = await f.prepare("premium");
+  equal([result.kind, result.plan], ["manage", "pro"]);
+  equal([f.effects.created, f.effects.expired, f.effects.synced], [0, 1, 1]);
+});
+
+Deno.test("cancel compatível não expira checkout com pagamento iniciado nem marca complete como cancelado", async () => {
+  for (
+    const reference of [
+      "subscription",
+      "invoice",
+      "payment_intent",
+      "setup_intent",
+    ]
+  ) {
+    const f = fixture(), first = await f.prepare();
+    f.sessions.get(first.sessionId)[reference] = `${reference}_started`;
+    const result = await f.makeService().execute(owner, {
+      action: "cancel",
+      sessionId: first.sessionId,
+    });
+    equal([result.kind, result.state], ["status", "pending"]);
+    equal(f.effects.expired, 0);
+    equal(f.ledger.get(first.operationId)!.state, "prepared");
+  }
+  const f = fixture(), first = await f.prepare();
+  f.stripe.checkout.sessions.expire = async (id) => {
+    const session = f.sessions.get(id);
+    session.status = "complete";
+    session.payment_status = "paid";
+    session.subscription = f.addSubscription().id;
+    return clone(session);
+  };
+  const result = await f.makeService().execute(owner, {
+    action: "cancel",
+    sessionId: first.sessionId,
+  });
+  equal([result.kind, result.state], ["status", "active"]);
+  equal(f.ledger.get(first.operationId)!.state, "completed");
+});
+
+Deno.test("receipt prepared expirado permite nova intenção sem reutilizar params/idempotency antigos", async () => {
+  const f = fixture(), first = await f.prepare();
+  f.sessions.get(first.sessionId).status = "expired";
+  const next = await f.prepare("pro", 2);
+  equal(next.kind, "checkout");
+  assert(next.sessionId !== first.sessionId);
+  equal(f.ledger.get(first.operationId)!.state, "canceled");
+  equal([f.effects.created, f.effects.expired], [2, 0]);
+  equal((await f.prepare()).state, "expired");
+});
+
+Deno.test("lease que expira durante inspeção não pode executar expire nem preparar outro checkout", async () => {
+  const f = fixture();
+  f.addSession();
+  const save = f.repo.save;
+  f.repo.save = async (...args) => {
+    await save(...args);
+    // Canonical ownership is saved, but the worker loses its reservation before
+    // the external mutation. The pre-expire fence must catch this exact window.
+    f.advance(90_001);
+  };
+  await rejects(f.prepare());
+  equal([f.effects.created, f.effects.expired], [0, 0]);
+  equal(f.sessions.get("cs_test_old").status, "open");
+});
+
+Deno.test("complete entre list e retrieve confirma o plano existente sem retornar DTO incompatível", async () => {
+  const f = fixture();
+  f.addSession();
+  const list = f.stripe.checkout.sessions.list;
+  f.stripe.checkout.sessions.list = async (params) => {
+    const listed = await list(params);
+    const session = f.sessions.get("cs_test_old");
+    session.status = "complete";
+    session.payment_status = "paid";
+    session.subscription = f.addSubscription("pro").id;
+    return listed;
+  };
+  const result = await f.prepare("premium");
+  equal([result.kind, result.plan, f.effects.synced], ["manage", "pro", 1]);
+  assert(result.message.includes("foi confirmado"));
+  equal([f.effects.created, f.effects.expired], [0, 0]);
+});
+
+Deno.test("expire confirmado com falha do ledger é recuperado sem reutilizar checkout expirado", async () => {
+  const f = fixture();
+  f.addSession();
+  const save = f.repo.save;
+  let failOnce = true;
+  f.repo.save = async (...args) => {
+    if (args[2].state === "canceled" && failOnce) {
+      failOnce = false;
+      throw new Error("DB reply lost after confirmed expiration");
+    }
+    await save(...args);
+  };
+  await rejects(f.prepare());
+  equal([f.effects.created, f.effects.expired], [0, 1]);
+  equal(f.sessions.get("cs_test_old").status, "expired");
+  equal((await f.prepare("pro", 2)).kind, "checkout");
+  equal([f.effects.created, f.effects.expired], [1, 1]);
+  equal(
+    Array.from(f.ledger.values()).find((op) => op.sessionId === "cs_test_old")!
+      .state,
+    "canceled",
+  );
 });
