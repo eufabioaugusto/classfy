@@ -276,13 +276,13 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
         aria-label="Buscar"
         title="Buscar"
         onClick={() => setMobileSheetOpen(true)}
-        className="hidden shrink-0 sm:flex lg:hidden"
+        className="hidden shrink-0 sm:flex xl:hidden"
       >
         <Search className="w-4 h-4" />
       </Button>
 
       {/* Desktop */}
-      <div ref={containerRef} className="relative min-w-0 flex-1 max-w-xl mx-4 hidden lg:block">
+      <div ref={containerRef} className="relative min-w-0 flex-1 max-w-xl mx-4 hidden xl:block">
         <div className={cn(
           "flex items-center gap-2 rounded-full border backdrop-blur-sm transition-all duration-200",
           isFocused 
