@@ -179,6 +179,9 @@ export default function Conta() {
     navigate({ pathname: location.pathname, search: `?${params.toString()}`, hash: location.hash }, { state: location.state });
   };
   const paidPlanActive = hasCurrentPaidPlan(profile);
+  const storeProvider = paidPlanActive && (profile?.entitlement_source === 'apple' || profile?.entitlement_source === 'google') ? profile.entitlement_source : null;
+  const storeLabel = storeProvider === 'apple' ? 'App Store' : 'Google Play';
+  const showStoreManagement = () => toast({ title: `Assinatura pela ${storeLabel}`, description: `Abra as assinaturas da ${storeLabel} para alterar ou cancelar o plano. Seu acesso é compartilhado com a web.` });
   const effectivePlan = paidPlanActive && (profile?.plan === "premium" || profile?.plan === "pro") ? profile.plan : "free";
   const planLabel = effectivePlan === "premium" ? "Premium" : effectivePlan === "pro" ? "Pro" : "Free";
 
@@ -275,6 +278,7 @@ export default function Conta() {
     const owner = user?.id;
     const epoch = ownerScope.current.epoch;
     if (!owner || !isCurrent(owner, epoch) || actionBusy.current) return;
+    if (storeProvider) { showStoreManagement(); return; }
     if (plan === "pro" && profile?.plan === "premium" && hasCurrentPaidPlan(profile)) { setBillingActionOwner(owner); setDowngradeOpen(true); return; }
     startSubscription(plan, async () => { if (isCurrent(owner, epoch)) await fetchData(owner); });
   };
@@ -956,7 +960,7 @@ export default function Conta() {
                     {effectivePlan === "free" && profile?.plan === "free" && <p className="account-v2__plan-validity">Explore conteúdos gratuitos e comece a aprender.</p>}
                   </div>
                   <div className="account-v2__plan-management">
-                    {(profile?.plan === "pro" || profile?.plan === "premium") && <Button variant="outline" size="sm" disabled={busy} onClick={() => void openBillingPortal()}><CreditCard className="h-4 w-4" aria-hidden="true" />Gerenciar na Stripe<ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" /></Button>}
+                    {(profile?.plan === "pro" || profile?.plan === "premium") && <Button variant="outline" size="sm" disabled={busy} onClick={() => storeProvider ? showStoreManagement() : void openBillingPortal()}><CreditCard className="h-4 w-4" aria-hidden="true" />{storeProvider ? `Gerenciar na ${storeLabel}` : 'Gerenciar na Stripe'}<ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" /></Button>}
                     <Button variant="ghost" size="sm" onClick={() => changeSection("billing")}><ReceiptText className="h-4 w-4" aria-hidden="true" />Ver cobranças</Button>
                   </div>
                 </div>
@@ -1045,7 +1049,7 @@ export default function Conta() {
                 </details>
 
                 {/* Cancel subscription for paid users */}
-                {(profile?.plan === "pro" || profile?.plan === "premium") && (
+                {(profile?.plan === "pro" || profile?.plan === "premium") && !storeProvider && (
                   <div className="account-v2__cancel-renewal">
                     <div><h3>Renovação da assinatura</h3><p>Ao cancelar, você mantém o acesso até o fim do período já pago.</p></div>
                     <Button 

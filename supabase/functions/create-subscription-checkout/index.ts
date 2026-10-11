@@ -2,10 +2,12 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import {
+  assertStripeSubscriptionProvider,
   findBillableSubscription,
   getOrCreateStripeCustomer,
   getRequestOrigin,
   isSubscriptionPlan,
+  StripeSubscriptionProviderError,
 } from "../_shared/stripe-subscription.ts";
 import {
   createWebSubscriptionCheckoutService,
@@ -66,6 +68,7 @@ serve(async (req) => {
     }
     ownedLease = { owner: user.id, token: lease };
     const origin = getRequestOrigin(req);
+    assertStripeSubscriptionProvider(await repository.profile(user.id));
     const customerId = await getOrCreateStripeCustomer(stripe, supabaseClient, {
       id: user.id,
       email: user.email,
@@ -120,12 +123,16 @@ serve(async (req) => {
       },
     );
   } catch (error) {
-    const errorMessage = error instanceof WebCheckoutError
+    const errorMessage = error instanceof WebCheckoutError ||
+        error instanceof StripeSubscriptionProviderError
       ? error.message
       : "Não foi possível abrir o pagamento. Confira o estado da assinatura e tente novamente.";
     return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: error instanceof WebCheckoutError ? error.status : 500,
+      status: error instanceof WebCheckoutError ||
+          error instanceof StripeSubscriptionProviderError
+        ? error.status
+        : 500,
     });
   } finally {
     if (ownedLease) {

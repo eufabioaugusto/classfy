@@ -36,6 +36,15 @@ verify_jwt = true
 [functions.subscription-billing]
 verify_jwt = true
 
+[functions.mobile-subscription]
+verify_jwt = true
+
+[functions.app-store-notifications]
+verify_jwt = false
+
+[functions.google-play-notifications]
+verify_jwt = false
+
 [functions.verify-content-purchase]
 verify_jwt = true
 

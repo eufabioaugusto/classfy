@@ -3,6 +3,7 @@ import {
   STRIPE_PLANS,
   type SubscriptionPlan,
 } from "./stripe-subscription.ts";
+import { activeStoreProvider, storeManagementMessage } from "./store-entitlement.ts";
 
 // Stripe 18.5.0 / 2025-08-27.basil. Keep the service independent of HTTP/SDK IO.
 export const WEB_CHECKOUT_API_VERSION = "2025-08-27.basil";
@@ -889,6 +890,8 @@ export function createWebSubscriptionCheckoutService(
           return { kind: "canceled", plan: op.plan };
         }
         const profile = await repo.profile(owner.id);
+        const storeProvider = activeStoreProvider(profile, now());
+        if (storeProvider) return { kind: "manage", message: storeManagementMessage(storeProvider) };
         if (request.action === "confirm_upgrade") {
           const op = operations.find((row) =>
             row.id === request.quoteToken && row.ownerId === owner.id &&

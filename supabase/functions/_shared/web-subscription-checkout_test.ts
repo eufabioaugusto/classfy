@@ -43,8 +43,18 @@ const other = {
   id: "10000000-0000-4000-8000-000000000002",
   email: "other@example.invalid",
 };
+Deno.test('assinatura Apple/Google vigente impede checkout Stripe antes de qualquer cobrança', async () => {
+  for (const provider of ['apple', 'google']) {
+    const f = fixture();
+    f.profiles.set(owner.id, {plan:'premium',plan_expires_at:'2027-11-11T00:00:00Z',entitlement_source:provider});
+    const result = await f.prepare('pro');
+    equal(result.kind,'manage');
+    equal([f.effects.created,f.effects.updated,f.effects.expired,f.effects.synced],[0,0,0,0]);
+    assert(String(result.message).includes(provider === 'apple' ? 'App Store' : 'Google Play'));
+  }
+});
 const request = (n: number) =>
-  `20000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    `20000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {

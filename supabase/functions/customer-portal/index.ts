@@ -1,7 +1,12 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
-import { findStripeCustomer, getRequestOrigin } from "../_shared/stripe-subscription.ts";
+import {
+  assertStripeSubscriptionProvider,
+  findStripeCustomer,
+  getRequestOrigin,
+  StripeSubscriptionProviderError,
+} from "../_shared/stripe-subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,11 +42,12 @@ serve(async (req) => {
       apiVersion: "2025-08-27.basil",
     });
 
-    const { customerId } = await findStripeCustomer(stripe, supabaseClient, {
+    const { customerId, profile } = await findStripeCustomer(stripe, supabaseClient, {
       id: user.id,
       email: user.email,
     });
 
+    assertStripeSubscriptionProvider(profile);
     if (!customerId) {
       throw new Error("No Stripe customer found. You need an active subscription first.");
     }
@@ -66,7 +72,7 @@ serve(async (req) => {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 500,
+      status: error instanceof StripeSubscriptionProviderError ? error.status : 500,
     });
   }
 });
