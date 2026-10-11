@@ -7,7 +7,7 @@ import type { Appearance, Stripe } from '@stripe/stripe-js';
 import { Check, CheckCircle2, Crown, CreditCard, Loader2, LockKeyhole, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import {
   confirmSubscriptionUpgrade, loadBillingStripe, prepareSubscriptionCheckout,
-  readSubscriptionCheckoutStatus, requestSubscriptionCheckoutCancel,
+  readSubscriptionCheckoutStatus,
 } from '@/lib/billing/subscriptionCheckout';
 import type { PaidPlan } from '@/config/planOffers';
 import '@/styles/subscription-checkout.css';
@@ -140,13 +140,9 @@ const CheckoutSession = forwardRef<SessionHandle, { owner: string; plan: PaidPla
   const release = (owned: Operation) => { if (operation.current === owned) operation.current = null; };
   const stopWork = () => { alive.current = false; ++generation.current; operation.current?.controller.abort(); operation.current = null; };
   useLayoutEffect(() => { alive.current = true; return stopWork; }, []);
-  useImperativeHandle(ref, () => ({ close() {
-    const target = flowRef.current, mayCancel = fresh() && !confirmed.current && target?.kind === 'checkout';
-    stopWork();
-    // Only an explicit close can expire this account's known open Checkout.
-    // Owner changes and unmount merely abort local work.
-    if (mayCancel && target?.kind === 'checkout') void requestSubscriptionCheckoutCancel(owner, target.sessionId).catch(() => undefined);
-  } }));
+  // Closing the modal interrupts only local work. Stripe payments remain
+  // resumable; dismissing this UI is not an instruction to cancel payment.
+  useImperativeHandle(ref, () => ({ close: stopWork }));
 
   const acceptActive = async (owned: Operation) => {
     if (!fresh(owned)) return;

@@ -176,14 +176,23 @@ const owned = (resource: Json, owner: string, customer: string) => {
 };
 const sessionOwned = (session: Json, operation: CheckoutOperation) => {
   owned(session, operation.ownerId, operation.customerId);
+  // A pre-ledger session can only be adopted after canonical price/owner checks.
+  // The durable receipt records the exact Stripe ID; it never accepts another
+  // session whose metadata happens to name the same plan/customer.
+  const adopted = operation.params?.adopted_session === session.id &&
+    !session.metadata?.web_checkout_operation;
   if (
     session.metadata?.user_id !== operation.ownerId ||
-    session.metadata?.web_checkout_operation !== operation.id ||
+    (!adopted && session.metadata?.web_checkout_operation !== operation.id) ||
     session.metadata?.plan_type !== operation.plan ||
     session.mode !== "subscription" ||
     session.ui_mode !== (operation.params?.ui_mode ?? "custom")
   ) fail("not_found", "Pagamento não encontrado nesta conta.", 404);
 };
+const unstartedCheckout = (session: Json) =>
+  session.status === "open" && session.payment_status === "unpaid" &&
+  session.subscription === null && session.invoice === null &&
+  session.payment_intent === null && session.setup_intent === null;
 
 export function parseWebCheckoutRequest(raw: unknown): WebCheckoutRequest {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -343,7 +352,7 @@ export function createWebSubscriptionCheckoutService(
           kind: "manage",
           plan: op.plan,
           message:
-            "Há um pagamento aberto em outra janela. Conclua ou cancele esse pagamento antes de iniciar outro.",
+            "Este pagamento anterior precisa ser verificado antes de abrir o pagamento integrado.",
         };
     }
     if (!current.client_secret) {
@@ -505,6 +514,286 @@ export function createWebSubscriptionCheckoutService(
     return response("pending");
   }
 
+  function recoveredSessionPlan(
+    session: Json,
+    owner: string,
+    customer: string,
+  ) {
+    owned(session, owner, customer);
+    const plan = session.metadata?.plan_type as Plan;
+    const lines = session.line_items;
+    const item = lines?.data?.[0];
+    if (
+      session.metadata?.user_id !== owner ||
+      !["pro", "premium"].includes(plan) ||
+      session.mode !== "subscription" ||
+      !["custom", "hosted"].includes(session.ui_mode) ||
+      (session.client_reference_id && session.client_reference_id !== owner) ||
+      lines?.has_more || lines?.data?.length !== 1 || item.quantity !== 1 ||
+      item.price?.id !== STRIPE_PLANS[plan]?.priceId ||
+      id(item.price?.product) !== STRIPE_PLANS[plan]?.productId ||
+      session.currency !== "brl" ||
+      (session.metadata.product_id &&
+        session.metadata.product_id !== STRIPE_PLANS[plan].productId) ||
+      !Number.isFinite(session.expires_at) ||
+      (session.metadata.web_checkout_operation &&
+        !uuidPattern.test(session.metadata.web_checkout_operation))
+    ) {
+      fail(
+        "checkout_unverified",
+        "Não foi possível confirmar o pagamento anterior desta conta. Revise a assinatura em Minha conta antes de iniciar outro.",
+      );
+    }
+    return plan;
+  }
+
+  async function adoptSession(
+    session: Json,
+    owner: string,
+    customer: string,
+    operations: CheckoutOperation[],
+    lease: string,
+    requestId: string,
+  ) {
+    const plan = recoveredSessionPlan(session, owner, customer);
+    const existing = operations.find((op) =>
+      op.sessionId === session.id ||
+      op.id === session.metadata.web_checkout_operation
+    );
+    if (existing) {
+      sessionOwned(session, existing);
+      if (existing.state === "canceled" || existing.state === "failed") {
+        fail(
+          "checkout_unverified",
+          "O pagamento anterior precisa ser verificado.",
+        );
+      }
+      if (!existing.sessionId) {
+        existing.sessionId = session.id;
+        existing.state = "prepared";
+        await save(owner, lease, existing);
+      }
+      return existing;
+    }
+    const op: CheckoutOperation = {
+      id: session.metadata.web_checkout_operation ?? uuid(),
+      ownerId: owner,
+      customerId: customer,
+      requestId,
+      kind: "checkout",
+      plan,
+      state: "prepared",
+      sessionId: session.id,
+      createdAt: now(),
+      expiresAt: session.expires_at * 1000,
+      params: {
+        ui_mode: session.ui_mode,
+        ...!session.metadata.web_checkout_operation
+          ? { adopted_session: session.id }
+          : {},
+      },
+      quote: await price(plan),
+    };
+    // Save before exposing a secret or retiring the session. A lost DB reply is
+    // recovered by the next owner-scoped read, without creating a new payment.
+    await save(owner, lease, op);
+    operations.push(op);
+    return op;
+  }
+
+  async function expireUnstarted(
+    op: CheckoutOperation,
+    session: Json,
+    lease: string,
+  ) {
+    if (!unstartedCheckout(session)) return false;
+    // Recovery can inspect several sessions. Fence the external mutation again
+    // immediately before expire; an expired/replaced lease cannot retire it.
+    await save(op.ownerId, lease, op);
+    let current: Json;
+    try {
+      current = await stripe.checkout.sessions.expire(session.id, {}, {
+        idempotencyKey: `web-retire-v1:${session.id}`,
+      });
+    } catch {
+      // Expire may have succeeded before its response was lost, or Checkout
+      // may have completed first. Neither case authorizes a speculative create.
+      current = await stripe.checkout.sessions.retrieve(session.id, {
+        expand: ["line_items"],
+      });
+    }
+    sessionOwned(current, op);
+    if (current.status !== "expired") return false;
+    op.state = "canceled";
+    await save(op.ownerId, lease, op);
+    return true;
+  }
+
+  async function recoverCheckouts(
+    owner: string,
+    customer: string,
+    plan: Plan,
+    requestId: string,
+    operations: CheckoutOperation[],
+    candidate: CheckoutOperation | undefined,
+    lease: string,
+  ): Promise<{ operation?: CheckoutOperation; response?: Json }> {
+    const recoveredStatus = async (op: CheckoutOperation) => {
+      const result = await status(op, lease);
+      if (op.plan === plan) return result;
+      const name = op.plan === "pro" ? "Pro" : "Premium";
+      return {
+        kind: "manage",
+        plan: op.plan,
+        message: result.state === "active"
+          ? `O pagamento do ${name} foi confirmado. Confira sua assinatura em Minha conta e selecione o novo plano novamente.`
+          : `Existe um pagamento anterior do ${name} que ainda precisa ser confirmado. Confira esse pagamento em Minha conta antes de trocar de plano.`,
+      };
+    };
+    const listed = await stripe.checkout.sessions.list({
+      customer,
+      status: "open",
+      limit: 100,
+    });
+    if (listed.has_more) {
+      fail(
+        "billing_history_unavailable",
+        "Não foi possível confirmar todos os pagamentos desta conta. Tente novamente em Minha conta.",
+        503,
+      );
+    }
+    // Include all durable live receipts, not only the newest. Stripe list is a
+    // snapshot and can omit a session which completes/expires during recovery.
+    const sessionIds = new Set(
+      listed.data.filter((row) => row.mode === "subscription").map((row) =>
+        row.id as string
+      ),
+    );
+    for (const op of operations) {
+      if (
+        op.kind === "checkout" && op.sessionId &&
+        ["creating", "prepared", "pending"].includes(op.state)
+      ) sessionIds.add(op.sessionId);
+    }
+    const open: { session: Json; operation?: CheckoutOperation }[] = [];
+    for (const sessionId of sessionIds) {
+      const session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ["line_items"],
+      });
+      recoveredSessionPlan(session, owner, customer);
+      const known = operations.find((op) =>
+        op.sessionId === sessionId ||
+        op.id === session.metadata.web_checkout_operation
+      );
+      if (known) sessionOwned(session, known);
+      if (session.status === "expired") {
+        if (known && known.state !== "canceled") {
+          known.state = "canceled";
+          await save(owner, lease, known);
+        }
+        continue;
+      }
+      if (session.status !== "open") {
+        const op = await adoptSession(
+          session,
+          owner,
+          customer,
+          operations,
+          lease,
+          uuid(),
+        );
+        return { response: await recoveredStatus(op) };
+      }
+      open.push({ session, operation: known });
+    }
+    const keep = open.find((row) =>
+      row.session.ui_mode === "custom" &&
+      row.session.metadata.plan_type === plan &&
+      row.operation?.id === candidate?.id
+    ) ?? open.find((row) =>
+      row.session.ui_mode === "custom" &&
+      row.session.metadata.plan_type === plan
+    );
+    // Assess the entire set before expiring anything. A started/unknown payment
+    // for another plan must be resolved, never replaced with a second charge.
+    const protectedPayment = open.find((row) =>
+      row !== keep && !unstartedCheckout(row.session)
+    );
+    if (protectedPayment) {
+      const op = await adoptSession(
+        protectedPayment.session,
+        owner,
+        customer,
+        operations,
+        lease,
+        uuid(),
+      );
+      return { response: await recoveredStatus(op) };
+    }
+    let retired = false;
+    for (const row of open) {
+      if (row === keep) continue;
+      const op = await adoptSession(
+        row.session,
+        owner,
+        customer,
+        operations,
+        lease,
+        uuid(),
+      );
+      if (!await expireUnstarted(op, row.session, lease)) {
+        return { response: await recoveredStatus(op) };
+      }
+      retired = true;
+    }
+    if (keep) {
+      const op = await adoptSession(
+        keep.session,
+        owner,
+        customer,
+        operations,
+        lease,
+        candidate?.requestId === requestId ? uuid() : requestId,
+      );
+      return { response: await checkoutResponse(op, lease) };
+    }
+    if (retired) {
+      const sub = await subscriptionFor(customer);
+      if (sub) {
+        owned(sub, owner, customer);
+        const currentPlan = exactPlan(sub);
+        if (currentPlan && await syncActive(owner, sub, currentPlan)) {
+          return {
+            response: currentPlan === plan
+              ? { kind: "active", plan, status: sub.status }
+              : {
+                kind: "manage",
+                plan: currentPlan,
+                message:
+                  "Uma assinatura anterior foi confirmada. Confira sua assinatura em Minha conta e selecione o novo plano novamente.",
+              },
+          };
+        }
+        return {
+          response: {
+            kind: "manage",
+            plan: exactPlan(sub) ?? plan,
+            message:
+              "Uma assinatura anterior está sendo confirmada. Revise o pagamento em Minha conta antes de iniciar outro.",
+          },
+        };
+      }
+    }
+    if (candidate?.sessionId) return {};
+    if (candidate && candidate.plan !== plan) {
+      fail(
+        "operation_pending",
+        "Há um pagamento sendo preparado. Aguarde a confirmação antes de trocar o plano.",
+      );
+    }
+    return { operation: candidate };
+  }
+
   return {
     async execute(
       owner: { id: string; email: string },
@@ -579,13 +868,21 @@ export function createWebSubscriptionCheckoutService(
               "A preparação ainda está sendo confirmada. Tente novamente antes de encerrar.",
             );
           }
-          const session = await stripe.checkout.sessions.retrieve(op.sessionId);
+          const session = await stripe.checkout.sessions.retrieve(
+            op.sessionId,
+            {
+              expand: ["line_items"],
+            },
+          );
           sessionOwned(session, op);
           if (session.status === "complete") return await status(op, lease);
           if (session.status === "open") {
-            await stripe.checkout.sessions.expire(session.id, {}, {
-              idempotencyKey: `web-expire-v1:${op.id}`,
-            });
+            if (!await expireUnstarted(op, session, lease)) {
+              return await status(op, lease);
+            }
+          }
+          if (session.status !== "open" && session.status !== "expired") {
+            return await status(op, lease);
           }
           op.state = "canceled";
           await save(owner.id, lease, op);
@@ -822,7 +1119,9 @@ export function createWebSubscriptionCheckoutService(
           op.kind === "checkout" &&
           ["creating", "prepared", "pending"].includes(op.state)
         );
-        let op = unfinished ?? previousRequest;
+        // A repeated client intent retains its own terminal receipt, even when
+        // another tab has since opened a new checkout for the same plan.
+        let op = previousRequest ?? unfinished;
         if (
           op?.state === "creating" && op.expiresAt <= now() && !op.sessionId
         ) {
@@ -832,6 +1131,26 @@ export function createWebSubscriptionCheckoutService(
         }
         if (op && ["completed", "canceled", "failed"].includes(op.state)) {
           return await status(op, lease);
+        }
+        if (deps.uiMode !== "hosted") {
+          const recovery = await recoverCheckouts(
+            owner.id,
+            customerId,
+            request.plan,
+            request.operationId,
+            operations,
+            op,
+            lease,
+          );
+          if (recovery.response) return recovery.response;
+          // A client intent is never reused after its payment was retired.
+          // A new user choice has a fresh request UUID and can create safely.
+          if (
+            op?.requestId === request.operationId && op.state === "canceled"
+          ) {
+            return await status(op, lease);
+          }
+          op = recovery.operation;
         }
         if (op && op.plan !== request.plan) {
           if (!op.sessionId) {
@@ -848,7 +1167,7 @@ export function createWebSubscriptionCheckoutService(
               kind: "manage",
               plan: op.plan,
               message:
-                "Há um pagamento aberto para outro plano. Conclua ou cancele esse pagamento antes de iniciar outro.",
+                "Existe um pagamento anterior para outro plano. Revise esse pagamento antes de iniciar outro.",
             };
           }
           op.state = "canceled";
@@ -857,11 +1176,13 @@ export function createWebSubscriptionCheckoutService(
         }
         if (op?.sessionId) return await checkoutResponse(op, lease);
         if (!op) {
-          const listedSessions = await stripe.checkout.sessions.list({
-            customer: customerId,
-            status: "open",
-            limit: 100,
-          });
+          const listedSessions = deps.uiMode === "hosted"
+            ? await stripe.checkout.sessions.list({
+              customer: customerId,
+              status: "open",
+              limit: 100,
+            })
+            : { data: [], has_more: false };
           if (listedSessions.has_more) {
             fail(
               "billing_history_unavailable",
@@ -881,7 +1202,7 @@ export function createWebSubscriptionCheckoutService(
                 kind: "manage",
                 plan: older.metadata?.plan_type ?? request.plan,
                 message:
-                  "Há um pagamento aberto em outra janela. Conclua ou cancele esse pagamento antes de iniciar outro.",
+                  "Existe um pagamento anterior nesta conta. Revise esse pagamento antes de iniciar outro.",
               };
           }
           const target = await price(request.plan);
@@ -933,6 +1254,7 @@ export function createWebSubscriptionCheckoutService(
           }
           await save(owner.id, lease, op);
         }
+        await save(owner.id, lease, op);
         const session = await stripe.checkout.sessions.create(op.params!, {
           idempotencyKey: `web-checkout-v1:${op.id}`,
         });
