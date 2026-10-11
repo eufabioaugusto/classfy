@@ -1,118 +1,80 @@
-import { NavigationHeader } from '@/components/NavigationHeader';
-import { controls } from '@/theme/controls';
-import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { LockKeyhole, Mail } from 'lucide-react-native';
 
-import { AppScreen } from '@/components/AppScreen';
+import { AuthScene, authColors } from '@/features/auth/AuthScene';
+import { AuthButton, AuthDivider, AuthField, AuthNotice, authStyles } from '@/features/auth/AuthControls';
+import { useGoogleSignIn } from '@/features/auth/useGoogleSignIn';
+import { resolveAuthDestination } from '@/features/auth/oauth';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { colors, radius, spacing, type } from '@/theme/tokens';
 
 export default function SignInScreen() {
-  const { contentId, liveId } = useLocalSearchParams<{ contentId?: string; liveId?: string }>();
+  const params = useLocalSearchParams<{ contentId?: string; liveId?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [recovery, setRecovery] = useState(false);
+  const [recoverySent, setRecoverySent] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
+  const google = useGoogleSignIn(params);
+  const busy = loading || google.googleLoading;
 
   async function handleSignIn() {
-    if (!isSupabaseConfigured) {
-      Alert.alert('Não foi possível conectar', 'Tente novamente mais tarde.');
+    if (busy) return;
+    Keyboard.dismiss();
+    setError('');
+    google.clearGoogleError();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || (!recovery && !password)) {
+      setError(recovery ? 'Informe seu e-mail para recuperar o acesso.' : 'Preencha seu e-mail e senha para continuar.');
       return;
     }
-
+    if (!isSupabaseConfigured) { setError('Não foi possível conectar. Tente novamente em instantes.'); return; }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-
-    if (error) {
-      Alert.alert('Erro ao entrar', error.message);
-      return;
-    }
-
-    if (typeof liveId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(liveId)) {
-      router.replace({ pathname: '/live/[id]', params: { id: liveId } });
-    } else if (typeof contentId === 'string' && /^[0-9a-f-]{36}$/i.test(contentId)) {
-      router.replace({ pathname: '/watch/[id]', params: { id: contentId } });
-    } else {
-      router.replace('/(tabs)');
-    }
+    try {
+      if (recovery) {
+        const { error: requestError } = await supabase.functions.invoke('request-password-reset', { body: { email: email.trim().toLowerCase() } });
+        if (requestError) throw requestError;
+        setRecoverySent(true);
+      } else {
+        const { error: loginError } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+        if (loginError) {
+          setError(loginError.code === 'invalid_credentials' ? 'E-mail ou senha incorretos. Confira e tente novamente.' : loginError.code === 'email_not_confirmed' ? 'Confirme seu e-mail antes de entrar. Confira sua caixa de entrada.' : 'Não foi possível entrar. Tente novamente em instantes.');
+          return;
+        }
+        router.replace(resolveAuthDestination(params));
+      }
+    } catch { setError('Não foi possível conectar. Confira sua conexão e tente novamente.'); }
+    finally { setLoading(false); }
   }
 
-  return (
-    <AppScreen header={<NavigationHeader title="Entrar" back />}>
+  async function handleGoogle() {
+    Keyboard.dismiss();
+    setError('');
+    const result = await google.signInWithGoogle();
+    if (result?.status === 'success' && result.destination) router.replace(result.destination);
+  }
 
-      <View style={styles.header}>
-        <Text style={styles.title}>Entrar</Text>
-        <Text style={styles.subtitle}>Seus conteúdos, estudos e conquistas, sempre com você.</Text>
-      </View>
+  function closeRecovery() { setRecovery(false); setRecoverySent(false); setError(''); }
 
-      <View style={styles.form}>
-        <TextInput
-          autoCapitalize="none"
-          keyboardType="email-address"
-          onChangeText={setEmail}
-          placeholder="Seu e-mail"
-          autoComplete="email"
-          textContentType="emailAddress"
-          placeholderTextColor={colors.muted}
-          style={styles.input}
-          value={email}
-        />
-        <TextInput
-          onChangeText={setPassword}
-          placeholder="Sua senha"
-          autoComplete="current-password"
-          textContentType="password"
-          placeholderTextColor={colors.muted}
-          secureTextEntry
-          style={styles.input}
-          value={password}
-        />
-        <Pressable disabled={loading} onPress={handleSignIn} style={styles.button}>
-          <Text style={styles.buttonText}>{loading ? 'Entrando...' : 'Entrar'}</Text>
-        </Pressable>
-      </View>
-      <Pressable accessibilityRole="button" onPress={() => router.push('/auth/sign-up')} style={{ minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 16 }}><Text style={{ color: colors.textSecondary }}>Ainda não tem conta? Criar conta</Text></Pressable>
-    </AppScreen>
-  );
+  return <AuthScene title={recovery ? 'Recupere seu acesso.' : 'Bom ter você aqui.'} subtitle={recovery ? 'Enviaremos um link para você criar uma nova senha.' : 'Seus conteúdos, estudos e conquistas.\nTudo no seu ritmo.'} onBack={recovery ? closeRecovery : undefined}>
+    {!recovery && google.googleAvailable && <>
+      <AuthButton google label={google.googleLoading ? 'Conectando com Google...' : 'Continuar com Google'} loading={google.googleLoading} disabled={loading} onPress={() => void handleGoogle()} />
+      <AuthDivider />
+    </>}
+    <View style={authStyles.form}>
+      <AuthNotice text={error || google.googleError} />
+      <AuthNotice success text={recoverySent ? 'Link enviado. Confira sua caixa de entrada e o spam para recuperar o acesso.' : ''} />
+      <AuthField label="E-mail" icon={<Mail size={19} color={authColors.secondary} strokeWidth={1.6} />} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" textContentType="emailAddress" placeholder="seu@email.com" value={email} onChangeText={setEmail} editable={!busy} returnKeyType={recovery ? 'go' : 'next'} onSubmitEditing={() => recovery ? void handleSignIn() : passwordRef.current?.focus()} />
+      {!recovery && <>
+        <AuthField ref={passwordRef} label="Senha" password icon={<LockKeyhole size={19} color={authColors.secondary} strokeWidth={1.6} />} autoCapitalize="none" autoCorrect={false} autoComplete="current-password" textContentType="password" placeholder="Sua senha" value={password} onChangeText={setPassword} editable={!busy} returnKeyType="go" onSubmitEditing={() => void handleSignIn()} />
+        <Pressable accessibilityRole="button" disabled={busy} style={authStyles.forgot} onPress={() => { setRecovery(true); setError(''); google.clearGoogleError(); }}><Text style={authStyles.link}>Esqueci minha senha</Text></Pressable>
+      </>}
+      <AuthButton label={loading ? recovery ? 'Enviando link...' : 'Entrando...' : recovery ? recoverySent ? 'Enviar novamente' : 'Enviar link' : 'Entrar'} loading={loading} disabled={google.googleLoading} onPress={() => void handleSignIn()} />
+    </View>
+    <Pressable accessibilityRole="button" disabled={busy} onPress={recovery ? closeRecovery : () => router.push({ pathname: '/auth/sign-up', params })} style={authStyles.footer}>
+      <Text style={authStyles.footerText}>{recovery ? 'Lembrou sua senha? ' : 'Ainda não tem conta? '}<Text style={authStyles.footerStrong}>{recovery ? 'Entrar' : 'Criar conta'}</Text></Text>
+    </Pressable>
+  </AuthScene>;
 }
-
-const styles = StyleSheet.create({
-  header: {
-    gap: spacing.sm,
-    marginBottom: spacing.xl,
-  },
-  title: {
-    color: colors.text,
-    fontSize: type.xxxl,
-    fontWeight: '700',
-  },
-  subtitle: {
-    color: colors.muted,
-    fontSize: type.md,
-  },
-  form: {
-    gap: spacing.md,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: type.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  button: {
-    alignItems: 'center',
-    backgroundColor: colors.accent,
-    borderRadius: controls.buttonRadius,
-    paddingVertical: spacing.md,
-  },
-  buttonText: {
-    color: colors.background,
-    fontSize: type.md,
-    fontWeight: '700',
-  },
-});
