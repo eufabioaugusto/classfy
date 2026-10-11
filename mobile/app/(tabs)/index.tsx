@@ -13,13 +13,14 @@ import { Image } from 'expo-image';
 import { useRouter, type Href } from 'expo-router';
 import { AppScreen } from '@/components/AppScreen';
 import { HomeHeader } from '@/components/HomeHeader';
-import { HomeHero } from '@/components/HomeHero';
+import { HomeHero, HomeHeroPlaceholder } from '@/components/HomeHero';
 import { MobileVideoCard } from '@/components/MobileVideoCard';
 import { ContinueWatching } from '@/components/ContinueWatching';
 import { FeaturedCreators } from '@/components/FeaturedCreators';
 import { CreatorApprovedBanner } from '@/components/CreatorApprovedBanner';
 import { useHomeSections } from '@/features/home/useHomeSections';
 import { useHomeEditorial } from '@/features/home/useHomeEditorial';
+import { selectHomeHero } from '@/features/home/heroSelection';
 import { homeSections } from '@/features/home/ranking';
 import type { HomeContent } from '@/features/home/homeData';
 import { useAuth } from '@/features/auth/authContext';
@@ -43,7 +44,7 @@ export default function HomeScreen() {
   const [revision, setRevision] = useState(0);
   const { contents, courses, loading, refreshing, error, refresh } =
     useHomeSections();
-  const { creators, settings, lives } = useHomeEditorial(revision);
+  const { creators, editorial, lives } = useHomeEditorial(revision);
   const interests = useMemo(
     () =>
       Array.isArray(profile?.interests)
@@ -110,26 +111,17 @@ export default function HomeScreen() {
     sections[7],
     sections[5],
   ].flatMap((section) => section.contents);
-  const editorial = settings
-    ? contents.find((c) => c.id === settings.content_id && c.publishedAt)
-    : undefined;
-  const hero =
-    editorial ||
-    candidates.find((c) =>
-      process.env.EXPO_PUBLIC_HOME_HERO_CONTENT_ID
-        ? c.id === process.env.EXPO_PUBLIC_HOME_HERO_CONTENT_ID
-        : c.title.trim().toLocaleLowerCase('pt-BR') === 'aula mux 1',
-    ) ||
-    candidates.find(
-      (c) =>
-        c.thumbnailUrl &&
-        (c.access === 'free' ||
-          (c.access === 'pro' &&
-            ['pro', 'premium'].includes(profile?.plan || '')) ||
-          (c.access === 'premium' && profile?.plan === 'premium')),
-    );
-  const creator = hero ? undefined : creators[0];
-  const appliedSettings = editorial ? settings : null;
+  const heroSelection = selectHomeHero({
+    editorial,
+    contents,
+    candidates,
+    creators,
+    catalogLoading: loading,
+    catalogError: error,
+    preferredContentId: process.env.EXPO_PUBLIC_HOME_HERO_CONTENT_ID,
+    plan: profile?.plan,
+  });
+  const { content: hero, creator, settings: appliedSettings } = heroSelection;
   const openHref = (href?: string) => {
     if (!href || !/^\/(?!\/)[^\\\r\n]*$/.test(href)) return false;
     if (href === '/c/new') router.push('/study');
@@ -169,10 +161,20 @@ export default function HomeScreen() {
                 </Text>
               </Pressable>
             ) : null}
+            {editorial.error ? (
+              <Pressable
+                onPress={() => setRevision((current) => current + 1)}
+                style={styles.notice}
+              >
+                <Text style={styles.body}>
+                  {editorial.error} Toque para tentar novamente.
+                </Text>
+              </Pressable>
+            ) : null}
             {loading && !contents.length && !courses.length ? (
               <LoadingPlaceholder variant="home" inset={false} />
             ) : <>
-            <HomeHero
+            {heroSelection.status === 'loading' ? <HomeHeroPlaceholder /> : <HomeHero
               content={hero}
               creator={creator}
               settings={appliedSettings}
@@ -202,7 +204,7 @@ export default function HomeScreen() {
                 if (!openHref(appliedSettings?.secondary_href))
                   router.push(user ? '/study' : '/auth/sign-in');
               }}
-            />
+            />}
             {lives.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.heading}>Lives ao vivo</Text>

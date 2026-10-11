@@ -37,6 +37,13 @@ async function harness(options = {}) {
     ? { width: 393, height: 852 } : { width: 844, height: 390 };
   const contexts = new Map(), timers = new Map(), appListeners = new Set(), orientationListeners = new Set();
   const navigation = [], calls = [], alerts = [], scrolls = [], exits = [], screenOptions = [];
+  const keyboardListeners = new Map();
+  let keyboardVisible = false;
+  const keyboard = visible => {
+    keyboardVisible = visible;
+    for (const callback of keyboardListeners.get(visible ? 'keyboardWillShow' : 'keyboardWillHide') || []) callback();
+    dirty = true;
+  };
   const prepareForExit = () => {
     const request = { owner, id, focused, foreground: appState.currentState };
     exits.push(request);
@@ -92,7 +99,9 @@ async function harness(options = {}) {
   const native = {
     ActivityIndicator: 'spinner', Alert: { alert: (...args) => alerts.push(args) }, AppState: appState,
     KeyboardAvoidingView: 'keyboard', Linking: { openSettings: async () => {} }, Platform: { OS: 'ios' },
-    Pressable: 'button', ScrollView: 'scroll', Text: 'text', View: 'view',
+    Keyboard: { dismiss: () => keyboard(false), isVisible: () => keyboardVisible,
+      addListener: (name, callback) => { const values = keyboardListeners.get(name) || new Set(); values.add(callback); keyboardListeners.set(name, values); return { remove: () => values.delete(callback) }; } },
+    Pressable: 'button', ScrollView: 'scroll', Text: 'text', TextInput: 'input', TouchableWithoutFeedback: 'touch-dismiss', View: 'view',
     StyleSheet: { create: styles => styles, absoluteFillObject: {}, absoluteFill: {} },
     findNodeHandle: view => view?.tag ?? null,
     useWindowDimensions: () => windowDimensions,
@@ -178,6 +187,17 @@ async function harness(options = {}) {
     '@/components/LoadingImage': { LoadingImage: 'image' }, '@/theme/colors': theme, './model': model,
   });
   const auth = { useAuth: () => ({ user: { id: owner } }) };
+  const captureSheet = load('./StudioCaptureSheet.tsx', {
+    react: hooks, 'react/jsx-runtime': jsxRuntime, 'react-native': native, '@/theme/colors': theme,
+    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, bottom: 21, left: 47, right: 0 }) },
+    '@/components/SheetModal': { SheetCloseButton: 'sheet-close', SheetModal: props => props.visible ? props.children : null, sheetStyles: {} },
+  });
+  const scriptPanel = load('./StudioCaptureScriptPanel.tsx', {
+    react: hooks, 'react/jsx-runtime': jsxRuntime, 'react-native': native, 'lucide-react-native': icons,
+    '@/features/auth/authContext': auth, '@/theme/colors': theme, './store': runtime.store,
+    './StudioUI': { StudioField: props => jsx('input', { ...props, accessibilityLabel: props.label }),
+      StudioButton: props => jsx('button', { ...props, accessibilityLabel: props.label, disabled: props.disabled || props.loading }), studioStyles: {} },
+  });
   const projectHook = load('./useStudioProjects.ts', {
     react: hooks, '@/features/auth/authContext': auth, './store': runtime.store,
     './workspaceActions': { duplicateStudioProject: undefined, renameStudioProject: undefined },
@@ -204,7 +224,7 @@ async function harness(options = {}) {
       }) },
     '@react-navigation/native': { useIsFocused: () => focused, usePreventRemove: (enabled, callback) => { removal = { enabled, callback }; } },
     'lucide-react-native': icons, 'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, bottom: 21, left: 47, right: 0 }) },
-    '@/components/SheetModal': { SheetCloseButton: 'sheet-close', SheetModal: props => props.visible ? props.children : null, sheetStyles: {} },
+    '@/features/studio/StudioCaptureSheet': captureSheet,
     '@/contexts/PrimaryActionContext': { usePrimaryAction: () => ({ canPublish: true, roleLoading: false }) },
     '@/features/auth/authContext': auth, '@/features/studio/media': runtime.media, '@/features/studio/model': model,
     '../../modules/classfy-studio-media': bridge, '@/features/studio/store': runtime.store,
@@ -215,7 +235,7 @@ async function harness(options = {}) {
     '@/features/studio/StudioCaptureTakes': takes,
     '@/features/studio/StudioCaptureAudio': audioMonitor,
     '@/features/studio/StudioCaptureAudioMonitor': { StudioCaptureAudioMonitor: 'audio-monitor' },
-    '@/features/studio/StudioCaptureScriptPanel': { StudioCaptureScriptPanel: 'script-panel' },
+    '@/features/studio/StudioCaptureScriptPanel': scriptPanel,
     '@/features/studio/StudioCaptureRecording': videoStop, '@/features/studio/StudioNativeCamera': cameraModule,
     '@/features/studio/timeline': timeline,
     '@/theme/colors': theme, '@/theme/controls': { controls: {} },
@@ -291,7 +311,8 @@ async function harness(options = {}) {
   }
   const current = () => runtime.store.getStudioProject('owner', id);
   return {
-    runtime, calls, alerts, navigation, exits, screenOptions, pump, ready, advance, nodes, find, current,
+    runtime, calls, alerts, navigation, exits, screenOptions, scrolls, pump, ready, advance, nodes, find, current, keyboard,
+    keyboardVisible: () => keyboardVisible,
     button: label => {
       const button = nodes(node => node.type === 'button' && node.props.accessibilityLabel === label)[0];
       assert.ok(button, `Expected ${label}; present buttons: ${nodes(node => node.type === 'button').map(node => node.props.accessibilityLabel).join(', ')}`);
@@ -348,6 +369,88 @@ test('REC → STOP salva original/journal antes de restaurar miniatura e Avança
     assert.equal(h.navigation[0].project.takes.length, 1);
     assert.equal(h.runtime.disk.has(h.current().takes[0].uri), true);
   } finally { await h.dispose(); }
+});
+
+test('teleprompter ativo permanece em REC, rola, pausa/retoma e volta com os controles após STOP em Aula e Short', async () => {
+  for (const projectKind of ['aula', 'short']) {
+    const h = await harness({ projectKind });
+    try {
+      await h.runtime.store.updateStudioProject('owner', h.current().id, { script: 'Abertura\nExplicação\nDemonstração\nConclusão' });
+      await h.ready();
+      const scroll = () => h.find(node => node.type === 'scroll' && node.props.onScrollBeginDrag).props;
+      const ref = scroll().ref;
+      scroll().onLayout({ nativeEvent: { layout: { height: 100 } } });
+      scroll().onContentSizeChange(300, 700);
+      h.button('Começar gravação').onPress(); await h.advance(3000);
+      assert.equal(scroll().ref, ref, 'REC must preserve the reading surface and its measurements');
+      assert.deepEqual(h.nodes(node => node.type === 'button' && node.props.accessibilityRole === 'button').map(node => node.props.accessibilityLabel), ['Pausar rolagem do roteiro', 'Encerrar e salvar take']);
+      await h.advance(1000);
+      const offset = h.scrolls.at(-1).y;
+      assert.ok(offset > 20 && offset < 40, 'Text must advance at the configured speed while REC runs');
+      h.button('Pausar rolagem do roteiro').onPress(); await h.pump();
+      await h.advance(1000);
+      assert.equal(h.scrolls.at(-1).y, offset, 'Pausing reading does not reset its position');
+      assert.equal(h.calls.filter(value => value.kind === 'stop').length, 0, 'Reading controls must not stop the take');
+      h.button('Ativar rolagem do roteiro').onPress(); await h.pump(); await h.advance(1000);
+      assert.ok(h.scrolls.at(-1).y > offset);
+      h.button('Encerrar e salvar take').onPress(); await h.pump();
+      assert.equal(h.current().takes.length, 1);
+      assert.equal(scroll().ref, ref);
+      assert.equal(h.button('Abrir teleprompter').disabled, false);
+      assert.equal(h.button('Começar gravação').disabled, false);
+      const stoppedOffset = h.scrolls.at(-1).y;
+      await h.advance(1000); assert.equal(h.scrolls.at(-1).y, stoppedOffset, 'STOP ends automatic reading');
+      h.button('Começar gravação').onPress(); await h.advance(3000);
+      assert.equal(h.scrolls.at(-1).y, 0, 'A new take starts reading from the beginning');
+      h.button('Encerrar e salvar take').onPress(); await h.pump();
+    } finally { await h.dispose(); }
+  }
+});
+
+test('roteiro ocultado pelo usuário continua oculto durante REC', async () => {
+  const h = await harness();
+  try {
+    await h.runtime.store.updateStudioProject('owner', h.current().id, { script: 'Meu roteiro' });
+    await h.ready(); h.button('Abrir teleprompter').onPress(); await h.pump();
+    const show = h.find(node => node.type === 'button' && node.props.accessibilityRole === 'switch'
+      && node.props.children?.[0]?.props?.children === 'Mostrar roteiro');
+    show.props.onPress(); await h.pump();
+    h.find(node => node.type === 'sheet-close').props.onPress(); await h.pump();
+    h.button('Começar gravação').onPress(); await h.advance(3000);
+    assert.equal(h.nodes(node => node.type === 'scroll' && node.props.onScrollBeginDrag).length, 0);
+    assert.deepEqual(h.nodes(node => node.type === 'button' && node.props.accessibilityRole === 'button').map(node => node.props.accessibilityLabel), ['Encerrar e salvar take']);
+    h.button('Encerrar e salvar take').onPress(); await h.pump();
+  } finally { await h.dispose(); }
+});
+
+test('teclado do roteiro recolhe sem perder draft; aplicar salva, X e fundo fecham sem alterar o roteiro salvo', async () => {
+  for (const projectKind of ['aula', 'short']) {
+    const h = await harness({ projectKind });
+    try {
+      await h.ready(); h.button('Abrir teleprompter').onPress(); await h.pump();
+      const input = () => h.find(node => node.type === 'input' && node.props.accessibilityLabel === 'Seu guia de gravação').props;
+      input().onChangeText('Roteiro que estou escrevendo'); h.keyboard(true); await h.pump();
+      h.button('Concluir digitação do roteiro').onPress(); await h.pump();
+      assert.equal(h.keyboardVisible(), false); assert.equal(input().value, 'Roteiro que estou escrevendo');
+      h.keyboard(true); await h.pump();
+      h.button('Recolher teclado do roteiro').onPress(); await h.pump();
+      assert.equal(h.keyboardVisible(), false); assert.equal(input().value, 'Roteiro que estou escrevendo', 'First background tap must preserve the open draft');
+      h.keyboard(true); await h.pump();
+      h.find(node => node.type === 'touch-dismiss').props.onPress(); await h.pump();
+      assert.equal(h.keyboardVisible(), false); assert.equal(input().value, 'Roteiro que estou escrevendo');
+      h.button('Usar este roteiro').onPress(); await h.pump();
+      assert.equal(h.current().script, 'Roteiro que estou escrevendo');
+      assert.equal(h.nodes(node => node.type === 'input').length, 0);
+      h.button('Abrir teleprompter').onPress(); await h.pump();
+      input().onChangeText('Rascunho que não apliquei'); h.keyboard(true); await h.pump();
+      h.find(node => node.type === 'sheet-close').props.onPress(); await h.pump();
+      assert.equal(h.keyboardVisible(), false); assert.equal(h.current().script, 'Roteiro que estou escrevendo');
+      h.button('Abrir teleprompter').onPress(); await h.pump();
+      assert.equal(input().value, 'Roteiro que estou escrevendo');
+      h.button('Fechar ajustes de captura').onPress(); await h.pump();
+      assert.equal(h.nodes(node => node.type === 'input').length, 0);
+    } finally { await h.dispose(); }
+  }
 });
 
 test('flash fica ausente na frontal/sem torch e confirma estado real na traseira', async () => {

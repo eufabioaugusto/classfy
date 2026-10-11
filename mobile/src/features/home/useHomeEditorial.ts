@@ -1,9 +1,10 @@
 import { useNavigation } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
-import { supabase } from '@/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useAuth } from '@/features/auth/authContext';
 import type { FeaturedCreator } from '@/components/FeaturedCreators';
+import { initialHeroEditorialState, resolveHeroEditorial, type HeroEditorialState } from './heroSelection';
 
 export type HeroSettings = {
   content_id: string;
@@ -29,10 +30,13 @@ export type HomeLive = {
   viewer_count: number;
 };
 export function useHomeEditorial(revision: number) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const owner = user?.id || null;
   const navigation = useNavigation();
   const [creators, setCreators] = useState<FeaturedCreator[]>([]);
-  const [settings, setSettings] = useState<HeroSettings | null>(null);
+  const [heroState, setHeroState] = useState<HeroEditorialState & { owner: string | null }>(
+    () => ({ ...initialHeroEditorialState, owner }),
+  );
   const [lives, setLives] = useState<HomeLive[]>([]);
   useEffect(() => {
     let active = true;
@@ -78,18 +82,39 @@ export function useHomeEditorial(revision: number) {
   useEffect(() => {
     let active = true;
     let request = 0;
-    setSettings(null);
+    setHeroState((previous) => previous.owner === owner
+      ? previous
+      : { ...initialHeroEditorialState, owner });
     const load = async () => {
-      if (AppState.currentState !== 'active' || !navigation.isFocused()) return;
+      if (authLoading || AppState.currentState !== 'active' || !navigation.isFocused()) return;
       const current = ++request;
-      const { data, error } = await supabase
-        .from('home_hero_settings')
-        .select('*')
-        .eq('id', 1)
-        .eq('is_active', true)
-        .maybeSingle();
-      if (active && current === request && !error)
-        setSettings(data as HeroSettings | null);
+      try {
+        if (!isSupabaseConfigured) throw new Error('unavailable');
+        const { data, error } = await supabase
+          .from('home_hero_settings')
+          .select('*')
+          .eq('id', 1)
+          .eq('is_active', true)
+          .maybeSingle();
+        if (error) throw error;
+        if (active && current === request)
+          setHeroState({
+            owner,
+            ...resolveHeroEditorial(initialHeroEditorialState, {
+              settings: data as HeroSettings | null,
+              error: null,
+            }),
+          });
+      } catch {
+        if (active && current === request)
+          setHeroState((previous) => ({
+            owner,
+            ...resolveHeroEditorial(previous.owner === owner ? previous : initialHeroEditorialState, {
+              settings: null,
+              error: 'Não foi possível atualizar o destaque.',
+            }),
+          }));
+      }
     };
     void load();
     const focus = navigation.addListener('focus', () => {
@@ -109,7 +134,7 @@ export function useHomeEditorial(revision: number) {
       foreground.remove();
       clearInterval(timer);
     };
-  }, [user?.id, revision, navigation]);
+  }, [owner, authLoading, revision, navigation]);
   useEffect(() => {
     let active = true;
     const load = async () => {
@@ -130,5 +155,6 @@ export function useHomeEditorial(revision: number) {
       foreground.remove();
     };
   }, [revision, navigation]);
-  return { creators, settings, lives };
+  const editorial = heroState.owner === owner ? heroState : initialHeroEditorialState;
+  return { creators, editorial, lives };
 }

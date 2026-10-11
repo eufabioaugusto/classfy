@@ -8,9 +8,9 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useIsFocused, usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { Camera, Check, ChevronRight, FileText, Mic, Minus, Palette, Pause, Play, Plus, SlidersHorizontal, Square, SwitchCamera, Timer, X, Zap, ZapOff } from 'lucide-react-native';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SheetCloseButton, SheetModal, sheetStyles } from '@/components/SheetModal';
+import { StudioCaptureSheet } from '@/features/studio/StudioCaptureSheet';
 import { usePrimaryAction } from '@/contexts/PrimaryActionContext';
 import { useAuth } from '@/features/auth/authContext';
 import { importStudioMedia, persistStudioTake } from '@/features/studio/media';
@@ -569,7 +569,7 @@ export default function StudioCaptureScreen() {
       if (!permissionGranted) { await enablePermissions(); return; }
       const prepared = captureReadiness.current;
       if (!Device.isDevice || !prepared.orientationReady || !isAudio && (!prepared.ready || !prepared.screenMatches || !prepared.sensorMatches || !cameraControls.isReady())) return;
-      setFailure(null); setNotice(null); setElapsed(0); setPanel(null); setCancelingAudio(false);
+      Keyboard.dismiss(); setFailure(null); setNotice(null); setElapsed(0); setPanel(null); setCancelingAudio(false);
       activeProject.current = project;
       transition('countdown');
       const token = ++countdownToken.current;
@@ -894,7 +894,7 @@ export default function StudioCaptureScreen() {
       </CaptureTool>
     </View>}
 
-    {!immersive && !gate && scriptPresent && showScript && <View style={[styles.prompter, landscape
+    {!gate && scriptPresent && showScript && <View style={[styles.prompter, landscape
       ? { top: safeTop + 78, left: safeLeft + 66, right: safeRight + (cameraMounted ? 384 : 114) }
       : { top: safeTop + (cameraMounted ? 84 + audioMonitorHeight + 12 : 102), left: safeLeft, right: safeRight + 60 }]}>
       <View style={styles.prompterHeader}>
@@ -955,101 +955,88 @@ export default function StudioCaptureScreen() {
       <StudioCaptureTakes takes={project.takes} disabled={toolsDisabled} onContinue={finishCapture} onRemove={takeId => { void removeCaptureTake(takeId); }} compact={landscape} />
     </View>}
 
-    <SheetModal visible={!!panel} onRequestClose={() => setPanel(null)}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={sheetStyles.backdrop}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Fechar ajustes de captura" onPress={() => setPanel(null)} style={StyleSheet.absoluteFill} />
-        <View style={[sheetStyles.surface, styles.panelSurface, {
-          width: landscape ? Math.min(dimensions.width - safeLeft - safeRight, dimensions.height * 16 / 9) : '100%',
-          maxHeight: Math.max(180, Math.min(460, dimensions.height - safeTop - 16)),
-        }]}>
-          <View onStartShouldSetResponder={() => true}><View style={sheetStyles.handle} />
-            <View style={sheetStyles.header}><Text style={styles.panelTitle}>{panelTitle}</Text><SheetCloseButton onPress={() => setPanel(null)} /></View>
-          </View>
-          <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 22, paddingBottom: Math.max(insets.bottom, 20) + 12, gap: 18 }}>
-            {panel === 'timer' && <>
-              <Text style={styles.panelDetail}>Um instante para se posicionar antes de cada take.</Text>
-              <View style={styles.optionRow}>{[0, 3, 5, 10].map(seconds => <Pressable key={seconds} accessibilityRole="button" accessibilityLabel={seconds ? `${seconds} segundos` : 'Sem contagem'}
-                accessibilityState={{ selected: countdownSeconds === seconds }} onPress={() => { setCountdownSeconds(seconds); setPanel(null); }}
-                style={({ pressed }) => [styles.option, countdownSeconds === seconds && styles.optionSelected, pressed && styles.pressed]}>
-                <Text style={[styles.optionText, countdownSeconds === seconds && styles.optionTextSelected]}>{seconds ? `${seconds}s` : 'Sem'}</Text>
-              </Pressable>)}</View>
-            </>}
-            {panel === 'treatment' && <>
-              <Text style={styles.panelDetail}>{nativeEffects
-                ? 'Veja o tratamento na câmera e ajuste a intensidade. O original fica intacto; você pode mudar o resultado depois no editor.'
-                : 'A prévia de tratamento precisa da câmera nativa atualizada. Nesta versão, a gravação mantém a imagem original.'}</Text>
-              <View style={styles.optionRow}>{capturePresets.map(preset => <Pressable key={preset.id} accessibilityRole="button"
-                accessibilityLabel={`Tratamento ${preset.label}`} accessibilityState={{ selected: captureGrade.preset === preset.id, disabled: !nativeEffects || toolsDisabled || cameraControls.busy || effectBusy }}
-                disabled={!nativeEffects || toolsDisabled || cameraControls.busy || effectBusy}
-                onPress={() => { void chooseCaptureGrade({ ...studioGrade(preset.id), intensity: captureGrade.intensity }); }}
-                style={({ pressed }) => [styles.option, captureGrade.preset === preset.id && styles.optionSelected,
-                  (!nativeEffects || toolsDisabled || effectBusy) && styles.disabled, pressed && styles.pressed]}>
-                <Text style={[styles.optionText, captureGrade.preset === preset.id && styles.optionTextSelected]}>{preset.label}</Text>
-              </Pressable>)}</View>
-              <View style={{ gap: 8 }}>
-                <View style={styles.settingRow}><Text style={styles.settingLabel}>Intensidade</Text><Text style={styles.cameraValue}>{Math.round(captureGrade.intensity * 100)}%</Text></View>
-                <StudioCaptureZoom controlName="intensidade do tratamento" value={captureGrade.intensity}
-                  onChange={value => { void chooseCaptureGrade({ ...captureGradeRef.current, intensity: Math.round(value * 100) / 100 }); }}
-                  label={`${Math.round(captureGrade.intensity * 100)}%`} disabled={!nativeEffects || toolsDisabled || cameraControls.busy || captureGrade.preset === 'natural'}
-                  style={{ position: 'relative', alignSelf: 'center', width: '100%' }} />
-                <Text style={styles.cameraHint}>{captureGrade.preset === 'natural' ? 'Natural mantém a imagem da câmera.' : captureGrade.preset === 'studio' ? 'Studio aplica luz suave no rosto e equilibra os tons.' : 'Cinematic ajusta as cores; não aplica desfoque de fundo.'}</Text>
-              </View>
-              <View style={styles.settingRow}>{effectBusy ? <ActivityIndicator size={13} color={colors.textSecondary} /> : null}
-                <Text accessibilityLiveRegion="polite" style={[styles.cameraHint, effectError && styles.failure]}>{effectError || (effectBusy ? 'Confirmando a prévia…' : nativeEffects && effectSupported ? 'Tratamento confirmado na prévia.' : 'Gravação com a imagem original.')}</Text>
-              </View>
-              <Text style={styles.cameraHint}>O original mantém a qualidade confirmada na câmera. A qualidade da montagem é escolhida no editor; tratamentos são aplicados em SDR.</Text>
-            </>}
-            {panel === 'quality' && <>
-              <Text style={styles.panelDetail}>{cameraState ? 'Resolução e movimento do seu vídeo. Toque em HD ou FPS na câmera para alternar rapidamente.' : 'Mais qualidade ou um arquivo mais leve. A resolução pode variar conforme a câmera do seu aparelho.'}</Text>
-              <View style={styles.optionRow}>{qualities.map(quality => <Pressable key={quality} accessibilityRole="button" accessibilityState={{ selected: confirmedQuality === quality }}
-                disabled={toolsDisabled || cameraControls.busy} onPress={() => chooseQuality(quality)}
-                style={({ pressed }) => [styles.option, confirmedQuality === quality && styles.optionSelected, (toolsDisabled || cameraControls.busy) && styles.disabled, pressed && styles.pressed]}>
-                <Text style={[styles.optionText, confirmedQuality === quality && styles.optionTextSelected]}>{quality === '2160p' ? '4K' : quality === '1080p' ? '1080p' : '720p'}</Text>
-              </Pressable>)}</View>
-              {cameraState && <>
-                {!!frameRates.length && <><Text style={styles.settingLabel}>Quadros por segundo</Text><View style={styles.optionRow}>{frameRates.map(rate => <Pressable key={rate}
-                  accessibilityRole="button" accessibilityLabel={`${rate} quadros por segundo`} accessibilityState={{ selected: Math.abs((cameraState.fps || 0) - rate) < 0.5 }}
-                  disabled={toolsDisabled || cameraControls.busy} onPress={() => { if (cameraState.quality) void cameraControls.configure(cameraState.quality, rate); }}
-                  style={({ pressed }) => [styles.option, Math.abs((cameraState.fps || 0) - rate) < 0.5 && styles.optionSelected, (toolsDisabled || cameraControls.busy) && styles.disabled, pressed && styles.pressed]}>
-                  <Text style={[styles.optionText, Math.abs((cameraState.fps || 0) - rate) < 0.5 && styles.optionTextSelected]}>{rate}</Text>
-                </Pressable>)}</View></>}
-                {cameraState.supportsExposure && cameraState.maxExposure > cameraState.minExposure && <View style={{ gap: 10 }}>
-                  <View style={styles.settingRow}><Text style={styles.settingLabel}>Exposição</Text><Text style={styles.cameraValue}>{cameraState.exposure >= 0 ? '+' : ''}{cameraState.exposure.toFixed(1)} EV</Text></View>
-                  <StudioCaptureZoom controlName="exposição" value={(cameraState.exposure - cameraState.minExposure) / (cameraState.maxExposure - cameraState.minExposure)}
-                    onChange={value => cameraControls.setExposure(cameraState.minExposure + value * (cameraState.maxExposure - cameraState.minExposure))}
-                    label={cameraState.exposure >= 0 ? `+${cameraState.exposure.toFixed(1)} EV` : `${cameraState.exposure.toFixed(1)} EV`}
-                    disabled={!idle || cameraControls.busy || cameraState.exposureLocked} style={{ position: 'relative', alignSelf: 'center', width: '100%' }} />
-                  <Text style={styles.cameraHint}>{cameraState.exposureLocked ? 'A exposição acompanha o bloqueio de foco. Toque no quadro para liberar.' : 'Deslize para clarear ou escurecer a imagem.'}</Text>
-                </View>}
-                {cameraState.aperture !== null && <View style={styles.settingRow}><Text style={styles.settingLabel}>Abertura da lente</Text>
-                  <View style={{ alignItems: 'flex-end', gap: 3 }}><Text style={styles.cameraValue}>f/{cameraState.aperture.toFixed(1)}</Text><Text style={styles.cameraHint}>Fixa nesta câmera</Text></View>
-                </View>}
-                {cameraState.supportsFocus && <Text style={styles.cameraHint}>{cameraState.supportsFocusLock ? 'Toque na imagem para focar. Segure para bloquear o foco.' : 'Toque na imagem para escolher o foco.'}</Text>}
-              </>}
-            </>}
-            {panel === 'script' && !!project && <>
-              <StudioCaptureScriptPanel project={project} disabled={!idle || !permitted} onApplied={saved => {
-                setShowScript(!!saved.script.trim()); scriptOffset.current = 0;
-                scriptScroll.current?.scrollTo({ y: 0, animated: false }); setPanel(null);
-              }} />
-              {scriptPresent && <>
-                <Pressable accessibilityRole="switch" accessibilityState={{ checked: showScript }} onPress={() => setShowScript(previous => !previous)} style={styles.settingRow}>
-                  <Text style={styles.settingLabel}>Mostrar roteiro</Text><View style={[styles.toggle, showScript && styles.toggleActive]}><View style={[styles.toggleThumb, showScript && { alignSelf: 'flex-end' }]} /></View>
-                </Pressable>
-                <Pressable accessibilityRole="switch" accessibilityState={{ checked: followScript }} onPress={() => setFollowScript(previous => !previous)} style={styles.settingRow}>
-                  <Text style={styles.settingLabel}>Rolagem automática</Text><View style={[styles.toggle, followScript && styles.toggleActive]}><View style={[styles.toggleThumb, followScript && { alignSelf: 'flex-end' }]} /></View>
-                </Pressable>
-                <View style={styles.settingRow}><Text style={styles.settingLabel}>Ritmo de leitura</Text><View style={styles.speedControl}>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Ler mais devagar" onPress={() => setScriptSpeed(previous => Math.max(12, previous - 8))} disabled={scriptSpeed <= 12} style={styles.speedButton}><Minus size={18} color={colors.text} /></Pressable>
-                  <Text style={styles.speedLabel}>{scriptSpeed < 28 ? 'Calmo' : scriptSpeed <= 44 ? 'Natural' : 'Rápido'}</Text>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Ler mais rápido" onPress={() => setScriptSpeed(previous => Math.min(76, previous + 8))} disabled={scriptSpeed >= 76} style={styles.speedButton}><Plus size={18} color={colors.text} /></Pressable>
-                </View></View>
-              </>}
-            </>}
-          </ScrollView>
+    <StudioCaptureSheet visible={!!panel} title={panelTitle} onClose={() => setPanel(null)} showKeyboardAction={panel === 'script'}>
+      {panel === 'timer' && <>
+        <Text style={styles.panelDetail}>Um instante para se posicionar antes de cada take.</Text>
+        <View style={styles.optionRow}>{[0, 3, 5, 10].map(seconds => <Pressable key={seconds} accessibilityRole="button" accessibilityLabel={seconds ? `${seconds} segundos` : 'Sem contagem'}
+          accessibilityState={{ selected: countdownSeconds === seconds }} onPress={() => { setCountdownSeconds(seconds); setPanel(null); }}
+          style={({ pressed }) => [styles.option, countdownSeconds === seconds && styles.optionSelected, pressed && styles.pressed]}>
+          <Text style={[styles.optionText, countdownSeconds === seconds && styles.optionTextSelected]}>{seconds ? `${seconds}s` : 'Sem'}</Text>
+        </Pressable>)}</View>
+      </>}
+      {panel === 'treatment' && <>
+        <Text style={styles.panelDetail}>{nativeEffects
+          ? 'Veja o tratamento na câmera e ajuste a intensidade. O original fica intacto; você pode mudar o resultado depois no editor.'
+          : 'A prévia de tratamento precisa da câmera nativa atualizada. Nesta versão, a gravação mantém a imagem original.'}</Text>
+        <View style={styles.optionRow}>{capturePresets.map(preset => <Pressable key={preset.id} accessibilityRole="button"
+          accessibilityLabel={`Tratamento ${preset.label}`} accessibilityState={{ selected: captureGrade.preset === preset.id, disabled: !nativeEffects || toolsDisabled || cameraControls.busy || effectBusy }}
+          disabled={!nativeEffects || toolsDisabled || cameraControls.busy || effectBusy}
+          onPress={() => { void chooseCaptureGrade({ ...studioGrade(preset.id), intensity: captureGrade.intensity }); }}
+          style={({ pressed }) => [styles.option, captureGrade.preset === preset.id && styles.optionSelected,
+            (!nativeEffects || toolsDisabled || effectBusy) && styles.disabled, pressed && styles.pressed]}>
+          <Text style={[styles.optionText, captureGrade.preset === preset.id && styles.optionTextSelected]}>{preset.label}</Text>
+        </Pressable>)}</View>
+        <View style={{ gap: 8 }}>
+          <View style={styles.settingRow}><Text style={styles.settingLabel}>Intensidade</Text><Text style={styles.cameraValue}>{Math.round(captureGrade.intensity * 100)}%</Text></View>
+          <StudioCaptureZoom controlName="intensidade do tratamento" value={captureGrade.intensity}
+            onChange={value => { void chooseCaptureGrade({ ...captureGradeRef.current, intensity: Math.round(value * 100) / 100 }); }}
+            label={`${Math.round(captureGrade.intensity * 100)}%`} disabled={!nativeEffects || toolsDisabled || cameraControls.busy || captureGrade.preset === 'natural'}
+            style={{ position: 'relative', alignSelf: 'center', width: '100%' }} />
+          <Text style={styles.cameraHint}>{captureGrade.preset === 'natural' ? 'Natural mantém a imagem da câmera.' : captureGrade.preset === 'studio' ? 'Studio aplica luz suave no rosto e equilibra os tons.' : 'Cinematic ajusta as cores; não aplica desfoque de fundo.'}</Text>
         </View>
-      </KeyboardAvoidingView>
-    </SheetModal>
+        <View style={styles.settingRow}>{effectBusy ? <ActivityIndicator size={13} color={colors.textSecondary} /> : null}
+          <Text accessibilityLiveRegion="polite" style={[styles.cameraHint, effectError && styles.failure]}>{effectError || (effectBusy ? 'Confirmando a prévia…' : nativeEffects && effectSupported ? 'Tratamento confirmado na prévia.' : 'Gravação com a imagem original.')}</Text>
+        </View>
+        <Text style={styles.cameraHint}>O original mantém a qualidade confirmada na câmera. A qualidade da montagem é escolhida no editor; tratamentos são aplicados em SDR.</Text>
+      </>}
+      {panel === 'quality' && <>
+        <Text style={styles.panelDetail}>{cameraState ? 'Resolução e movimento do seu vídeo. Toque em HD ou FPS na câmera para alternar rapidamente.' : 'Mais qualidade ou um arquivo mais leve. A resolução pode variar conforme a câmera do seu aparelho.'}</Text>
+        <View style={styles.optionRow}>{qualities.map(quality => <Pressable key={quality} accessibilityRole="button" accessibilityState={{ selected: confirmedQuality === quality }}
+          disabled={toolsDisabled || cameraControls.busy} onPress={() => chooseQuality(quality)}
+          style={({ pressed }) => [styles.option, confirmedQuality === quality && styles.optionSelected, (toolsDisabled || cameraControls.busy) && styles.disabled, pressed && styles.pressed]}>
+          <Text style={[styles.optionText, confirmedQuality === quality && styles.optionTextSelected]}>{quality === '2160p' ? '4K' : quality === '1080p' ? '1080p' : '720p'}</Text>
+        </Pressable>)}</View>
+        {cameraState && <>
+          {!!frameRates.length && <><Text style={styles.settingLabel}>Quadros por segundo</Text><View style={styles.optionRow}>{frameRates.map(rate => <Pressable key={rate}
+            accessibilityRole="button" accessibilityLabel={`${rate} quadros por segundo`} accessibilityState={{ selected: Math.abs((cameraState.fps || 0) - rate) < 0.5 }}
+            disabled={toolsDisabled || cameraControls.busy} onPress={() => { if (cameraState.quality) void cameraControls.configure(cameraState.quality, rate); }}
+            style={({ pressed }) => [styles.option, Math.abs((cameraState.fps || 0) - rate) < 0.5 && styles.optionSelected, (toolsDisabled || cameraControls.busy) && styles.disabled, pressed && styles.pressed]}>
+            <Text style={[styles.optionText, Math.abs((cameraState.fps || 0) - rate) < 0.5 && styles.optionTextSelected]}>{rate}</Text>
+          </Pressable>)}</View></>}
+          {cameraState.supportsExposure && cameraState.maxExposure > cameraState.minExposure && <View style={{ gap: 10 }}>
+            <View style={styles.settingRow}><Text style={styles.settingLabel}>Exposição</Text><Text style={styles.cameraValue}>{cameraState.exposure >= 0 ? '+' : ''}{cameraState.exposure.toFixed(1)} EV</Text></View>
+            <StudioCaptureZoom controlName="exposição" value={(cameraState.exposure - cameraState.minExposure) / (cameraState.maxExposure - cameraState.minExposure)}
+              onChange={value => cameraControls.setExposure(cameraState.minExposure + value * (cameraState.maxExposure - cameraState.minExposure))}
+              label={cameraState.exposure >= 0 ? `+${cameraState.exposure.toFixed(1)} EV` : `${cameraState.exposure.toFixed(1)} EV`}
+              disabled={!idle || cameraControls.busy || cameraState.exposureLocked} style={{ position: 'relative', alignSelf: 'center', width: '100%' }} />
+            <Text style={styles.cameraHint}>{cameraState.exposureLocked ? 'A exposição acompanha o bloqueio de foco. Toque no quadro para liberar.' : 'Deslize para clarear ou escurecer a imagem.'}</Text>
+          </View>}
+          {cameraState.aperture !== null && <View style={styles.settingRow}><Text style={styles.settingLabel}>Abertura da lente</Text>
+            <View style={{ alignItems: 'flex-end', gap: 3 }}><Text style={styles.cameraValue}>f/{cameraState.aperture.toFixed(1)}</Text><Text style={styles.cameraHint}>Fixa nesta câmera</Text></View>
+          </View>}
+          {cameraState.supportsFocus && <Text style={styles.cameraHint}>{cameraState.supportsFocusLock ? 'Toque na imagem para focar. Segure para bloquear o foco.' : 'Toque na imagem para escolher o foco.'}</Text>}
+        </>}
+      </>}
+      {panel === 'script' && !!project && <>
+        <StudioCaptureScriptPanel project={project} disabled={!idle || !permitted} onApplied={saved => {
+          setShowScript(!!saved.script.trim()); scriptOffset.current = 0;
+          scriptScroll.current?.scrollTo({ y: 0, animated: false }); setPanel(null);
+        }} />
+        {scriptPresent && <>
+          <Pressable accessibilityRole="switch" accessibilityState={{ checked: showScript }} onPress={() => setShowScript(previous => !previous)} style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Mostrar roteiro</Text><View style={[styles.toggle, showScript && styles.toggleActive]}><View style={[styles.toggleThumb, showScript && { alignSelf: 'flex-end' }]} /></View>
+          </Pressable>
+          <Pressable accessibilityRole="switch" accessibilityState={{ checked: followScript }} onPress={() => setFollowScript(previous => !previous)} style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Rolagem automática</Text><View style={[styles.toggle, followScript && styles.toggleActive]}><View style={[styles.toggleThumb, followScript && { alignSelf: 'flex-end' }]} /></View>
+          </Pressable>
+          <View style={styles.settingRow}><Text style={styles.settingLabel}>Ritmo de leitura</Text><View style={styles.speedControl}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Ler mais devagar" onPress={() => setScriptSpeed(previous => Math.max(12, previous - 8))} disabled={scriptSpeed <= 12} style={styles.speedButton}><Minus size={18} color={colors.text} /></Pressable>
+            <Text style={styles.speedLabel}>{scriptSpeed < 28 ? 'Calmo' : scriptSpeed <= 44 ? 'Natural' : 'Rápido'}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Ler mais rápido" onPress={() => setScriptSpeed(previous => Math.min(76, previous + 8))} disabled={scriptSpeed >= 76} style={styles.speedButton}><Plus size={18} color={colors.text} /></Pressable>
+          </View></View>
+        </>}
+      </>}
+    </StudioCaptureSheet>
   </View>;
 }
 
@@ -1140,10 +1127,8 @@ const styles = StyleSheet.create({
   podcastCaption: { color: colors.muted, fontSize: 12, textAlign: 'center' },
   meterRow: { height: 78, flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
   meterBar: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#635C6D' },
-  panelSurface: { alignSelf: 'center' },
   cameraValue: { color: colors.text, fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },
   cameraHint: { color: colors.muted, fontSize: 11, lineHeight: 18 },
-  panelTitle: { color: colors.text, fontSize: 19, fontWeight: '600', letterSpacing: -0.4 },
   panelDetail: { color: colors.muted, fontSize: 13, lineHeight: 21 },
   optionRow: { flexDirection: 'row', gap: 10 },
   option: { flex: 1, height: 50, borderRadius: 12, backgroundColor: '#191919', borderWidth: 1, borderColor: '#292929', alignItems: 'center', justifyContent: 'center' },

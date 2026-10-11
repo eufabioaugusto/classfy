@@ -1,4 +1,5 @@
 import { LoadingImage } from '@/components/LoadingImage';
+import { SkeletonBlock, SkeletonGroup } from '@/components/LoadingPlaceholder';
 import { PlanCrown } from './PlanCrown';
 import { controls } from '@/theme/controls';
 import { Image } from 'expo-image';
@@ -9,6 +10,14 @@ import { colors } from '@/theme/colors';
 import type { HomeContent } from '@/features/home/homeData';
 import type { HeroSettings } from '@/features/home/useHomeEditorial';
 import type { FeaturedCreator } from './FeaturedCreators';
+
+export function HomeHeroPlaceholder() {
+  return (
+    <SkeletonGroup label="Carregando destaque">
+      <SkeletonBlock style={{ height: 480, borderRadius: 18, marginBottom: 32 }} />
+    </SkeletonGroup>
+  );
+}
 
 export function HomeHero({
   content,
