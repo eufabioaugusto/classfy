@@ -230,3 +230,53 @@
   .se-recording-permission > small { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .se-recording .se-spin { animation: none; } .se-recording-meter i { transition: none; } }
+
+/* Camera controls stay over the stage so configuration never restarts production. */
+.se-recording-formats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.se-recording-setup { width: min(990px, 100%); }
+.se-recording-format-visual.aula > span { width: min(118px, 100%); }
+.se-recording-live-intro { color: var(--sr-muted); margin: 0; line-height: 1.6; }
+.se-recording-tools { position: absolute; z-index: 5; top: 72px; bottom: 18px; right: 18px; width: min(350px, calc(100% - 36px)); display: flex; flex-direction: column; color: var(--sr-ink); background: #15161bf5; border: 1px solid #3d3e48; border-radius: 16px; backdrop-filter: blur(20px); box-shadow: 0 16px 70px #0008; overflow: hidden; }
+.se-recording-tools > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 17px 18px 13px; }
+.se-recording-tools header small { color: #a99da9; font-size: 8px; letter-spacing: .15em; }
+.se-recording-tools h2 { margin: 6px 0 0; font-size: 18px; font-weight: 550; letter-spacing: -.03em; }
+.se-recording-tools-tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid #ffffff12; }
+.se-recording-tools-tabs button { display: flex; align-items: center; justify-content: center; gap: 6px; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 13px 9px; color: #9395a2; font-size: 11px; flex: 1; }
+.se-recording-tools-tabs button[aria-selected="true"] { border-bottom-color: #ee6784; color: #f5d4dd; }
+.se-recording-tools-body { padding: 18px; overflow-y: auto; scrollbar-width: thin; display: grid; gap: 20px; }
+.se-recording-tool-range { display: grid; gap: 10px; font-size: 11px; }
+.se-recording-tool-range > span { display: flex; justify-content: space-between; align-items: center; }
+.se-recording-tool-range output { color: #dab3c0; font-variant-numeric: tabular-nums; }
+.se-recording-tool-range input { width: 100%; height: 18px; accent-color: #ee6784; cursor: pointer; margin: 0; }
+.se-recording-tool-range small { color: #858997; font-size: 10px; }
+.se-recording-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 0; padding: 0; margin: 0; gap: 7px; min-width: 0; }
+.se-recording-filters legend { margin-bottom: 12px; font-size: 11px; }
+.se-recording-filters button { display: grid; gap: 9px; padding: 5px 5px 10px; border: 1px solid #363841; border-radius: 9px; background: #1d1e25; font-size: 10px; }
+.se-recording-filters button[aria-pressed="true"] { border-color: #e97b95; background: #3b232e; }
+.se-recording-filters i { display: block; height: 48px; border-radius: 6px; background: linear-gradient(145deg, #abc3c4, #8c9d95 43%, #463f36 44%, #b58d62); }
+.se-recording-filters i.studio { filter: contrast(1.15) saturate(1.05) brightness(1.12); }
+.se-recording-filters i.cinematic { filter: contrast(1.3) saturate(.8); }
+.se-recording-tools-note { color: #979ba8; font-size: 10px; line-height: 1.6; margin: 0; }
+.se-recording-tool-select { display: grid; gap: 10px; font-size: 11px; }
+.se-recording-tool-select > span, .se-recording-tool-toggle > span { display: flex; align-items: center; gap: 8px; }
+.se-recording-tool-select select { background: #202129; border: 1px solid #363841; border-radius: 9px; color: #eeeef3; padding: 11px 12px; width: 100%; font: inherit; }
+.se-recording-tool-toggle { display: flex; align-items: center; justify-content: space-between; font-size: 11px; gap: 12px; }
+.se-recording-tool-toggle input { width: 18px; height: 18px; accent-color: #ee6784; }
+.se-recording-tools-body textarea { min-height: 200px; width: 100%; resize: vertical; padding: 13px; border: 1px solid #363841; border-radius: 9px; background: #202129; color: #eeeef3; font: inherit; line-height: 1.8; }
+.se-recording-grid { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, transparent calc(33.333% - .5px), #fff4 33.333%, transparent calc(33.333% + .5px), transparent calc(66.666% - .5px), #fff4 66.666%, transparent calc(66.666% + .5px)), linear-gradient(to bottom, transparent calc(33.333% - .5px), #fff4 33.333%, transparent calc(33.333% + .5px), transparent calc(66.666% - .5px), #fff4 66.666%, transparent calc(66.666% + .5px)); }
+.se-recording-countdown { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 26px; background: #05060935; }
+.se-recording-countdown strong { font-size: clamp(80px, 16vw, 150px); font-weight: 400; text-shadow: 0 2px 30px #0008; font-variant-numeric: tabular-nums; }
+.se-recording-teleprompter { position: absolute; z-index: 1; top: 12%; left: 50%; transform: translateX(-50%); width: min(650px, 80%); height: 28%; max-height: 220px; background: linear-gradient(#0008, #000b); border-radius: 12px; padding: 18px 22px; mask-image: linear-gradient(transparent, #000 12%, #000 80%, transparent); }
+.se-recording-teleprompter > div { height: 100%; overflow-y: auto; white-space: pre-wrap; font-size: clamp(18px, 2.4vw, 30px); line-height: 1.6; text-align: center; color: white; scrollbar-width: none; padding-bottom: 80px; }
+.se-recording-teleprompter > div::-webkit-scrollbar { display: none; }
+@media (max-width: 700px) {
+  .se-recording-formats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .se-recording-tools { top: 62px; bottom: 10px; right: 10px; width: min(350px, calc(100% - 20px)); }
+  .se-recording-tools > header { padding-block: 12px; }
+  .se-recording-tools-body { padding: 14px; gap: 16px; }
+}
+.se-recording-quick-tools { position: absolute; z-index: 2; left: 18px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; }
+.se-recording-quick-tools button { display: flex; align-items: center; justify-content: center; gap: 5px; min-width: 42px; min-height: 42px; padding: 10px; border: 1px solid #ffffff24; border-radius: 50%; background: #121318a6; backdrop-filter: blur(10px); }
+.se-recording-quick-tools span { font-size: 9px; font-variant-numeric: tabular-nums; }
+.se-recording-quick-tools button:hover:not(:disabled) { background: #333541d9; }
+@media (max-width: 700px) { .se-recording-quick-tools { left: 10px; gap: 6px; } .se-recording-quick-tools button { min-width: 38px; min-height: 38px; padding: 9px; } }

@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Camera, Check, ChevronDown, ChevronUp, Film, Loader2, Maximize2, Mic, MicOff, Minimize2, Monitor, Play, Settings2, ShieldCheck, Square, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Check, ChevronDown, ChevronUp, Film, Loader2, Maximize2, Mic, MicOff, Minimize2, Monitor, Play, Radio, Palette, Timer, FileText, ZoomIn, Settings2, ShieldCheck, Square, X } from 'lucide-react';
 import { createStudioCapture, type StudioCaptureController, type StudioCaptureMode, type StudioCaptureState } from '@/lib/studio/editor/capture';
 import { createStudioRecordingSession } from '@/lib/studio/editor/recording';
 import { getAsset } from '@/lib/studio/editor/storage';
 import { formatStudioEditorTime, formatStudioDuration, studioTakeDuration, type StudioKind, type StudioProject, type StudioTake } from '../../../../shared/studio';
+import { RecordingTeleprompter, StudioRecordingTools, type RecordingGuides } from './StudioRecordingTools';
 import { useStudioExitGuard } from './useStudioExitGuard';
 import '@/styles/studio-recording.css';
 
 type RecordingSession = ReturnType<typeof createStudioRecordingSession>;
 type Candidate = { file: File; operationId: string; session: RecordingSession; token: number; work: Promise<boolean> | null; saved: boolean; notice: string | null };
 const idleCapture = (): StudioCaptureState => ({ phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, levels: [], camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true });
+const initialRecordingGuides = (): RecordingGuides => ({ grid: false, mirrored: false, delay: 0, script: '', scriptEnabled: false, scriptSpeed: 24 });
 const kindName = (kind: StudioKind) => kind === 'aula' ? 'Aula' : kind === 'short' ? 'Short' : 'Podcast';
 const defaultTitle = (kind: StudioKind) => kind === 'aula' ? 'Nova aula' : kind === 'short' ? 'Novo short' : 'Novo podcast';
 
@@ -47,6 +49,11 @@ function AudioMonitor({ state }: { state: StudioCaptureState }) {
 export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialTitle = '', projectId }: { owner: string; initialKind?: StudioKind; initialTitle?: string; projectId?: string }) {
   const navigate = useNavigate(), location = useLocation();
   const [stage, setStage] = useState<'setup' | 'production'>('setup'), [kind, setKind] = useState<StudioKind>(initialKind);
+  const [liveSelected, setLiveSelected] = useState(false), [toolsOpen, setToolsOpen] = useState(false), [guides, setGuides] = useState(initialRecordingGuides);
+  const [toolsTab, setToolsTab] = useState<'image' | 'record' | 'script'>('image');
+  const openTools = (tab: 'image' | 'record' | 'script') => { setToolsTab(tab); setToolsOpen(true); };
+  const closeTools = useCallback(() => setToolsOpen(false), []);
+  const [countdown, setCountdown] = useState<number | null>(null), countdownRef = useRef<number | null>(null);
   const [title, setTitle] = useState(initialTitle), [mode, setMode] = useState<'camera' | 'screen'>('camera');
   const [project, setProject] = useState<StudioProject | null>(null), [loading, setLoading] = useState(!!projectId);
   const [captureState, setCaptureState] = useState<StudioCaptureState>(idleCapture), [busy, setBusy] = useState<'save' | 'remove' | null>(null);
@@ -73,7 +80,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     // File receipts and controller when that project id comes back as a prop.
     if (session.current?.current()?.id === projectId && projectSnapshot.current?.ownerId === owner) return;
     const token = ++epoch.current; capture.current?.cancel(); candidate.current = null; attempted.current = new WeakSet(); exitIntent.current = false; exitWork.current = null; mutationWork.current = null; deviceWork.current = null; saveBusy.current = false;
-    projectSnapshot.current = null; setProject(null); setSelectedTake(undefined); setError(null); setNotice(null); setBusy(null); setLeaving(false); setChangingDevice(false); setTakesExpanded(true); setStage('setup'); setKind(initialKind); setTitle(initialTitle); setLoading(!!projectId);
+    projectSnapshot.current = null; setProject(null); setSelectedTake(undefined); setError(null); setNotice(null); setBusy(null); setLeaving(false); setChangingDevice(false); setTakesExpanded(true); setStage('setup'); setLiveSelected(false); setToolsOpen(false); countdownRef.current = null; setCountdown(null); setGuides(initialRecordingGuides()); setKind(initialKind); setTitle(initialTitle); setLoading(!!projectId);
     const owned = makeSession(initialKind, initialTitle, projectId); let active = true;
     if (projectId) void owned.loadExisting().then(value => {
       if (!active || !live(token) || session.current !== owned) return;
@@ -145,7 +152,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     attempted.current.add(captureState.file); void saveRef.current(captureState.file);
   }, [captureState.phase, captureState.file]);
 
-  const hasRisk = () => ['preparing', 'recording', 'stopping'].includes(captureSnapshot.current.phase) || saveBusy.current || !!deviceWork.current || !!candidate.current && !candidate.current.saved || !!captureSnapshot.current.file;
+  const hasRisk = () => countdownRef.current !== null || ['preparing', 'recording', 'stopping'].includes(captureSnapshot.current.phase) || saveBusy.current || !!deviceWork.current || !!candidate.current && !candidate.current.saved || !!captureSnapshot.current.file;
   const prepareExit = (): Promise<boolean> => {
     if (exitWork.current) return exitWork.current;
     const token = epoch.current, owned = capture.current;
@@ -154,6 +161,10 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
         if (mutationWork.current && !await mutationWork.current) return false;
         if (!live(token)) return false;
         const state = captureSnapshot.current;
+        if (countdownRef.current !== null) {
+          if (!window.confirm('Cancelar a contagem e sair?')) return false;
+          countdownRef.current = null; setCountdown(null);
+        }
         if (['recording', 'stopping'].includes(state.phase)) {
           if (!window.confirm('Encerrar a gravação e salvar o take antes de sair?')) return false;
           const file = await owned!.stop(); if (!live(token)) return false;
@@ -187,16 +198,50 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     setError(captureSnapshot.current.error ?? (denied ? 'Permita câmera e microfone nas permissões deste site e tente novamente.' : cause instanceof Error ? cause.message : 'Não foi possível abrir esta entrada.'));
   };
   const openCapture = () => {
-    if (loading || saveBusy.current || deviceWork.current || exitIntent.current || candidate.current || ['recording', 'stopping', 'preparing'].includes(captureSnapshot.current.phase)) return;
+    if (loading || saveBusy.current || deviceWork.current || exitIntent.current || candidate.current || countdownRef.current !== null || ['recording', 'stopping', 'preparing'].includes(captureSnapshot.current.phase)) return;
     const token = epoch.current, owned = capture.current; if (!owned) return;
     if (!projectSnapshot.current && !session.current?.current()) makeSession(latest.current.kind, latest.current.title);
     reviewVideo.current?.pause(); reviewAudio.current?.pause(); setError(null); setNotice(null); setStage('production');
     // Keep getDisplayMedia/getUserMedia on the original user gesture.
     void owned.prepare().catch(cause => reportCapture(cause, token, owned));
   };
-  const start = () => { if (saveBusy.current || deviceWork.current || exitIntent.current) return; setError(null); setNotice(null); try { capture.current?.start(); } catch (cause) { report(cause, epoch.current); } };
+  const beginRecording = () => { if (saveBusy.current || deviceWork.current || exitIntent.current || captureSnapshot.current.phase !== 'ready') return; setError(null); setNotice(null); setToolsOpen(false); try { capture.current?.start(); } catch (cause) { report(cause, epoch.current); } };
+  const start = () => {
+    if (saveBusy.current || deviceWork.current || exitIntent.current || countdownRef.current !== null || captureSnapshot.current.phase !== 'ready') return;
+    setToolsOpen(false);
+    if (guides.delay) { countdownRef.current = guides.delay; setCountdown(guides.delay); } else beginRecording();
+  };
+  const startRef = useRef(beginRecording); startRef.current = beginRecording;
+  useEffect(() => {
+    if (countdown === null) return;
+    const token = epoch.current;
+    const timer = setTimeout(() => {
+      if (!mounted.current || token !== epoch.current || currentOwner.current !== owner || countdownRef.current === null) return;
+      if (document.visibilityState === 'hidden' || captureSnapshot.current.phase !== 'ready') { countdownRef.current = null; setCountdown(null); return; }
+      const next = countdownRef.current - 1;
+      countdownRef.current = next > 0 ? next : null; setCountdown(next > 0 ? next : null);
+      if (next <= 0) startRef.current();
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [countdown, owner]);
+  useEffect(() => {
+    const resume = () => {
+      if (document.visibilityState === 'hidden') { if (countdownRef.current !== null) { countdownRef.current = null; setCountdown(null); } return; }
+      if (video.current && captureSnapshot.current.stream) void video.current.play().catch(() => undefined);
+    };
+    document.addEventListener('visibilitychange', resume);
+    return () => document.removeEventListener('visibilitychange', resume);
+  }, []);
+  const configureVideo = (patch: Parameters<StudioCaptureController['configureVideo']>[0]) => {
+    if (saveBusy.current || deviceWork.current || exitIntent.current || candidate.current || countdownRef.current !== null || captureSnapshot.current.phase !== 'ready') return;
+    const token = epoch.current, owned = capture.current; if (!owned) return;
+    setChangingDevice(true); setError(null);
+    const work = owned.configureVideo(patch).then(() => true, cause => { reportCapture(cause, token, owned); return false; });
+    deviceWork.current = work;
+    void work.finally(() => { if (deviceWork.current === work) { deviceWork.current = null; if (live(token) && capture.current === owned) setChangingDevice(false); } });
+  };
   const selectDevice = (selection: { cameraId?: string; microphoneId?: string }) => {
-    if (saveBusy.current || deviceWork.current || exitIntent.current || candidate.current || !['ready', 'idle', 'error'].includes(captureSnapshot.current.phase) || captureSnapshot.current.file) return;
+    if (saveBusy.current || deviceWork.current || exitIntent.current || candidate.current || countdownRef.current !== null || !['ready', 'idle', 'error'].includes(captureSnapshot.current.phase) || captureSnapshot.current.file) return;
     const token = epoch.current, owned = capture.current; if (!owned) return;
     setChangingDevice(true); setError(null);
     const work = owned.selectDevices(selection).then(() => true, cause => { reportCapture(cause, token, owned); return false; });
@@ -204,7 +249,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     void work.finally(() => { if (deviceWork.current === work) { deviceWork.current = null; if (live(token) && capture.current === owned) setChangingDevice(false); } });
   };
   const toggleMicrophone = () => {
-    if (saveBusy.current || deviceWork.current || exitIntent.current || candidate.current || captureSnapshot.current.phase !== 'ready') return;
+    if (saveBusy.current || deviceWork.current || exitIntent.current || candidate.current || countdownRef.current !== null || captureSnapshot.current.phase !== 'ready') return;
     try { capture.current?.setMicrophoneEnabled(!captureSnapshot.current.microphoneEnabled); } catch (cause) { report(cause, epoch.current); }
   };
   const toggleFullscreen = () => {
@@ -234,9 +279,8 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
       catch (cause) { report(cause, token); return false; } finally { if (live(token)) { saveBusy.current = false; setBusy(null); } }
     })(); mutationWork.current = work; void work.finally(() => { if (mutationWork.current === work) mutationWork.current = null; });
   };
-  const setup = () => { if (saveBusy.current || hasRisk()) return; capture.current?.cancel(); setError(null); setStage('setup'); };
   const reviewing = !!reviewURL && !captureState.stream, recording = captureState.phase === 'recording';
-  const occupied = loading || !!busy || changingDevice || leaving || captureState.phase === 'preparing' || captureState.phase === 'stopping';
+  const occupied = loading || !!busy || changingDevice || leaving || countdown !== null || captureState.videoControls?.busy === true || captureState.phase === 'preparing' || captureState.phase === 'stopping';
   const pendingFile = !!candidate.current || captureState.phase === 'error' && !!captureState.file;
   const total = project?.takes.reduce((sum, item) => sum + studioTakeDuration(item), 0) ?? 0;
   const captureCTA = kind === 'podcast' ? 'Ativar microfone' : mode === 'screen' ? 'Gravar tela' : 'Abrir câmera';
@@ -250,19 +294,27 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
   return <div ref={workspace} className={`se-recording${recording ? ' is-recording' : ''}`} data-stage={stage}>
     {stage === 'setup' && <header className="se-recording-header"><div className="se-recording-brand"><button className="se-recording-icon" aria-label="Voltar aos projetos" disabled={leaving} onClick={() => void leave()}><ArrowLeft size={20} /></button><img src="/brand/classfy-simbolo-vermelho.svg" alt="Classfy" /><span>Studio</span><i /><strong>Gravar</strong></div><span className="se-recording-header-note"><ShieldCheck size={15} />Seu espaço privado</span></header>}
     {stage === 'setup' ? <main className="se-recording-setup"><div className="se-recording-heading"><span>SEU ESPAÇO DE PRODUÇÃO</span><h1>Grave seu próximo conteúdo.</h1><p>Escolha o formato, enquadre e grave. A edição vem depois.</p></div>
-      <div className="se-recording-formats" role="group" aria-label="Formato da gravação">{(['aula', 'short', 'podcast'] as const).map(format => <button key={format} disabled={loading || !!project} aria-pressed={kind === format} onClick={() => setKind(format)} className={kind === format ? 'selected' : ''}><div className={`se-recording-format-visual ${format}`}>{format === 'podcast' ? <Mic size={32} /> : <span><Play size={format === 'short' ? 18 : 24} fill="currentColor" /></span>}</div><strong>{kindName(format)}</strong><small>{format === 'aula' ? '16:9 · Para ir mais fundo' : format === 'short' ? '9:16 · Direto ao ponto' : 'Áudio · Sua voz em destaque'}</small>{kind === format && <Check className="se-recording-format-check" size={17} />}</button>)}</div>
-      <div className="se-recording-setup-controls"><label className="se-recording-field">Nome da gravação <small>opcional</small><input aria-label="Nome da gravação" placeholder={defaultTitle(kind)} value={title} maxLength={160} disabled={loading || !!project} onChange={event => setTitle(event.target.value)} /></label>
+      <div className="se-recording-formats" role="group" aria-label="Formato da gravação">{(['aula', 'short', 'podcast'] as const).map(format => <button key={format} disabled={loading || !!project} aria-pressed={!liveSelected && kind === format} onClick={() => { setLiveSelected(false); setKind(format); }} className={!liveSelected && kind === format ? 'selected' : ''}><div className={`se-recording-format-visual ${format}`}>{format === 'podcast' ? <Mic size={32} /> : <span><Play size={format === 'short' ? 18 : 24} fill="currentColor" /></span>}</div><strong>{kindName(format)}</strong><small>{format === 'aula' ? '16:9 · Para ir mais fundo' : format === 'short' ? '9:16 · Direto ao ponto' : 'Áudio · Sua voz em destaque'}</small>{!liveSelected && kind === format && <Check className="se-recording-format-check" size={17} />}</button>)}<button disabled={loading || !!project} aria-pressed={liveSelected} onClick={() => setLiveSelected(true)} className={liveSelected ? 'selected' : ''}><div className="se-recording-format-visual live"><Radio size={34} /></div><strong>Live</strong><small>Ao vivo · Conecte-se com seu público</small>{liveSelected && <Check className="se-recording-format-check" size={17} />}</button></div>
+      {liveSelected ? <div className="se-recording-setup-controls"><p className="se-recording-live-intro">Prepare o título, a capa e os dispositivos antes de entrar ao vivo.</p><button className="se-recording-button primary se-recording-open" onClick={() => navigate('/studio/live')}><Radio size={18} />Preparar live<ArrowRight size={18} /></button></div> : <div className="se-recording-setup-controls"><label className="se-recording-field">Nome da gravação <small>opcional</small><input aria-label="Nome da gravação" placeholder={defaultTitle(kind)} value={title} maxLength={160} disabled={loading || !!project} onChange={event => setTitle(event.target.value)} /></label>
         {kind !== 'podcast' && <div className="se-recording-source" role="group" aria-label="Origem da gravação"><button aria-pressed={mode === 'camera'} onClick={() => setMode('camera')}><Camera size={17} />Câmera</button><button aria-pressed={mode === 'screen'} onClick={() => setMode('screen')}><Monitor size={17} />Tela e microfone</button></div>}
         <button className="se-recording-button primary se-recording-open" disabled={loading || !!error && !!projectId && !project} onClick={openCapture}>{loading ? <Loader2 size={18} className="se-spin" /> : kind === 'podcast' ? <Mic size={18} /> : mode === 'screen' ? <Monitor size={18} /> : <Camera size={18} />}{captureCTA}<ArrowRight size={18} /></button><p className="se-recording-privacy">A captura é privada. Seus takes são salvos neste navegador.</p>
-      </div>{error && <p className="se-recording-error" role="alert">{error}</p>}
+      </div>}{error && <p className="se-recording-error" role="alert">{error}</p>}
     </main> : <main className="se-recording-production">
       <div className="se-recording-stage-shell" data-testid="recording-stage">
         <div className={`se-recording-stage ${kind}`}>
-          {kind !== 'podcast' && <video ref={video} className="se-recording-live" muted playsInline autoPlay aria-label="Prévia da gravação" style={{ display: captureState.stream ? 'block' : 'none' }} />}
+          {kind !== 'podcast' && <video ref={video} className="se-recording-live" muted playsInline autoPlay aria-label="Prévia da gravação" style={{ display: captureState.stream ? 'block' : 'none', transform: guides.mirrored ? 'scaleX(-1)' : undefined }} />}
+          {guides.grid && captureState.stream && !recording && kind !== 'podcast' && <div className="se-recording-grid" aria-hidden="true" />}
+          {captureState.stream && <RecordingTeleprompter guides={guides} recording={recording} />}
           {reviewing && kind !== 'podcast' && <video ref={reviewVideo} src={reviewURL} className="se-recording-review" controls playsInline aria-label="Reproduzir take salvo" />}
           {kind === 'podcast' && (captureState.stream || reviewing) && <div className="se-recording-audio-stage"><div className={recording ? 'recording' : ''}><Mic size={48} strokeWidth={1.3} /></div><span className="se-recording-audio-eyebrow">{recording ? 'GRAVANDO PODCAST' : reviewing ? 'ORIGINAL SALVO' : 'PRONTO PARA GRAVAR'}</span><h2>{recording ? 'Sua voz, em foco.' : reviewing ? `Take ${(project?.takes.findIndex(item => item.id === take?.id) ?? -1) + 1}` : 'Sua próxima ideia começa aqui.'}</h2>{reviewing && <audio ref={reviewAudio} src={reviewURL} controls aria-label="Reproduzir take salvo" />}</div>}
         </div>
-        {!recording && <header className="se-recording-stage-header"><div className="se-recording-stage-brand"><button className="se-recording-icon" aria-label="Voltar aos projetos" disabled={leaving} onClick={() => void leave()}><ArrowLeft size={19} /></button><img src="/brand/classfy-simbolo-vermelho.svg" alt="Classfy" /><div><h1>{displayTitle}</h1><p>{kindName(kind)} · {aspectLabel}{project?.takes.length ? ` · ${formatStudioDuration(total)} salvos` : ''}</p></div></div><div className="se-recording-stage-actions"><span className="se-recording-save-state">{busy === 'save' ? <><Loader2 size={13} className="se-spin" />Salvando take…</> : project?.takes.length ? <><Check size={13} />Takes salvos</> : <><ShieldCheck size={13} />Privado</>}</span>{fullscreenAvailable && <button className="se-recording-icon" title={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} aria-label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>}<button className="se-recording-icon" title="Preparação" aria-label="Voltar à preparação" disabled={occupied || pendingFile} onClick={setup}><Settings2 size={18} /></button></div></header>}
+        {!recording && <header className="se-recording-stage-header"><div className="se-recording-stage-brand"><button className="se-recording-icon" aria-label="Voltar aos projetos" disabled={leaving} onClick={() => void leave()}><ArrowLeft size={19} /></button><img src="/brand/classfy-simbolo-vermelho.svg" alt="Classfy" /><div><h1>{displayTitle}</h1><p>{kindName(kind)} · {aspectLabel}{project?.takes.length ? ` · ${formatStudioDuration(total)} salvos` : ''}</p></div></div><div className="se-recording-stage-actions"><span className="se-recording-save-state">{busy === 'save' ? <><Loader2 size={13} className="se-spin" />Salvando take…</> : project?.takes.length ? <><Check size={13} />Takes salvos</> : <><ShieldCheck size={13} />Privado</>}</span>{fullscreenAvailable && <button className="se-recording-icon" title={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} aria-label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>}<button className="se-recording-icon" title="Configurações da gravação" aria-label="Configurações da gravação" aria-expanded={toolsOpen} disabled={occupied || pendingFile} onClick={() => setToolsOpen(value => !value)}><Settings2 size={18} /></button></div></header>}
+        {!recording && countdown === null && captureState.stream && <div className="se-recording-quick-tools" aria-label="Ferramentas da câmera">
+          {kind !== 'podcast' && mode === 'camera' && <><button aria-label="Ajustar zoom" title="Zoom" disabled={occupied || pendingFile} onClick={() => openTools('image')}><ZoomIn size={18} /><span>{captureState.videoControls?.zoom.value.toFixed(1) ?? '1.0'}×</span></button><button aria-label="Filtros e imagem" title="Filtros e imagem" disabled={occupied || pendingFile} onClick={() => openTools('image')}><Palette size={18} /></button></>}
+          <button aria-label="Temporizador da gravação" title="Temporizador" disabled={occupied || pendingFile} onClick={() => openTools('record')}><Timer size={18} />{guides.delay > 0 && <span>{guides.delay}s</span>}</button><button aria-label="Roteiro e teleprompter" title="Roteiro" disabled={occupied || pendingFile} onClick={() => openTools('script')}><FileText size={18} /></button>
+        </div>}
+        {toolsOpen && !recording && <StudioRecordingTools initialTab={toolsTab} state={captureState} camera={kind !== 'podcast' && mode === 'camera'} disabled={occupied || pendingFile} guides={guides} onGuides={patch => setGuides(value => ({ ...value, ...patch }))} onVideo={configureVideo} onClose={closeTools} />}
+        {countdown !== null && <div className="se-recording-countdown" role="status"><strong>{countdown}</strong><button className="se-recording-button" onClick={() => { countdownRef.current = null; setCountdown(null); }}>Cancelar contagem</button></div>}
         {permissionCard && <div className="se-recording-permission" data-permission-state={occupied ? 'preparing' : permissionError ? 'error' : 'closed'}>
           <div className={`se-recording-permission-icon${permissionError ? ' error' : ''}`}>{occupied ? <Loader2 size={30} className="se-spin" /> : kind === 'podcast' ? <Mic size={31} strokeWidth={1.4} /> : mode === 'screen' ? <Monitor size={31} strokeWidth={1.4} /> : <Camera size={31} strokeWidth={1.4} />}</div>
           <h2>{busy === 'save' ? 'Salvando seu take.' : captureState.phase === 'stopping' ? 'Preparando seu take.' : captureState.phase === 'preparing' ? kind === 'podcast' ? 'Vamos abrir seu microfone.' : mode === 'screen' ? 'Escolha o que quer compartilhar.' : 'Vamos abrir sua câmera.' : permissionError ? 'Não conseguimos abrir a entrada.' : 'Seu palco está pronto.'}</h2>
@@ -284,7 +336,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
             {kind !== 'podcast' && mode === 'camera' ? <DeviceSelector label="Câmera" current={captureState.camera} devices={captureState.devices?.cameras ?? []} disabled={occupied || pendingFile} onChange={cameraId => selectDevice({ cameraId })} /> : kind !== 'podcast' ? <div className="se-recording-screen-label"><Monitor size={17} /><span>Tela compartilhada<small>{captureState.stream ? 'Captura ativa' : 'Selecione uma tela ao abrir'}</small></span></div> : null}
             <div className="se-recording-microphone-control"><button className={`se-recording-mute${captureState.microphoneEnabled === false ? ' muted' : ''}`} aria-label={captureState.microphoneEnabled === false ? 'Ativar microfone da gravação' : 'Desativar microfone'} aria-pressed={captureState.microphoneEnabled === false} title={captureState.microphoneEnabled === false ? 'Ativar microfone' : 'Desativar microfone'} disabled={!ready || occupied || pendingFile || !captureState.input} onClick={toggleMicrophone}>{captureState.microphoneEnabled === false ? <MicOff size={19} /> : <Mic size={19} />}</button><DeviceSelector label="Microfone" current={captureState.input} devices={captureState.devices?.microphones ?? []} disabled={occupied || pendingFile} onChange={microphoneId => selectDevice({ microphoneId })} /></div>
           </div>
-          <div className="se-recording-record-control">{ready ? <><button className="se-recording-rec" aria-label="Iniciar gravação" disabled={occupied || pendingFile} onClick={start}><i /></button><span>Gravar take</span></> : occupied ? <span className="se-recording-working" role="status"><Loader2 size={18} className="se-spin" />{changingDevice ? 'Abrindo entrada…' : busy === 'save' ? 'Salvando original…' : busy === 'remove' ? 'Removendo take…' : captureState.phase === 'stopping' ? 'Preparando o take…' : 'Aguardando permissão…'}</span> : !pendingFile && !permissionCard && <button className="se-recording-button" onClick={openCapture}><span className="se-recording-small-dot" />{project?.takes.length ? 'Gravar outro take' : captureCTA}</button>}</div>
+          <div className="se-recording-record-control">{ready ? <><button className="se-recording-rec" aria-label="Iniciar gravação" disabled={occupied || pendingFile} onClick={start}><i /></button><span>Gravar take</span></> : occupied ? <span className="se-recording-working" role="status"><Loader2 size={18} className="se-spin" />{countdown !== null ? 'Preparando REC…' : changingDevice ? 'Ajustando entrada…' : busy === 'save' ? 'Salvando original…' : busy === 'remove' ? 'Removendo take…' : captureState.phase === 'stopping' ? 'Preparando o take…' : 'Aguardando permissão…'}</span> : !pendingFile && !permissionCard && <button className="se-recording-button" onClick={openCapture}><span className="se-recording-small-dot" />{project?.takes.length ? 'Gravar outro take' : captureCTA}</button>}</div>
           <div className="se-recording-next"><span>{project?.takes.length ? `${project.takes.length} ${project.takes.length === 1 ? 'take salvo' : 'takes salvos'} · ${formatStudioDuration(total)}` : 'Grave seu primeiro take'}</span><button className="se-recording-button primary" disabled={!project?.takes.length || occupied || pendingFile} onClick={() => void leave(true)}>Ir para edição<ArrowRight size={17} /></button></div>
         </>}
       </div>
