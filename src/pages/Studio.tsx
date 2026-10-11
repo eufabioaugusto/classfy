@@ -5,6 +5,7 @@ import { ptBR } from "date-fns/locale";
 import {
   ArrowRight,
   BarChart3,
+  Camera,
   CircleDollarSign,
   Eye,
   Heart,
@@ -224,13 +225,13 @@ export default function Studio() {
           <PageHeader
             eyebrow="Studio Classfy"
             title="Seu conteúdo, sua operação."
-            description="Publique, acompanhe o que está funcionando e encontre o próximo passo para crescer como creator."
+            description="Grave, edite e publique seus conteúdos. Acompanhe os resultados e seu próximo passo como creator."
             action={
               <div className="studio-header-action">
-                <V2Button variant="secondary" leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate("/studio/projects")}>
-                  Novo projeto
+                <V2Button variant="primary" leadingIcon={<Camera className="h-4 w-4" />} onClick={() => navigate("/studio/record")}>
+                  Gravar
                 </V2Button>
-                <V2Button variant="primary" leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate("/studio/upload?type=aula")}>
+                <V2Button variant="secondary" leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate("/studio/upload?type=aula")}>
                   Publicar conteúdo
                 </V2Button>
               </div>

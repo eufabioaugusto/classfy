@@ -2,7 +2,8 @@
 
 ## Rotas e publicação
 
-- `/studio` continua sendo o dashboard. **Novo projeto** abre a biblioteca.
+- `/studio` continua sendo o dashboard. **Gravar** abre a produção; **Novo projeto** abre a biblioteca.
+- `/studio/record` começa com formato e entrada (câmera, tela ou microfone para podcast), abre a gravação e só depois leva ao editor. O acesso é direto pelo dashboard ou pela biblioteca, sem precisar criar uma montagem vazia.
 - `/studio/projects` contém as montagens editáveis deste navegador: criar, buscar, renomear, duplicar e excluir.
 - `/studio/projects/:projectId` abre o editor, exclusivo para contas creator/admin.
 - **Preparar publicação** renderiza a montagem e abre `/studio/upload?type=...&studioProject=...&studioRevision=...`. O usuário escolhe **Usar arquivo do editor**; os passos existentes continuam responsáveis por enviar a mídia e concluir a publicação.
@@ -18,6 +19,8 @@ Os projetos pertencem ao navegador e à origem (domínio) atuais. Limpar os dado
 
 ## Captura, composição e exportação
 
+- No fluxo **Gravar**, permissões só são solicitadas após ação explícita. Cada take válido é salvo automaticamente no projeto local antes de liberar outra gravação ou **Ir para edição**. Miniaturas permitem revisar e excluir takes da montagem. REC mantém apenas o botão de parar, tempo e monitor do microfone visíveis.
+- O projeto é criado no primeiro take válido. Falha na leitura ou no salvamento preserva o candidato para tentar novamente; repetir o salvamento do mesmo take não acrescenta clips duplicados. Os takes duráveis continuam na biblioteca se o usuário sair antes da edição.
 - Importação real de vídeo, imagem e áudio, com metadados e thumbnail; câmera, tela e narração são solicitadas por ação explícita.
 - Captura mostra a entrada de áudio efetiva e dBFS. Interrupção/ocultação da aba encerra a captura; o trecho disponível deve ser conferido antes de usar. Falha ao salvar mantém a gravação para retry, sem inserir duplicatas.
 - Prévia e arquivo final usam o mesmo kernel: cortes, velocidade, camadas, texto, legendas SRT, transformações, opacidade, tratamento tonal e mixagem/fades de áudio.
@@ -49,10 +52,13 @@ Fixtures exclusivamente de desenvolvimento, sem backend/autenticação artificia
 - `/tests/browser/studio-engine.html`: fonte com vermelho/azul e tom de áudio; split/rate, imagem/texto sobrepostos; exporta, salva, libera temporário e reabre os bytes para comparar composição/áudio.
 - `/tests/browser/studio-workspace.html`: biblioteca e UI reais com owner de QA isolado; importação, edição, reload, download e handoff local.
 - `/tests/browser/studio-history.html`: BrowserRouter real para Back/Forward e cancelamento de saída durante captura. Entrar pelo HTML; usar a fixture anterior para testar reload.
+- `/tests/browser/studio-recording.html`: gravação antes da edição com BrowserRouter e StrictMode, revisão/exclusão de takes, salvamento e saída. Owner local exclusivo de QA; `?resume=<projectId>` reabre a produção e `?editor=<projectId>` reabre a montagem da fixture.
 
 As fixtures não são entradas do build Vite de produção. Não apagar toda a base IndexedDB durante QA: excluir somente os projetos dos owners de teste.
 
-Validação final: **311 testes em 59 suítes passaram**, incluindo 96 regressões compartilhadas. Typecheck dedicado, lint do escopo (zero erros), diff-check e build passaram. Chrome desktop com StrictMode aprovou importação, split/rate/texto/camadas, download, persistência/reabertura, recuperação do arquivo para publicação e Back/Forward com draft/gravação. Câmera/microfone sintéticos para o ciclo de captura; encoder e demuxer reais, com inspeção adicional via FFmpeg/FFprobe.
+Validação final: **343 testes em 61 suítes passaram**, incluindo 96 regressões compartilhadas. Typecheck dedicado, lint do escopo (zero erros), diff-check e build passaram. Chrome desktop com StrictMode aprovou importação, split/rate/texto/camadas, download, persistência/reabertura, recuperação do arquivo para publicação e Back/Forward com draft/gravação. Câmera/microfone sintéticos para o ciclo de captura; encoder e demuxer reais, com inspeção adicional via FFmpeg/FFprobe.
+
+O fluxo de produção foi validado no Chrome real: entrada pela biblioteca sem abrir o editor, dois takes com autosave, revisão/exclusão, avanço e reabertura no editor, exportação H.264/AAC em 1920×1080 e podcast AAC/M4A. Back durante REC cancela sem parar o trecho quando rejeitado e encerra/salva antes de sair quando confirmado. Short continua em 9:16 após remover o último take e exporta 1080×1920. Preparação em 1440×950 e 390×844 sem overflow horizontal; botão de avanço visível no palco desktop.
 
 MP4 de 1,5s em 1920×1080/30 FPS preservou cores, camadas e áudio; início do áudio da fixture coincide com a prévia. M4A de 3s e 180s e MP4 de 120s em 320×180/24 FPS foram exportados/reabertos com duração exata. O kernel limita os blocos PCM e descarta fontes antigas, mantendo recursos de draw/áudio em voo. Estas provas não certificam aulas de 20–60 minutos em HD/4K. Captura de tela via seletor do sistema, dispositivos físicos externos e Safari/Firefox continuam exigindo validação manual.
 
