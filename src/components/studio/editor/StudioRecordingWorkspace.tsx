@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Camera, Check, Film, Loader2, Mic, Monitor, Play, RefreshCw, Settings2, Square, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Check, ChevronDown, ChevronUp, Film, Loader2, Maximize2, Mic, MicOff, Minimize2, Monitor, Play, Settings2, ShieldCheck, Square, X } from 'lucide-react';
 import { createStudioCapture, type StudioCaptureController, type StudioCaptureMode, type StudioCaptureState } from '@/lib/studio/editor/capture';
 import { createStudioRecordingSession } from '@/lib/studio/editor/recording';
 import { getAsset } from '@/lib/studio/editor/storage';
@@ -10,7 +10,7 @@ import '@/styles/studio-recording.css';
 
 type RecordingSession = ReturnType<typeof createStudioRecordingSession>;
 type Candidate = { file: File; operationId: string; session: RecordingSession; token: number; work: Promise<boolean> | null; saved: boolean; notice: string | null };
-const idleCapture = (): StudioCaptureState => ({ phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, levels: [] });
+const idleCapture = (): StudioCaptureState => ({ phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, levels: [], camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true });
 const kindName = (kind: StudioKind) => kind === 'aula' ? 'Aula' : kind === 'short' ? 'Short' : 'Podcast';
 const defaultTitle = (kind: StudioKind) => kind === 'aula' ? 'Nova aula' : kind === 'short' ? 'Novo short' : 'Novo podcast';
 
@@ -27,11 +27,19 @@ function TakeThumbnail({ owner, project, take }: { owner: string; project: Studi
   return url ? <img src={url} alt="" /> : <div className="se-recording-take-placeholder">{take.kind === 'audio' ? <Mic size={22} /> : <Film size={22} />}</div>;
 }
 
+function DeviceSelector({ label, current, devices, disabled, onChange }: { label: 'Câmera' | 'Microfone'; current: { id: string; name: string } | null; devices: { id: string; name: string }[]; disabled: boolean; onChange: (id: string) => void }) {
+  const options = current && !devices.some(device => device.id === current.id) ? [current, ...devices] : devices;
+  return <label className="se-recording-device"><span>{label === 'Câmera' ? <Camera size={16} /> : <Mic size={16} />}<span>{label}</span></span><select aria-label={label} value={current?.id ?? ''} disabled={disabled || !options.length} onChange={event => onChange(event.target.value)}>
+    {!current && <option value="">{options.length ? 'Escolha uma entrada' : 'Autorize o acesso primeiro'}</option>}
+    {options.map(device => <option key={device.id} value={device.id}>{device.name}</option>)}
+  </select><ChevronDown size={13} aria-hidden="true" /></label>;
+}
+
 function AudioMonitor({ state }: { state: StudioCaptureState }) {
-  const level = state.levels[0], average = level ? Math.max(-60, Math.min(0, level.averageDb)) : -60;
+  const muted = state.microphoneEnabled === false, level = muted ? undefined : state.levels[0], average = level ? Math.max(-60, Math.min(0, level.averageDb)) : -60;
   return <div className="se-recording-monitor" aria-label={state.input ? `Microfone em uso: ${state.input.name}` : 'Microfone fechado'}>
-    <div><Mic size={14} /><span>{state.input?.name ?? 'Captura encerrada'}</span></div>
-    {state.input && <><div className="se-recording-meter" role="meter" aria-label="Nível real do microfone" aria-valuemin={-60} aria-valuemax={0} aria-valuenow={average}><i style={{ width: `${(average + 60) / 60 * 100}%`, background: level && level.peakDb > -3 ? '#ff685d' : undefined }} /></div><small>{level ? `${level.averageDb.toFixed(1)} dBFS` : 'Aguardando amostra'}</small></>}
+    <div>{muted ? <MicOff size={14} /> : <Mic size={14} />}<span>{state.input?.name ?? 'Captura encerrada'}</span></div>
+    {state.input && <><div className="se-recording-meter" role="meter" aria-label="Nível real do microfone" aria-valuemin={-60} aria-valuemax={0} aria-valuenow={average}><i style={{ width: `${(average + 60) / 60 * 100}%`, background: level && level.peakDb > -3 ? '#ff685d' : undefined }} /></div><small>{muted ? 'Microfone desativado' : level ? `${level.averageDb.toFixed(1)} dBFS` : 'Aguardando amostra'}</small></>}
   </div>;
 }
 
@@ -44,9 +52,12 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
   const [captureState, setCaptureState] = useState<StudioCaptureState>(idleCapture), [busy, setBusy] = useState<'save' | 'remove' | null>(null);
   const [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [selectedTake, setSelectedTake] = useState<string>();
   const [reviewURL, setReviewURL] = useState<string>(), [leaving, setLeaving] = useState(false);
+  const [takesExpanded, setTakesExpanded] = useState(true), [changingDevice, setChangingDevice] = useState(false);
+  const [fullscreenAvailable, setFullscreenAvailable] = useState(false), [fullscreen, setFullscreen] = useState(false);
   const capture = useRef<StudioCaptureController | null>(null), session = useRef<RecordingSession | null>(null), candidate = useRef<Candidate | null>(null);
   const captureSnapshot = useRef(idleCapture()), projectSnapshot = useRef<StudioProject | null>(null), mounted = useRef(false), epoch = useRef(0), currentOwner = useRef(owner);
   const saveBusy = useRef(false), mutationWork = useRef<Promise<boolean> | null>(null), exitWork = useRef<Promise<boolean> | null>(null), exitIntent = useRef(false), attempted = useRef(new WeakSet<File>());
+  const deviceWork = useRef<Promise<boolean> | null>(null), workspace = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null), reviewVideo = useRef<HTMLVideoElement>(null), reviewAudio = useRef<HTMLAudioElement>(null);
   const latest = useRef({ kind, title, location }); latest.current = { kind, title, location }; currentOwner.current = owner;
   const live = (token: number) => mounted.current && token === epoch.current && currentOwner.current === owner;
@@ -61,8 +72,8 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     // The first durable save replaces only the URL query. Keep the same session,
     // File receipts and controller when that project id comes back as a prop.
     if (session.current?.current()?.id === projectId && projectSnapshot.current?.ownerId === owner) return;
-    const token = ++epoch.current; capture.current?.cancel(); candidate.current = null; attempted.current = new WeakSet(); exitIntent.current = false; exitWork.current = null; mutationWork.current = null; saveBusy.current = false;
-    projectSnapshot.current = null; setProject(null); setSelectedTake(undefined); setError(null); setNotice(null); setBusy(null); setLeaving(false); setStage('setup'); setKind(initialKind); setTitle(initialTitle); setLoading(!!projectId);
+    const token = ++epoch.current; capture.current?.cancel(); candidate.current = null; attempted.current = new WeakSet(); exitIntent.current = false; exitWork.current = null; mutationWork.current = null; deviceWork.current = null; saveBusy.current = false;
+    projectSnapshot.current = null; setProject(null); setSelectedTake(undefined); setError(null); setNotice(null); setBusy(null); setLeaving(false); setChangingDevice(false); setTakesExpanded(true); setStage('setup'); setKind(initialKind); setTitle(initialTitle); setLoading(!!projectId);
     const owned = makeSession(initialKind, initialTitle, projectId); let active = true;
     if (projectId) void owned.loadExisting().then(value => {
       if (!active || !live(token) || session.current !== owned) return;
@@ -78,12 +89,19 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
   const captureMode: StudioCaptureMode = kind === 'podcast' ? 'audio' : mode;
   useEffect(() => {
     const owned = createStudioCapture({ mode: captureMode }); capture.current = owned;
+    deviceWork.current = null; setChangingDevice(false);
     const unsubscribe = owned.subscribe(value => {
       if (!mounted.current || currentOwner.current !== owner || capture.current !== owned) return;
       captureSnapshot.current = value; setCaptureState(value);
     });
     return () => { if (capture.current === owned) capture.current = null; unsubscribe(); owned.dispose(); };
   }, [owner, captureMode]);
+  useEffect(() => {
+    setFullscreenAvailable(typeof workspace.current?.requestFullscreen === 'function');
+    const changed = () => setFullscreen(document.fullscreenElement === workspace.current);
+    document.addEventListener('fullscreenchange', changed);
+    return () => document.removeEventListener('fullscreenchange', changed);
+  }, []);
   useEffect(() => {
     const element = video.current;
     if (element) { element.srcObject = captureState.stream; if (captureState.stream) void element.play().catch(() => undefined); }
@@ -127,7 +145,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     attempted.current.add(captureState.file); void saveRef.current(captureState.file);
   }, [captureState.phase, captureState.file]);
 
-  const hasRisk = () => ['preparing', 'recording', 'stopping'].includes(captureSnapshot.current.phase) || saveBusy.current || !!candidate.current && !candidate.current.saved || !!captureSnapshot.current.file;
+  const hasRisk = () => ['preparing', 'recording', 'stopping'].includes(captureSnapshot.current.phase) || saveBusy.current || !!deviceWork.current || !!candidate.current && !candidate.current.saved || !!captureSnapshot.current.file;
   const prepareExit = (): Promise<boolean> => {
     if (exitWork.current) return exitWork.current;
     const token = epoch.current, owned = capture.current;
@@ -141,7 +159,8 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
           const file = await owned!.stop(); if (!live(token)) return false;
           if (!await saveCandidate(file)) return false;
         } else if (state.phase === 'preparing') {
-          if (!window.confirm('Cancelar a abertura da captura e sair?')) return false; owned?.cancel();
+          if (!window.confirm('Cancelar a abertura da captura e sair?')) return false;
+          owned?.cancel(); deviceWork.current = null; setChangingDevice(false);
         } else if (candidate.current && !candidate.current.saved) {
           if (!await (candidate.current.work ?? saveCandidate(candidate.current.file))) return false;
         } else if (state.file) {
@@ -161,15 +180,38 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
   }, []);
 
   const report = (cause: unknown, token: number) => { if (live(token)) setError(cause instanceof Error ? cause.message : 'Não foi possível concluir esta ação.'); };
+  const reportCapture = (cause: unknown, token: number, owned: StudioCaptureController) => {
+    if (!live(token) || capture.current !== owned) return;
+    if (cause instanceof Error && cause.name === 'AbortError') return;
+    const denied = cause instanceof DOMException && cause.name === 'NotAllowedError';
+    setError(captureSnapshot.current.error ?? (denied ? 'Permita câmera e microfone nas permissões deste site e tente novamente.' : cause instanceof Error ? cause.message : 'Não foi possível abrir esta entrada.'));
+  };
   const openCapture = () => {
-    if (loading || saveBusy.current || exitIntent.current || candidate.current || ['recording', 'stopping', 'preparing'].includes(captureSnapshot.current.phase)) return;
+    if (loading || saveBusy.current || deviceWork.current || exitIntent.current || candidate.current || ['recording', 'stopping', 'preparing'].includes(captureSnapshot.current.phase)) return;
     const token = epoch.current, owned = capture.current; if (!owned) return;
     if (!projectSnapshot.current && !session.current?.current()) makeSession(latest.current.kind, latest.current.title);
     reviewVideo.current?.pause(); reviewAudio.current?.pause(); setError(null); setNotice(null); setStage('production');
     // Keep getDisplayMedia/getUserMedia on the original user gesture.
-    void owned.prepare().catch(cause => report(cause, token));
+    void owned.prepare().catch(cause => reportCapture(cause, token, owned));
   };
-  const start = () => { if (saveBusy.current || exitIntent.current) return; setError(null); setNotice(null); try { capture.current?.start(); } catch (cause) { report(cause, epoch.current); } };
+  const start = () => { if (saveBusy.current || deviceWork.current || exitIntent.current) return; setError(null); setNotice(null); try { capture.current?.start(); } catch (cause) { report(cause, epoch.current); } };
+  const selectDevice = (selection: { cameraId?: string; microphoneId?: string }) => {
+    if (saveBusy.current || deviceWork.current || exitIntent.current || candidate.current || !['ready', 'idle', 'error'].includes(captureSnapshot.current.phase) || captureSnapshot.current.file) return;
+    const token = epoch.current, owned = capture.current; if (!owned) return;
+    setChangingDevice(true); setError(null);
+    const work = owned.selectDevices(selection).then(() => true, cause => { reportCapture(cause, token, owned); return false; });
+    deviceWork.current = work;
+    void work.finally(() => { if (deviceWork.current === work) { deviceWork.current = null; if (live(token) && capture.current === owned) setChangingDevice(false); } });
+  };
+  const toggleMicrophone = () => {
+    if (saveBusy.current || deviceWork.current || exitIntent.current || candidate.current || captureSnapshot.current.phase !== 'ready') return;
+    try { capture.current?.setMicrophoneEnabled(!captureSnapshot.current.microphoneEnabled); } catch (cause) { report(cause, epoch.current); }
+  };
+  const toggleFullscreen = () => {
+    const token = epoch.current;
+    const work = document.fullscreenElement === workspace.current ? document.exitFullscreen() : workspace.current?.requestFullscreen();
+    void work?.catch(() => { if (live(token)) setError('Não foi possível abrir a tela cheia neste navegador. Você pode continuar gravando aqui.'); });
+  };
   const stop = () => { const token = epoch.current; setError(null); void capture.current?.stop().then(file => { if (live(token)) return saveCandidate(file); }).catch(cause => report(cause, token)); };
   const retry = () => { if (saveBusy.current) return; const state = captureSnapshot.current; if (candidate.current) void saveCandidate(candidate.current.file); else if (state.file) stop(); };
   const discard = () => { if (saveBusy.current || !window.confirm('Descartar o trecho ainda não salvo? Os takes já salvos continuam no projeto.')) return; candidate.current = null; capture.current?.cancel(); setError(null); setNotice(null); };
@@ -194,13 +236,19 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
   };
   const setup = () => { if (saveBusy.current || hasRisk()) return; capture.current?.cancel(); setError(null); setStage('setup'); };
   const reviewing = !!reviewURL && !captureState.stream, recording = captureState.phase === 'recording';
-  const occupied = loading || !!busy || leaving || captureState.phase === 'preparing' || captureState.phase === 'stopping';
+  const occupied = loading || !!busy || changingDevice || leaving || captureState.phase === 'preparing' || captureState.phase === 'stopping';
   const pendingFile = !!candidate.current || captureState.phase === 'error' && !!captureState.file;
   const total = project?.takes.reduce((sum, item) => sum + studioTakeDuration(item), 0) ?? 0;
   const captureCTA = kind === 'podcast' ? 'Ativar microfone' : mode === 'screen' ? 'Gravar tela' : 'Abrir câmera';
+  const permissionCard = !captureState.stream && !reviewing && !pendingFile;
+  const permissionError = permissionCard && !occupied && (error || captureState.error);
+  const permissionDenied = !!permissionError && /permit|permiss|negou|acesso.*bloque/i.test(error ?? captureState.error ?? '');
+  const ready = captureState.phase === 'ready';
+  const displayTitle = project?.title ?? (title.trim() || defaultTitle(kind));
+  const aspectLabel = kind === 'aula' ? '16:9' : kind === 'short' ? '9:16' : 'Áudio';
 
-  return <div className={`se-recording${recording ? ' is-recording' : ''}`} data-stage={stage}>
-    {!recording && <header className="se-recording-header"><div className="se-recording-brand"><button className="se-recording-icon" aria-label="Voltar aos projetos" disabled={leaving} onClick={() => void leave()}><ArrowLeft size={20} /></button><img src="/brand/classfy-simbolo-vermelho.svg" alt="Classfy" /><span>Studio</span><i /><strong>Gravar</strong></div>{stage === 'production' && <button className="se-recording-button" aria-label="Voltar à preparação" disabled={occupied || pendingFile} onClick={setup}><Settings2 size={16} />Preparação</button>}</header>}
+  return <div ref={workspace} className={`se-recording${recording ? ' is-recording' : ''}`} data-stage={stage}>
+    {stage === 'setup' && <header className="se-recording-header"><div className="se-recording-brand"><button className="se-recording-icon" aria-label="Voltar aos projetos" disabled={leaving} onClick={() => void leave()}><ArrowLeft size={20} /></button><img src="/brand/classfy-simbolo-vermelho.svg" alt="Classfy" /><span>Studio</span><i /><strong>Gravar</strong></div><span className="se-recording-header-note"><ShieldCheck size={15} />Seu espaço privado</span></header>}
     {stage === 'setup' ? <main className="se-recording-setup"><div className="se-recording-heading"><span>SEU ESPAÇO DE PRODUÇÃO</span><h1>Grave seu próximo conteúdo.</h1><p>Escolha o formato, enquadre e grave. A edição vem depois.</p></div>
       <div className="se-recording-formats" role="group" aria-label="Formato da gravação">{(['aula', 'short', 'podcast'] as const).map(format => <button key={format} disabled={loading || !!project} aria-pressed={kind === format} onClick={() => setKind(format)} className={kind === format ? 'selected' : ''}><div className={`se-recording-format-visual ${format}`}>{format === 'podcast' ? <Mic size={32} /> : <span><Play size={format === 'short' ? 18 : 24} fill="currentColor" /></span>}</div><strong>{kindName(format)}</strong><small>{format === 'aula' ? '16:9 · Para ir mais fundo' : format === 'short' ? '9:16 · Direto ao ponto' : 'Áudio · Sua voz em destaque'}</small>{kind === format && <Check className="se-recording-format-check" size={17} />}</button>)}</div>
       <div className="se-recording-setup-controls"><label className="se-recording-field">Nome da gravação <small>opcional</small><input aria-label="Nome da gravação" placeholder={defaultTitle(kind)} value={title} maxLength={160} disabled={loading || !!project} onChange={event => setTitle(event.target.value)} /></label>
@@ -208,17 +256,38 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
         <button className="se-recording-button primary se-recording-open" disabled={loading || !!error && !!projectId && !project} onClick={openCapture}>{loading ? <Loader2 size={18} className="se-spin" /> : kind === 'podcast' ? <Mic size={18} /> : mode === 'screen' ? <Monitor size={18} /> : <Camera size={18} />}{captureCTA}<ArrowRight size={18} /></button><p className="se-recording-privacy">A captura é privada. Seus takes são salvos neste navegador.</p>
       </div>{error && <p className="se-recording-error" role="alert">{error}</p>}
     </main> : <main className="se-recording-production">
-      {!recording && <div className="se-recording-project-heading"><div><h1>{project?.title ?? (title.trim() || defaultTitle(kind))}</h1><p>{kindName(kind)} · {kind === 'aula' ? '16:9' : kind === 'short' ? '9:16' : 'Áudio'}{project?.takes.length ? ` · ${formatStudioDuration(total)} salvos` : ''}</p></div><span className="se-recording-save-state">{busy === 'save' ? <><Loader2 size={14} className="se-spin" />Salvando take…</> : project?.takes.length ? <><Check size={14} />Takes salvos</> : 'Pronto para seu primeiro take'}</span></div>}
-      <div className={`se-recording-stage ${kind}`}>
-        {kind !== 'podcast' && <video ref={video} className="se-recording-live" muted playsInline autoPlay style={{ display: captureState.stream ? 'block' : 'none' }} />}
-        {reviewing && kind !== 'podcast' && <video ref={reviewVideo} src={reviewURL} className="se-recording-review" controls playsInline aria-label="Reproduzir take salvo" />}
-        {kind === 'podcast' ? <div className="se-recording-audio-stage"><div className={recording ? 'recording' : ''}><Mic size={48} strokeWidth={1.3} /></div><h2>{recording ? 'Sua voz, em foco.' : reviewing ? `Take ${(project?.takes.findIndex(item => item.id === take?.id) ?? -1) + 1}` : 'Pronto para ouvir sua ideia.'}</h2>{reviewing && <audio ref={reviewAudio} src={reviewURL} controls aria-label="Reproduzir take salvo" />}</div> : !captureState.stream && !reviewing && <div className="se-recording-stage-empty">{captureState.phase === 'preparing' ? <Loader2 size={32} className="se-spin" /> : mode === 'screen' ? <Monitor size={38} strokeWidth={1.2} /> : <Camera size={38} strokeWidth={1.2} />}<p>{captureState.phase === 'preparing' ? 'Aguardando sua permissão' : busy === 'save' ? 'Seu take está sendo salvo' : 'A captura está fechada'}</p></div>}
+      <div className="se-recording-stage-shell" data-testid="recording-stage">
+        <div className={`se-recording-stage ${kind}`}>
+          {kind !== 'podcast' && <video ref={video} className="se-recording-live" muted playsInline autoPlay aria-label="Prévia da gravação" style={{ display: captureState.stream ? 'block' : 'none' }} />}
+          {reviewing && kind !== 'podcast' && <video ref={reviewVideo} src={reviewURL} className="se-recording-review" controls playsInline aria-label="Reproduzir take salvo" />}
+          {kind === 'podcast' && (captureState.stream || reviewing) && <div className="se-recording-audio-stage"><div className={recording ? 'recording' : ''}><Mic size={48} strokeWidth={1.3} /></div><span className="se-recording-audio-eyebrow">{recording ? 'GRAVANDO PODCAST' : reviewing ? 'ORIGINAL SALVO' : 'PRONTO PARA GRAVAR'}</span><h2>{recording ? 'Sua voz, em foco.' : reviewing ? `Take ${(project?.takes.findIndex(item => item.id === take?.id) ?? -1) + 1}` : 'Sua próxima ideia começa aqui.'}</h2>{reviewing && <audio ref={reviewAudio} src={reviewURL} controls aria-label="Reproduzir take salvo" />}</div>}
+        </div>
+        {!recording && <header className="se-recording-stage-header"><div className="se-recording-stage-brand"><button className="se-recording-icon" aria-label="Voltar aos projetos" disabled={leaving} onClick={() => void leave()}><ArrowLeft size={19} /></button><img src="/brand/classfy-simbolo-vermelho.svg" alt="Classfy" /><div><h1>{displayTitle}</h1><p>{kindName(kind)} · {aspectLabel}{project?.takes.length ? ` · ${formatStudioDuration(total)} salvos` : ''}</p></div></div><div className="se-recording-stage-actions"><span className="se-recording-save-state">{busy === 'save' ? <><Loader2 size={13} className="se-spin" />Salvando take…</> : project?.takes.length ? <><Check size={13} />Takes salvos</> : <><ShieldCheck size={13} />Privado</>}</span>{fullscreenAvailable && <button className="se-recording-icon" title={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} aria-label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>}<button className="se-recording-icon" title="Preparação" aria-label="Voltar à preparação" disabled={occupied || pendingFile} onClick={setup}><Settings2 size={18} /></button></div></header>}
+        {permissionCard && <div className="se-recording-permission" data-permission-state={occupied ? 'preparing' : permissionError ? 'error' : 'closed'}>
+          <div className={`se-recording-permission-icon${permissionError ? ' error' : ''}`}>{occupied ? <Loader2 size={30} className="se-spin" /> : kind === 'podcast' ? <Mic size={31} strokeWidth={1.4} /> : mode === 'screen' ? <Monitor size={31} strokeWidth={1.4} /> : <Camera size={31} strokeWidth={1.4} />}</div>
+          <h2>{busy === 'save' ? 'Salvando seu take.' : captureState.phase === 'stopping' ? 'Preparando seu take.' : captureState.phase === 'preparing' ? kind === 'podcast' ? 'Vamos abrir seu microfone.' : mode === 'screen' ? 'Escolha o que quer compartilhar.' : 'Vamos abrir sua câmera.' : permissionError ? 'Não conseguimos abrir a entrada.' : 'Seu palco está pronto.'}</h2>
+          <p>{busy === 'save' ? 'Estamos preservando o original neste navegador.' : captureState.phase === 'preparing' ? mode === 'screen' && kind !== 'podcast' ? 'Use a janela do navegador para escolher uma tela ou aba. Depois, permita o microfone.' : kind === 'podcast' ? 'Quando o navegador pedir, permita o microfone. Você poderá conferir o áudio antes de gravar.' : 'Quando o navegador pedir, permita câmera e microfone. O preview aparece aqui, sem iniciar a gravação.' : permissionError ? permissionDenied ? 'Confira as permissões deste site no ícone ao lado do endereço do navegador e tente novamente.' : 'Confira a conexão do dispositivo e se outro aplicativo está usando esta entrada.' : 'Abra a captura para conferir o enquadramento e o áudio antes de gravar.'}</p>
+          {permissionError && <p className="se-recording-permission-error" role="alert">{error ?? captureState.error}</p>}
+          {!occupied && <button className="se-recording-button primary" onClick={openCapture}>{permissionError ? 'Tentar novamente' : project?.takes.length ? 'Gravar outro take' : captureCTA}<ArrowRight size={16} /></button>}
+          {!permissionError && !busy && <small><ShieldCheck size={13} />Só você vê esta captura.</small>}
+        </div>}
+        {!recording && pendingFile && <div className="se-recording-recovery"><div className="se-recording-permission-icon"><Film size={29} /></div><h2>{busy === 'save' ? 'Salvando seu take.' : 'Seu take ainda está com você.'}</h2><p>{busy === 'save' ? 'Aguarde a confirmação antes de continuar.' : 'Repita o salvamento ou baixe o original para guardar uma cópia.'}</p><div className="se-recording-feedback error" role="alert"><span>{error ?? captureState.error ?? 'Este trecho ainda não foi salvo.'}</span><div><button disabled={occupied} onClick={retry}>Tentar salvar take</button><button onClick={downloadOriginal}>Baixar original</button><button disabled={occupied} onClick={discard}>Descartar trecho</button></div></div></div>}
+        {!recording && !permissionError && !pendingFile && (error || captureState.error || notice) && <div className={`se-recording-feedback se-recording-stage-feedback ${error || captureState.phase === 'error' ? 'error' : ''}`} role={error || captureState.phase === 'error' ? 'alert' : 'status'}><span>{error ?? captureState.error ?? notice}</span></div>}
         {recording && <span className="se-recording-timer" role="timer"><i />{formatStudioEditorTime(captureState.elapsed)}</span>}
         {captureState.input && <AudioMonitor state={captureState} />}
+        {reviewing && !recording && <span className="se-recording-review-badge"><Play size={12} />Revisando take {(project?.takes.findIndex(item => item.id === take?.id) ?? -1) + 1}</span>}
       </div>
-      {!recording && (error || captureState.error || notice) && <div className={`se-recording-feedback ${error || captureState.phase === 'error' ? 'error' : ''}`} role={error || captureState.phase === 'error' ? 'alert' : 'status'}><span>{error ?? captureState.error ?? notice}</span>{pendingFile && <div><button disabled={occupied} onClick={retry}>Tentar salvar take</button><button onClick={downloadOriginal}>Baixar original</button><button disabled={occupied} onClick={discard}>Descartar trecho</button></div>}</div>}
-      <div className="se-recording-controls">{recording ? <button className="se-recording-rec stop" aria-label="Encerrar gravação" onClick={stop}><Square fill="currentColor" size={24} /></button> : captureState.phase === 'ready' ? <><button className="se-recording-rec" aria-label="Iniciar gravação" disabled={occupied} onClick={start}><i /></button>{kind !== 'podcast' && mode === 'camera' && <button className="se-recording-icon flip" aria-label="Trocar câmera" disabled={occupied} onClick={() => { const token = epoch.current; void capture.current?.flip().catch(cause => report(cause, token)); }}><RefreshCw size={22} /></button>}</> : occupied ? <span className="se-recording-working" role="status"><Loader2 size={18} className="se-spin" />{busy === 'save' ? 'Salvando original…' : busy === 'remove' ? 'Removendo take…' : captureState.phase === 'stopping' ? 'Preparando o take…' : 'Aguardando permissão…'}</span> : !pendingFile && <button className="se-recording-button" onClick={openCapture}>{kind === 'podcast' ? <Mic size={17} /> : <Camera size={17} />}{project?.takes.length ? 'Gravar outro take' : captureCTA}</button>}{recording && <small>Encerrar</small>}</div>
-      {!recording && <div className="se-recording-takes"><div className="se-recording-takes-heading"><strong>Seus takes <span>{project?.takes.length ?? 0}</span></strong><span>Continue gravando ou leve seus takes para a edição.</span></div><div className="se-recording-takes-strip">{project?.takes.map((item, index) => <article key={item.id} className={item.id === selectedTake ? 'selected' : ''}><button className="se-recording-take" aria-label={`Revisar take ${index + 1}`} disabled={occupied || pendingFile} onClick={() => { capture.current?.cancel(); setSelectedTake(item.id); }}><TakeThumbnail owner={owner} project={project} take={item} /><span><strong>Take {index + 1}</strong><small>{formatStudioDuration(studioTakeDuration(item))}</small></span></button><button className="se-recording-take-remove" aria-label={`Excluir take ${index + 1}`} disabled={occupied || pendingFile} onClick={() => void remove(item.id, index + 1)}><X size={14} /></button></article>)}{!project?.takes.length && <p>Seu primeiro take aparece aqui assim que for salvo.</p>}</div><div className="se-recording-next"><p>{project?.takes.length ? 'Os originais estão preservados. Corte, organize e finalize no editor.' : 'Grave um take para continuar.'}</p><button className="se-recording-button primary" disabled={!project?.takes.length || occupied || pendingFile} onClick={() => void leave(true)}>Ir para edição<ArrowRight size={17} /></button></div></div>}
+      {!recording && !!project?.takes.length && <section className={`se-recording-takes${takesExpanded ? '' : ' collapsed'}`} aria-label="Takes salvos"><button className="se-recording-takes-toggle" aria-label={takesExpanded ? 'Recolher takes salvos' : 'Mostrar takes salvos'} aria-expanded={takesExpanded} aria-controls="se-recording-saved-takes" onClick={() => setTakesExpanded(value => !value)}><Film size={16} /><span>Seus takes<strong>{project.takes.length}</strong></span>{takesExpanded ? <ChevronDown size={15} /> : <ChevronUp size={15} />}</button><div className="se-recording-takes-strip" id="se-recording-saved-takes" hidden={!takesExpanded}>{project.takes.map((item, index) => <article key={item.id} className={item.id === selectedTake ? 'selected' : ''}><button className="se-recording-take" aria-label={`Revisar take ${index + 1}`} aria-pressed={item.id === selectedTake} disabled={occupied || pendingFile} onClick={() => { capture.current?.cancel(); setSelectedTake(item.id); }}><TakeThumbnail owner={owner} project={project} take={item} /><span><strong>Take {index + 1}</strong><small>{formatStudioDuration(studioTakeDuration(item))}</small></span></button><button className="se-recording-take-remove" aria-label={`Excluir take ${index + 1}`} disabled={occupied || pendingFile} onClick={() => void remove(item.id, index + 1)}><X size={13} /></button></article>)}</div></section>}
+      <div className="se-recording-controls" data-testid="recording-toolbar" aria-label={recording ? 'Gravação em andamento' : 'Controles de gravação'}>
+        {recording ? <div className="se-recording-record-control"><button className="se-recording-rec stop" aria-label="Encerrar gravação" onClick={stop}><Square fill="currentColor" size={22} /></button><span>Encerrar gravação</span></div> : <>
+          <div className="se-recording-devices">
+            {kind !== 'podcast' && mode === 'camera' ? <DeviceSelector label="Câmera" current={captureState.camera} devices={captureState.devices?.cameras ?? []} disabled={occupied || pendingFile} onChange={cameraId => selectDevice({ cameraId })} /> : kind !== 'podcast' ? <div className="se-recording-screen-label"><Monitor size={17} /><span>Tela compartilhada<small>{captureState.stream ? 'Captura ativa' : 'Selecione uma tela ao abrir'}</small></span></div> : null}
+            <div className="se-recording-microphone-control"><button className={`se-recording-mute${captureState.microphoneEnabled === false ? ' muted' : ''}`} aria-label={captureState.microphoneEnabled === false ? 'Ativar microfone da gravação' : 'Desativar microfone'} aria-pressed={captureState.microphoneEnabled === false} title={captureState.microphoneEnabled === false ? 'Ativar microfone' : 'Desativar microfone'} disabled={!ready || occupied || pendingFile || !captureState.input} onClick={toggleMicrophone}>{captureState.microphoneEnabled === false ? <MicOff size={19} /> : <Mic size={19} />}</button><DeviceSelector label="Microfone" current={captureState.input} devices={captureState.devices?.microphones ?? []} disabled={occupied || pendingFile} onChange={microphoneId => selectDevice({ microphoneId })} /></div>
+          </div>
+          <div className="se-recording-record-control">{ready ? <><button className="se-recording-rec" aria-label="Iniciar gravação" disabled={occupied || pendingFile} onClick={start}><i /></button><span>Gravar take</span></> : occupied ? <span className="se-recording-working" role="status"><Loader2 size={18} className="se-spin" />{changingDevice ? 'Abrindo entrada…' : busy === 'save' ? 'Salvando original…' : busy === 'remove' ? 'Removendo take…' : captureState.phase === 'stopping' ? 'Preparando o take…' : 'Aguardando permissão…'}</span> : !pendingFile && !permissionCard && <button className="se-recording-button" onClick={openCapture}><span className="se-recording-small-dot" />{project?.takes.length ? 'Gravar outro take' : captureCTA}</button>}</div>
+          <div className="se-recording-next"><span>{project?.takes.length ? `${project.takes.length} ${project.takes.length === 1 ? 'take salvo' : 'takes salvos'} · ${formatStudioDuration(total)}` : 'Grave seu primeiro take'}</span><button className="se-recording-button primary" disabled={!project?.takes.length || occupied || pendingFile} onClick={() => void leave(true)}>Ir para edição<ArrowRight size={17} /></button></div>
+        </>}
+      </div>
     </main>}
   </div>;
 }

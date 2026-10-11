@@ -4,7 +4,7 @@ import { createStudioCapture, type StudioCaptureController, type StudioCaptureMo
 
 export function StudioRecorder({mode,onRecorded,onClose,disabled=false}:{mode:StudioCaptureMode;onRecorded(file:File):Promise<void>;onClose():void;disabled?:boolean}){
   const controller=useRef<StudioCaptureController|null>(null),video=useRef<HTMLVideoElement>(null);
-  const [state,setState]=useState<StudioCaptureState>({phase:'idle',stream:null,elapsed:0,file:null,error:null,input:null,levels:[]}),[saving,setSaving]=useState(false),[error,setError]=useState<string|null>(null);
+  const [state,setState]=useState<StudioCaptureState>({phase:'idle',stream:null,elapsed:0,file:null,error:null,input:null,levels:[],camera:null,devices:{cameras:[],microphones:[]},microphoneEnabled:true}),[saving,setSaving]=useState(false),[error,setError]=useState<string|null>(null);
   const saved=useRef(false);
   useEffect(()=>{
     // StrictMode replays effects. Each setup owns a fresh controller and listener;
@@ -35,7 +35,7 @@ export function StudioRecorder({mode,onRecorded,onClose,disabled=false}:{mode:St
       {state.phase==='ready'?<><button type="button" disabled={busy} aria-label="Iniciar gravação" onClick={()=>void act(owned=>owned.start())} style={{...primary,borderRadius:50,padding:18}}><Circle fill="#fff" size={24}/></button>{mode==='camera'?<button type="button" disabled={busy} aria-label="Trocar câmera" onClick={()=>void act(owned=>owned.flip())}><RefreshCw size={22}/></button>:null}</>:null}
       {state.phase==='recording'?<button type="button" aria-label="Encerrar gravação" disabled={disabled} onClick={()=>void act(owned=>owned.stop())} style={primary}><Square fill="#fff" size={20}/> Encerrar</button>:null}
       {busy&&!disabled?<span role="status">{saving?'Salvando original…':state.phase==='stopping'?'Preparando o trecho…':'Aguardando permissão…'}</span>:null}
-      {state.phase==='recorded'?<><button type="button" disabled={busy} onClick={()=>{if(window.confirm('Descartar este trecho ainda não salvo e gravar outro?'))void act(owned=>owned.prepare());}}>Gravar outro</button><button type="button" disabled={busy} onClick={()=>void save()} style={primary}><Check size={20}/> Usar gravação</button></>:null}
+      {state.phase==='recorded'?<><button type="button" disabled={busy} onClick={()=>{if(window.confirm('Descartar este trecho ainda não salvo e gravar outro?'))void act(owned=>{owned.cancel();return owned.prepare();});}}>Gravar outro</button><button type="button" disabled={busy} onClick={()=>void save()} style={primary}><Check size={20}/> Usar gravação</button></>:null}
     </div>
   </section>;
 }
