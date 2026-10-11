@@ -1,0 +1,39 @@
+.sce-upgrade-overlay{position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.74);backdrop-filter:blur(9px)}
+.sce-upgrade{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1101;width:min(620px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;background:radial-gradient(ellipse at 70% 0%,#312122 0%,transparent 52%),#121214;color:#f7f6f5;border:1px solid #ffffff1f;border-radius:24px;padding:34px;box-shadow:0 28px 100px #000a;outline:none;font-family:inherit}
+.sce-upgrade button,.sce-upgrade a{-webkit-tap-highlight-color:transparent;font:inherit}
+.sce-upgrade-close{position:absolute;right:15px;top:15px;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:#ffffff08;border:0;color:#c9c5c4;cursor:pointer}
+.sce-upgrade-brand{display:flex;align-items:center;gap:7px;color:#e6bd70;font-size:10px;font-weight:750;letter-spacing:.18em;margin-bottom:15px}
+.sce-upgrade-title{font-size:clamp(25px,4vw,34px);line-height:1.12;font-weight:650;letter-spacing:-.04em;margin:0 0 12px}
+.sce-upgrade-description{max-width:460px;color:#b8b4b5;font-size:14px;line-height:1.6;margin:0 0 25px}
+.sce-upgrade-scenes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:22px}
+.sce-upgrade-scenes>div>strong{display:flex;justify-content:center;align-items:center;gap:6px;font-size:10px;font-weight:600;color:#c9c5c5;margin-top:9px}
+.sce-upgrade-scene{position:relative;aspect-ratio:16/10;border:1px solid #ffffff15;border-radius:11px;overflow:hidden;background:linear-gradient(150deg,#383647,#24232e);display:flex;justify-content:center;align-items:flex-end}
+.sce-upgrade-person{display:block;position:relative;width:52%;height:55%;background:linear-gradient(110deg,#aa8279,#765864);border-radius:45% 45% 0 0}
+.sce-upgrade-person:before{content:"";position:absolute;top:-48%;left:28%;width:43%;aspect-ratio:1;background:#dbb9a4;border-radius:50%;box-shadow:0 -5px 0 1px #3b3034}
+.sce-upgrade-scene--screen,.sce-upgrade-scene--both{background:#24262d;align-items:center;padding:12% 10%}
+.sce-upgrade-screen{width:100%;height:100%;display:flex;flex-direction:column;gap:10%;border-radius:5px;background:#e4e1de;padding:14%;box-shadow:0 3px 14px #0002}
+.sce-upgrade-screen i{height:12%;width:78%;background:#938d9b;border-radius:2px}
+.sce-upgrade-screen i:first-child{height:25%;width:55%;background:#bd637d}
+.sce-upgrade-screen i:last-child{width:58%;background:#b4adb4}
+.sce-upgrade-pip{position:absolute;right:7%;bottom:8%;width:28%;height:44%;overflow:hidden;background:#4c4254;border-radius:6px;border:1px solid #f4cc91;display:flex;align-items:flex-end;justify-content:center;box-shadow:0 2px 9px #0005}
+.sce-upgrade-benefits{list-style:none;padding:0;margin:0 0 24px;display:grid;gap:10px;color:#d1cdce;font-size:12px;line-height:1.5}
+.sce-upgrade-benefits li{display:flex;align-items:center;gap:9px}
+.sce-upgrade-benefits svg{color:#dabb7e;flex-shrink:0}
+.sce-upgrade-offer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:17px 0;border-top:1px solid #ffffff15;border-bottom:1px solid #ffffff15;margin-bottom:19px}
+.sce-upgrade-offer>div>span{font-size:9px;font-weight:650;letter-spacing:.12em;color:#c8b39d}
+.sce-upgrade-offer p{font-size:12px;color:#aaa3a5;margin:4px 0 0}
+.sce-upgrade-offer strong{font-size:23px;font-weight:650;color:#f5f0ed;letter-spacing:-.035em}
+.sce-upgrade-plan{font-size:10px;color:#aca5a7;background:#ffffff07;border:1px solid #ffffff13;border-radius:20px;padding:7px 10px}
+.sce-upgrade-primary,.sce-upgrade-checkout{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;min-height:47px;border:1px solid #f34868;border-radius:11px;background:#e81746;color:white;cursor:pointer;font-weight:650!important;font-size:13px!important;box-shadow:0 5px 24px #e817461c}
+.sce-upgrade-primary>svg:last-child{margin-left:auto}.sce-upgrade-primary>svg:first-child{margin-right:auto}
+.sce-upgrade-primary:disabled,.sce-upgrade-verify:disabled{opacity:.5;cursor:default}
+.sce-upgrade-checkout{margin-bottom:12px;text-decoration:none}
+.sce-upgrade-verify,.sce-upgrade-basic{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:14px;background:none;border:0;width:100%;min-height:30px;color:#d2c5b7;font-size:11px!important;cursor:pointer}
+.sce-upgrade-basic{color:#938c90;margin-top:3px}
+.sce-upgrade-error,.sce-upgrade-notice{font-size:12px;line-height:1.6;padding:11px 13px;border-radius:9px;margin:0 0 13px;background:#e8174610;color:#f2a3b3}
+.sce-upgrade-notice{background:#f4cc910b;color:#d6c19f}
+.sce-upgrade :is(button,a):focus-visible{outline:2px solid #f2c383;outline-offset:3px}
+.sce-upgrade-spinner{animation:sce-upgrade-spin 1s linear infinite}
+@keyframes sce-upgrade-spin{to{transform:rotate(360deg)}}
+@media(max-width:480px){.sce-upgrade{padding:28px 21px 19px;border-radius:20px}.sce-upgrade-scenes{gap:7px}.sce-upgrade-description{font-size:13px}.sce-upgrade-offer{align-items:flex-start;flex-direction:column;gap:10px}.sce-upgrade-plan{font-size:10px}.sce-upgrade-benefits{font-size:11px}}
+@media(prefers-reduced-motion:reduce){.sce-upgrade-spinner{animation:none}}
