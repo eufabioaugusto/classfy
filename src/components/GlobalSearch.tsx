@@ -270,8 +270,19 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
         </SheetContent>
       </Sheet>
 
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Buscar"
+        title="Buscar"
+        onClick={() => setMobileSheetOpen(true)}
+        className="hidden shrink-0 sm:flex lg:hidden"
+      >
+        <Search className="w-4 h-4" />
+      </Button>
+
       {/* Desktop */}
-      <div ref={containerRef} className="relative flex-1 max-w-xl mx-4 hidden sm:block">
+      <div ref={containerRef} className="relative min-w-0 flex-1 max-w-xl mx-4 hidden lg:block">
         <div className={cn(
           "flex items-center gap-2 rounded-full border backdrop-blur-sm transition-all duration-200",
           isFocused 
@@ -319,9 +330,9 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
             </Button>
           </div>
           
-          <div className="flex items-center gap-2 flex-1 py-1.5">
+          <div className="flex min-w-0 items-center gap-2 flex-1 py-1.5">
             <Search className={cn(
-              "w-4 h-4 ml-1 transition-colors",
+              "w-4 h-4 shrink-0 ml-1 transition-colors",
               isFocused ? "text-foreground" : "text-muted-foreground"
             )} />
             <Input 
@@ -338,7 +349,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
                 // Delay to allow click on results
                 setTimeout(() => setIsFocused(false), 150);
               }}
-              className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50 text-sm h-8 px-0 focus:placeholder:text-muted-foreground/30 transition-all" 
+              className="min-w-0 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50 text-sm h-8 px-0 focus:placeholder:text-muted-foreground/30 transition-all"
             />
           </div>
           
