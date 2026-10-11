@@ -16,8 +16,8 @@ vi.mock('@/lib/studio/editor/storage', () => ({
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 class Track {
   id: string; label: string; readyState = 'live'; onended: null | (() => void) = null; onmute = null;
-  constructor(public kind = 'audio') { this.id = kind; this.label = kind === 'audio' ? 'USB Microphone' : 'Camera autorizada'; }
-  stop = vi.fn(() => { this.readyState = 'ended'; }); getSettings() { return { deviceId: 'usb-id', width: 1920, height: 1080, frameRate: 30 }; }
+  constructor(public kind = 'audio', public deviceId = kind === 'audio' ? 'usb-id' : 'camera-id', name?: string) { this.id = `${kind}-${deviceId}`; this.label = name ?? (kind === 'audio' ? 'USB Microphone' : 'Camera autorizada'); }
+  stop = vi.fn(() => { this.readyState = 'ended'; }); getSettings() { return { deviceId: this.deviceId, width: 1920, height: 1080, frameRate: 30 }; }
 }
 class Stream {
   constructor(public tracks = [new Track()]) {} getTracks() { return this.tracks; } getAudioTracks() { return this.tracks.filter(t => t.kind === 'audio'); } getVideoTracks() { return this.tracks.filter(t => t.kind === 'video'); }
@@ -50,6 +50,10 @@ async function mount(url = '/studio/record', browser = false) {
 function button(label: string) { return [...host.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === label || b.textContent?.trim() === label); }
 async function click(label: string) { const target = button(label); expect(target, label).toBeTruthy(); await act(async () => target!.click()); }
 async function format(label: string) { const target = [...host.querySelectorAll('.se-recording-formats button')].find(b => b.querySelector('strong')?.textContent === label); expect(target).toBeTruthy(); await act(async () => (target as HTMLButtonElement).click()); }
+async function select(label: 'Câmera' | 'Microfone', id: string) {
+  const target = host.querySelector(`select[aria-label="${label}"]`) as HTMLSelectElement;
+  expect(target).toBeTruthy(); await act(async () => { target.value = id; target.dispatchEvent(new Event('change', { bubbles: true })); });
+}
 const activeVisibility = () => {
   const listeners = new Set(added.mock.calls.filter(([name]) => name === 'visibilitychange').map(([, listener]) => listener));
   removed.mock.calls.filter(([name]) => name === 'visibilitychange').forEach(([, listener]) => listeners.delete(listener)); return listeners.size;
@@ -65,8 +69,15 @@ beforeEach(() => {
   io.put.mockReset().mockImplementation(async (account: string, id: string, asset: string, blob: Blob) => { assets.set(key(account, id, asset), blob); });
   io.asset.mockReset().mockImplementation(async (account: string, id: string, asset: string) => assets.get(key(account, id, asset)) ?? null);
   io.inspect.mockReset().mockImplementation(async (file: File) => ({ kind: file.type.startsWith('audio/') ? 'audio' : 'video', duration: 2, hasAudio: true, width: 1920, height: 1080, frameRate: 30, mimeType: file.type, thumbnail: new Blob(['thumb'], { type: 'image/jpeg' }), warnings: [] }));
-  permissions = vi.fn(async (options: MediaStreamConstraints) => new Stream(options.video ? [new Track('video'), new Track()] : [new Track()]));
-  Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: permissions }, configurable: true });
+  const deviceId = (value: boolean | MediaTrackConstraints | undefined) => typeof value === 'object' && typeof value.deviceId === 'object' && 'exact' in value.deviceId ? String(value.deviceId.exact) : undefined;
+  permissions = vi.fn(async (options: MediaStreamConstraints) => new Stream([
+    ...(options.video ? [new Track('video', deviceId(options.video) ?? 'camera-id', deviceId(options.video) === 'continuity-id' ? 'iPhone de Fabio' : undefined)] : []),
+    ...(options.audio ? [new Track('audio', deviceId(options.audio) ?? 'usb-id', deviceId(options.audio) === 'external-mic' ? 'Microfone externo' : undefined)] : []),
+  ]));
+  Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: permissions, enumerateDevices: vi.fn(async () => [
+    { deviceId: 'camera-id', kind: 'videoinput', label: 'Camera autorizada' }, { deviceId: 'continuity-id', kind: 'videoinput', label: 'iPhone de Fabio' },
+    { deviceId: 'usb-id', kind: 'audioinput', label: 'USB Microphone' }, { deviceId: 'external-mic', kind: 'audioinput', label: 'Microfone externo' },
+  ]) }, configurable: true });
   vi.stubGlobal('MediaRecorder', Recorder); vi.stubGlobal('MediaStream', Stream); vi.stubGlobal('AudioContext', Audio);
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined); vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
   Object.defineProperty(URL, 'createObjectURL', { value: vi.fn(() => `blob:owned-${crypto.randomUUID()}`), configurable: true });
@@ -151,5 +162,93 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     const stream = await permissions.mock.results[0].value; expect(stream.tracks.every((t: Track) => t.readyState === 'ended')).toBe(true);
     await click('Gravar outro take'); expect(URL.revokeObjectURL).toHaveBeenCalledWith(renderedURL); expect(permissions).toHaveBeenCalledTimes(2); const next = await permissions.mock.results[1].value;
     await act(async () => root.unmount()); expect(next.tracks.every((t: Track) => t.readyState === 'ended')).toBe(true); expect(activeVisibility()).toBe(0);
+  });
+
+  it('seletores exibem dispositivos autorizados reais, trocam câmera/mic e REC mantém só parar/monitor', async () => {
+    await mount(); expect(navigator.mediaDevices.enumerateDevices).not.toHaveBeenCalled();
+    await click('Abrir câmera');
+    const camera = host.querySelector('select[aria-label="Câmera"]') as HTMLSelectElement, mic = host.querySelector('select[aria-label="Microfone"]') as HTMLSelectElement;
+    expect(camera.value).toBe('camera-id'); expect(camera.selectedOptions[0].textContent).toBe('Camera autorizada');
+    expect(mic.value).toBe('usb-id'); expect(mic.selectedOptions[0].textContent).toBe('USB Microphone');
+    await select('Câmera', 'continuity-id');
+    expect(permissions.mock.calls.at(-1)![0]).toMatchObject({ video: { deviceId: { exact: 'continuity-id' } }, audio: false });
+    expect(camera.value).toBe('continuity-id'); expect(camera.selectedOptions[0].textContent).toBe('iPhone de Fabio'); expect(mic.value).toBe('usb-id');
+    await select('Microfone', 'external-mic');
+    expect(permissions.mock.calls.at(-1)![0]).toMatchObject({ video: false, audio: { deviceId: { exact: 'external-mic' } } });
+    expect(mic.value).toBe('external-mic'); expect(mic.selectedOptions[0].textContent).toBe('Microfone externo');
+    expect(host.querySelector('[aria-label="Microfone em uso: Microfone externo"]')).toBeTruthy();
+    expect(((host.querySelector('video[aria-label="Prévia da gravação"]') as HTMLVideoElement).srcObject as MediaStream).getVideoTracks()[0].getSettings().deviceId).toBe('continuity-id');
+    await click('Iniciar gravação');
+    expect(host.querySelectorAll('[data-testid="recording-toolbar"] button')).toHaveLength(1); expect(button('Encerrar gravação')).toBeTruthy();
+    expect(host.querySelectorAll('select')).toHaveLength(0); expect(button('Desativar microfone')).toBeUndefined(); expect(button('Voltar aos projetos')).toBeUndefined();
+    expect(host.querySelector('[role="timer"]')).toBeTruthy(); expect(host.querySelector('[aria-label="Microfone em uso: Microfone externo"]')).toBeTruthy();
+    await click('Encerrar gravação'); expect(host.querySelector('.se-recording-takes')).toBeTruthy(); expect(button('Ir para edição')?.disabled).toBe(false);
+    expect(host.querySelector('[data-permission-state]')).toBeNull();
+  });
+
+  it('mute usa a pista real sem trocar identidade; indicador volta ao sinal quando reativado', async () => {
+    vi.useFakeTimers(); await mount(); await click('Abrir câmera');
+    const preview = host.querySelector('video[aria-label="Prévia da gravação"]') as HTMLVideoElement;
+    const track = (preview.srcObject as unknown as Stream).getAudioTracks()[0] as Track & { enabled: boolean };
+    await act(async () => vi.advanceTimersByTime(100)); expect(host.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).not.toBe('-60');
+    await click('Desativar microfone'); expect(track.enabled).toBe(false); expect(host.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).toBe('-60');
+    expect(host.textContent).toContain('Microfone desativado'); expect(host.querySelector('[aria-label="Microfone em uso: USB Microphone"]')).toBeTruthy();
+    expect(button('Ativar microfone da gravação')?.getAttribute('aria-pressed')).toBe('true');
+    await click('Ativar microfone da gravação'); expect(track.enabled).toBe(true);
+    await act(async () => vi.advanceTimersByTime(100)); expect(host.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).toBe('-6.020599913279624');
+    expect(permissions).toHaveBeenCalledTimes(1);
+  });
+
+  it('preparação central orienta permissão, negação é amigável e retry só libera REC com stream confirmado', async () => {
+    const pending = deferred<Stream>(); permissions.mockReturnValueOnce(pending.promise);
+    await mount(); await click('Abrir câmera');
+    expect(host.querySelector('[data-permission-state="preparing"]')).toBeTruthy(); expect(host.textContent).toContain('Quando o navegador pedir');
+    expect(host.querySelector('[role="dialog"]')).toBeNull(); expect(button('Iniciar gravação')).toBeUndefined();
+    expect((host.querySelector('select[aria-label="Câmera"]') as HTMLSelectElement).disabled).toBe(true);
+    await act(async () => pending.reject(new DOMException('Permission denied', 'NotAllowedError')));
+    expect(host.querySelector('[data-permission-state="error"]')).toBeTruthy(); expect(host.querySelector('[role="alert"]')?.textContent).toContain('Permita câmera e microfone');
+    expect(host.textContent).not.toContain('Permission denied'); expect(host.textContent).toContain('ícone ao lado do endereço');
+    await click('Tentar novamente'); expect(permissions).toHaveBeenCalledTimes(2);
+    expect(host.querySelector('[data-permission-state]')).toBeNull(); expect(button('Iniciar gravação')?.disabled).toBe(false);
+  });
+
+  it('erro de entrada ocupada mostra orientação de dispositivo, sem diagnosticar permissão negada', async () => {
+    permissions.mockRejectedValueOnce(new DOMException('Could not start video source', 'NotReadableError'));
+    await mount(); await click('Abrir câmera');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Feche outro aplicativo');
+    expect(host.textContent).toContain('conexão do dispositivo'); expect(host.textContent).not.toContain('ícone ao lado do endereço');
+    expect(host.textContent).not.toContain('Could not start video source'); expect(button('Tentar novamente')).toBeTruthy();
+  });
+
+  it('sair durante troca de entrada pendente cancela sem aguardar permissão e fecha tracks tardios', async () => {
+    await mount(); await click('Abrir câmera'); const original = await permissions.mock.results[0].value;
+    const pending = deferred<Stream>(); permissions.mockReturnValueOnce(pending.promise);
+    await select('Câmera', 'continuity-id'); expect(button('Iniciar gravação')).toBeUndefined(); expect(host.textContent).toContain('Abrindo entrada');
+    await click('Voltar aos projetos'); expect(window.confirm).toHaveBeenCalledWith('Cancelar a abertura da captura e sair?');
+    expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/projects');
+    expect(original.tracks.every((track: Track) => track.readyState === 'ended')).toBe(true);
+    const late = new Stream([new Track('video', 'continuity-id')]); await act(async () => pending.resolve(late));
+    expect(late.tracks.every(track => track.readyState === 'ended')).toBe(true); expect(io.create).not.toHaveBeenCalled();
+  });
+
+  it('troca que falha conserva preview/nome anterior e não impede uma saída sem risco', async () => {
+    await mount(); await click('Abrir câmera'); const original = await permissions.mock.results[0].value;
+    permissions.mockRejectedValueOnce(new DOMException('Device not found', 'NotFoundError'));
+    await select('Câmera', 'continuity-id');
+    const camera = host.querySelector('select[aria-label="Câmera"]') as HTMLSelectElement;
+    expect(camera.value).toBe('camera-id'); expect(camera.selectedOptions[0].textContent).toBe('Camera autorizada');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Confira a conexão'); expect(host.textContent).not.toContain('Device not found');
+    expect(host.querySelector('[data-permission-state]')).toBeNull(); expect(original.tracks.every((track: Track) => track.readyState === 'live')).toBe(true);
+    await click('Voltar aos projetos'); expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/projects');
+    expect(window.confirm).not.toHaveBeenCalled(); expect(original.tracks.every((track: Track) => track.readyState === 'ended')).toBe(true);
+  });
+
+  it('take strip recolhe sem alterar montagem, câmera ou revisão e reabre com exclusão acessível', async () => {
+    await mount(); await record(); const saved = [...projects.values()][0], source = host.querySelector('video[aria-label="Reproduzir take salvo"]')?.getAttribute('src');
+    await click('Recolher takes salvos');
+    expect(host.querySelector('#se-recording-saved-takes')?.hasAttribute('hidden')).toBe(true); expect(button('Mostrar takes salvos')?.getAttribute('aria-expanded')).toBe('false');
+    expect(host.querySelector('video[aria-label="Reproduzir take salvo"]')?.getAttribute('src')).toBe(source); expect(io.save).toHaveBeenCalledTimes(1);
+    await click('Mostrar takes salvos'); expect(host.querySelector('#se-recording-saved-takes')?.hasAttribute('hidden')).toBe(false);
+    expect(button('Excluir take 1')?.disabled).toBe(false); expect(compileStudioRecipe([...projects.values()][0])).toEqual(compileStudioRecipe(saved)); expect(permissions).toHaveBeenCalledTimes(1);
   });
 });
