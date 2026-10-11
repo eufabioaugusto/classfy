@@ -9,7 +9,7 @@ import { DirectMessagesButton } from "@/components/DirectMessagesButton";
 import { AffiliateModal } from "@/components/AffiliateModal";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { useState } from "react";
-import { Moon, Sun, Plus, BookOpen, LogIn, LogOut, Settings, Gift, User } from "lucide-react";
+import { Moon, Sun, Plus, CircleDot, BookOpen, LogIn, LogOut, Settings, Gift, User } from "lucide-react";
 import { RewardAvatar } from "@/components/RewardAvatar";
 import {
   DropdownMenu,
@@ -44,13 +44,13 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
   return (
     <header className={cn("cf2-app-header sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl", className)}>
       <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-3 sm:py-4">
-        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <SidebarTrigger />
           {/* Logo visible only on mobile when menu is closed */}
           <Link to="/" aria-label="Classfy — início" className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden">
             <ClassfyLogo symbolClassName="h-6 w-6" />
           </Link>
-          {title && <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate max-w-[150px] sm:max-w-none hidden sm:block">{title}</h1>}
+          {title && <h1 className="min-w-0 text-lg sm:text-2xl font-bold text-foreground truncate max-w-[150px] lg:max-w-none hidden sm:block">{title}</h1>}
         </div>
 
         {/* Global Search - Always on home variant */}
@@ -62,68 +62,82 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
         )}
 
         {/* User Actions */}
-        <div className="flex items-center gap-1.5 sm:gap-3">
-          {/* Theme Toggle - Hidden on mobile */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleTheme}
-            aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}
-            className="text-foreground hidden sm:flex"
-          >
-            {theme === "dark" ? (
-              <Sun className="w-5 h-5" />
-            ) : (
-              <Moon className="w-5 h-5" />
-            )}
-          </Button>
-
-          {/* Affiliate Program - Hidden on mobile */}
-          {user && (
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <div className="hidden items-center gap-0.5 sm:flex">
+            {/* Theme Toggle - Hidden on mobile */}
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setAffiliateModalOpen(true)}
-              title="Programa de Afiliados"
-              className="text-foreground hidden sm:flex"
+              onClick={toggleTheme}
+              aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}
+              className="text-foreground"
             >
-              <Gift className="w-5 h-5" />
+              {theme === "dark" ? (
+                <Sun className="w-5 h-5" />
+              ) : (
+                <Moon className="w-5 h-5" />
+              )}
             </Button>
-          )}
 
-          {/* Notification Bell - Hidden on mobile */}
-          <div className="hidden sm:block">
+            {/* Affiliate Program - Hidden on mobile */}
+            {user && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setAffiliateModalOpen(true)}
+                title="Programa de Afiliados"
+                className="text-foreground"
+              >
+                <Gift className="w-5 h-5" />
+              </Button>
+            )}
+
+            {/* Notification Bell - Hidden on mobile */}
             <NotificationBell />
+
+            {/* Direct Messages - Hidden on mobile */}
+            {user && <DirectMessagesButton />}
           </div>
 
-          {/* Direct Messages - Hidden on mobile */}
-          {user && (
-            <div className="hidden sm:block">
-              <DirectMessagesButton />
-            </div>
-          )}
-
-          {/* Creator Create Button - Shows for creators and admins on all pages */}
+          {/* Recording starts production; publishing receives existing content. */}
           {(role === 'creator' || role === 'admin') && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" className="gap-1 sm:gap-2 px-2 sm:px-4">
-                  <Plus className="w-4 h-4" />
-                  <span className="hidden sm:inline">Criar</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 bg-background border-border z-50">
-                {creatorActions.map((action) => (
-                  <DropdownMenuItem key={action.url} onClick={() => navigate(action.url)} className="gap-3 cursor-pointer">
-                    <action.icon className="w-4 h-4" />
-                    <div>
-                      <div className="font-medium">{action.title}</div>
-                      <div className="text-xs text-muted-foreground">{action.description}</div>
-                    </div>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex items-center gap-2">
+              <Button
+                asChild
+                size="sm"
+                className="h-9 w-9 bg-brand p-0 text-white hover:bg-brand/90 lg:w-auto lg:px-4"
+              >
+                <Link to="/studio/record" aria-label="Gravar" title="Gravar">
+                  <CircleDot className="w-4 h-4" />
+                  <span className="hidden lg:inline">Gravar</span>
+                </Link>
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label="Publicar"
+                    title="Publicar"
+                    className="h-9 w-9 p-0 lg:w-auto lg:px-4"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="hidden lg:inline">Publicar</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56 bg-background border-border z-50">
+                  {creatorActions.map((action) => (
+                    <DropdownMenuItem key={action.url} onClick={() => navigate(action.url)} className="gap-3 cursor-pointer">
+                      <action.icon className="w-4 h-4" />
+                      <div>
+                        <div className="font-medium">{action.title}</div>
+                        <div className="text-xs text-muted-foreground">{action.description}</div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           )}
 
           {/* User Menu */}
