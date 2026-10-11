@@ -1,3 +1,8 @@
+import {
+  activeStoreProvider,
+  storeManagementMessage,
+  type StoreProfile,
+} from "./store-entitlement.ts";
 export type SubscriptionPlan = "pro" | "premium";
 
 const stripeId = (environmentKey: string, productionFallback: string) =>
@@ -78,13 +83,6 @@ interface StripeClient {
   };
 }
 
-interface ProfileBillingState {
-  billing_id: string | null;
-  plan?: string | null;
-  plan_expires_at?: string | null;
-  entitlement_source?: string | null;
-}
-
 interface SupabaseAdminClient {
   // Edge Functions historicas usam versoes diferentes do supabase-js. O contrato
   // de runtime e o query builder real; manter um tipo estrutural aqui gera
@@ -94,6 +92,25 @@ interface SupabaseAdminClient {
 
 export function isSubscriptionPlan(plan: unknown): plan is SubscriptionPlan {
   return plan === "pro" || plan === "premium";
+}
+
+export class StripeSubscriptionProviderError extends Error {
+  readonly code = "subscription_managed_elsewhere";
+  readonly status = 409;
+  constructor(readonly provider: "apple" | "google") {
+    super(storeManagementMessage(provider));
+    this.name = "StripeSubscriptionProviderError";
+  }
+}
+
+// Aplicar apenas nas operações de assinatura. O cliente Stripe também atende
+// compras avulsas de conteúdo e impulsionamentos, independente da loja do plano.
+export function assertStripeSubscriptionProvider(
+  profile: StoreProfile | null | undefined,
+  now = Date.now(),
+): void {
+  const provider = activeStoreProvider(profile, now);
+  if (provider) throw new StripeSubscriptionProviderError(provider);
 }
 
 export function getPlanFromProduct(

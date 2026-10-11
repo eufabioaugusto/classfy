@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,11 +13,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Crown, Check, X } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as WebBrowser from 'expo-web-browser';
 
 import { AppScreen } from '@/components/AppScreen';
 import { useAuth } from '@/features/auth/authContext';
-import { supabase } from '@/lib/supabase';
+import { useStoreBilling } from '@/features/billing/useStoreBilling';
+import { BillingMessageDialog } from '@/features/billing/BillingMessageDialog';
+import { hasPaidAccess, storeForProfile } from '@/features/billing/storeBilling';
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
 import { spacing } from '@/theme/spacing';
@@ -29,15 +30,19 @@ interface FAQItem {
 }
 
 export default function PremiumScreen() {
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile } = useAuth();
+  const billing = useStoreBilling();
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
-  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
 
-  const currentPlan = (profile?.plan || 'free') as 'free' | 'pro' | 'premium';
+  const accountProfile = profile?.id === user?.id ? profile : null;
+  const currentPlan = (accountProfile?.plan || 'free') as 'free' | 'pro' | 'premium';
+  const existingSubscription = hasPaidAccess(accountProfile);
+  const currentStore = storeForProfile(accountProfile);
+  const storeName = billing.platform === 'apple' ? 'App Store' : 'Google Play';
 
   // Configure navigation options imperatively
   useEffect(() => {
@@ -52,50 +57,21 @@ export default function PremiumScreen() {
       return;
     }
 
-    try {
-      setLoadingPlan(planType);
-
-      // If user already has this plan, open customer portal to manage
-      if (currentPlan === planType) {
-        const { data, error } = await supabase.functions.invoke('customer-portal', {});
-        if (error) throw error;
-        if (data?.url) {
-          await WebBrowser.openBrowserAsync(data.url);
-          await refreshProfile();
-        } else {
-          Alert.alert('Erro', 'Não foi possível carregar o portal de gerenciamento.');
-        }
-        return;
-      }
-
-      // Otherwise, create subscription checkout session
-      const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
-        body: { plan: planType },
-      });
-
-      if (error) throw error;
-      if (data?.url) {
-        await WebBrowser.openBrowserAsync(data.url);
-        await refreshProfile();
-      } else {
-        Alert.alert('Erro', 'Não foi possível iniciar o checkout.');
-      }
-    } catch (e: any) {
-      console.error('Error initiating subscription:', e);
-      Alert.alert('Erro', e.message || 'Erro ao processar assinatura.');
-    } finally {
-      setLoadingPlan(null);
-    }
+    await billing.subscribe(planType);
   };
 
   const faqData: FAQItem[] = [
     {
       question: 'Qual a diferença entre o Pro e o Premium?',
-      answer: 'O Pro remove os anúncios, libera o download de áudios (offline) e dá acesso ilimitado ao Classy Chat. O Premium adiciona a visualização de cursos completos com certificado oficial, modo offline para vídeos, reprodução em segundo plano e copiloto IA avançado no player.',
+      answer: 'O Pro libera uma experiência sem anúncios, downloads e até 50 estudos com 30 mensagens em cada um. O Premium amplia os estudos e mensagens para uso ilimitado, além de incluir cursos completos com certificado, modo offline e reprodução em segundo plano.',
     },
     {
       question: 'Como funciona a cobrança e o cancelamento?',
-      answer: 'A assinatura é mensal e renovada automaticamente. Você pode cancelar a qualquer momento sem custos adicionais acessando o painel de gerenciamento (via Stripe Portal) direto no aplicativo.',
+      answer: 'A assinatura feita no aplicativo é mensal e renovada pela App Store ou pelo Google Play. Você pode gerenciar e cancelar nas assinaturas da loja. O acesso continua até o fim do período já pago. Assinaturas contratadas fora do app são gerenciadas na conta Classfy pelo navegador.',
+    },
+    {
+      question: 'Já assino a Classfy. Preciso pagar novamente?',
+      answer: 'Não. Entre na mesma conta Classfy para usar seu plano em todos os dispositivos. Se sua assinatura foi feita pela loja e o acesso não aparece, use Restaurar compras com a mesma conta da App Store ou do Google Play utilizada na compra.',
     },
     {
       question: 'Como funciona a reprodução em segundo plano?',
@@ -114,9 +90,11 @@ export default function PremiumScreen() {
   const renderPlanCard = (plan: 'pro' | 'premium') => {
     const isPremium = plan === 'premium';
     const planTitle = isPremium ? 'Classfy Premium' : 'Classfy Pro';
-    const planPrice = isPremium ? 'R$ 39,90' : 'R$ 19,90';
+    const product = billing.products.find((item) => item.plan === plan);
+    const planPrice = product?.displayPrice;
     const isCurrent = currentPlan === plan;
-    const isLoading = loadingPlan === plan;
+    const isLoading = billing.purchasingPlan === plan;
+    const unavailable = !existingSubscription && Boolean(user) && (billing.status !== 'ready' || !product);
     const planColor = isPremium ? colors.accent : '#f59e0b'; // Premium = Red, Pro = Yellow
 
     const features = isPremium
@@ -126,14 +104,15 @@ export default function PremiumScreen() {
           'Modo Offline para Vídeos',
           'Reprodução em Segundo Plano',
           'Copiloto Classfy IA de Estudo',
-          'Suporte prioritário 24/7',
+          'Estudos e mensagens ilimitados',
+          'Acesso antecipado a novidades',
         ]
       : [
           'Assistir aulas sem Anúncios',
-          'Classy Chat (IA) ilimitado',
+          'Até 50 estudos com a Classy',
+          '30 mensagens por estudo',
           'Downloads ilimitados de áudio',
-          'Acesso a toda a biblioteca',
-          'Apoie criadores de conteúdo',
+          'Suporte prioritário',
         ];
 
     return (
@@ -162,8 +141,8 @@ export default function PremiumScreen() {
             )}
           </View>
           <View style={styles.priceRow}>
-            <Text style={styles.price}>{planPrice}</Text>
-            <Text style={styles.pricePeriod}>/mês</Text>
+            <Text style={[styles.price, !planPrice && styles.priceUnavailable]}>{planPrice || (billing.status === 'loading' ? 'Consultando a loja…' : 'Preço disponível na loja')}</Text>
+            {planPrice && <Text style={styles.pricePeriod}>/mês</Text>}
           </View>
         </View>
 
@@ -182,11 +161,13 @@ export default function PremiumScreen() {
 
         <Pressable
           onPress={() => handleSubscribe(plan)}
-          disabled={loadingPlan !== null}
+          accessibilityRole="button"
+          disabled={Boolean(billing.operation) || unavailable}
           style={({ pressed }) => [
             styles.subscribeBtn,
             { backgroundColor: planColor },
             isCurrent && styles.currentPlanBtn,
+            unavailable && { opacity: 0.45 },
             pressed && { opacity: 0.8 },
           ]}
         >
@@ -194,7 +175,7 @@ export default function PremiumScreen() {
             <ActivityIndicator size="small" color="#000" />
           ) : (
             <Text style={[styles.subscribeBtnText, isCurrent && styles.currentPlanBtnText]}>
-              {isCurrent ? 'Gerenciar Assinatura' : `Assinar ${isPremium ? 'Premium' : 'Pro'}`}
+              {existingSubscription ? (isCurrent ? 'Gerenciar assinatura' : 'Alterar plano na conta da compra') : unavailable ? 'Em preparação' : `Assinar ${isPremium ? 'Premium' : 'Pro'}`}
             </Text>
           )}
         </Pressable>
@@ -241,6 +222,22 @@ export default function PremiumScreen() {
           </View>
         </View>
 
+        <View style={styles.billingStatus}>
+          {existingSubscription ? (
+            <>
+              <Ionicons name="checkmark-circle-outline" size={22} color={colors.free} />
+              <Text style={styles.billingStatusText}>{currentStore ? `Sua assinatura é gerenciada ${currentStore === 'apple' ? 'pela App Store' : 'pelo Google Play'}.` : 'Sua assinatura contratada fora do app continua válida aqui. Você pode gerenciá-la na sua conta pelo navegador.'}</Text>
+            </>
+          ) : billing.status === 'loading' ? (
+            <><ActivityIndicator color={colors.accent} /><Text style={styles.billingStatusText}>Consultando os planos disponíveis na loja…</Text></>
+          ) : billing.reason ? (
+            <><Ionicons name="information-circle-outline" size={22} color={colors.muted} /><Text style={styles.billingStatusText}>{billing.reason}</Text></>
+          ) : (
+            <><Ionicons name="shield-checkmark-outline" size={22} color={colors.accent} /><Text style={styles.billingStatusText}>Assinatura mensal com pagamento e renovação pela {storeName}.</Text></>
+          )}
+          {billing.status === 'error' && <Pressable accessibilityRole="button" onPress={billing.retry}><Text style={styles.billingLink}>Tentar novamente</Text></Pressable>}
+        </View>
+
         {/* Plans Section */}
         <View style={styles.plansSection}>
           {renderPlanCard('premium')}
@@ -267,9 +264,14 @@ export default function PremiumScreen() {
               </View>
             </View>
             <View style={styles.tableRow}>
-              <Text style={[styles.tableCol, styles.tableColLeft]}>IA Chat Copiloto</Text>
-              <Text style={styles.tableCol}>Ilimitado</Text>
+              <Text style={[styles.tableCol, styles.tableColLeft]}>Estudos com a Classy</Text>
+              <Text style={styles.tableCol}>Até 50</Text>
               <Text style={[styles.tableCol, { color: colors.accent }]}>Ilimitado</Text>
+            </View>
+            <View style={styles.tableRow}>
+              <Text style={[styles.tableCol, styles.tableColLeft]}>Mensagens por estudo</Text>
+              <Text style={styles.tableCol}>Até 30</Text>
+              <Text style={[styles.tableCol, { color: colors.accent }]}>Ilimitadas</Text>
             </View>
             <View style={styles.tableRow}>
               <Text style={[styles.tableCol, styles.tableColLeft]}>Downloads offline</Text>
@@ -324,14 +326,27 @@ export default function PremiumScreen() {
           </View>
         </View>
 
-        {/* Stripe Disclaimer */}
+        <View style={styles.billingActions}>
+          <Pressable accessibilityRole="button" disabled={Boolean(billing.operation)} onPress={() => user ? void billing.restore() : router.push('/auth/sign-in')} style={styles.restoreButton}>
+            {billing.operation === 'restore' ? <ActivityIndicator size="small" color={colors.text} /> : <Ionicons name="refresh-outline" size={18} color={colors.text} />}
+            <Text style={styles.restoreText}>Restaurar compras</Text>
+          </Pressable>
+          {existingSubscription && <Pressable accessibilityRole="button" disabled={Boolean(billing.operation)} onPress={() => void billing.manage()}><Text style={styles.billingLink}>Gerenciar assinatura</Text></Pressable>}
+        </View>
+
         <View style={styles.disclaimerSection}>
           <Ionicons name="shield-checkmark" size={16} color={colors.muted} />
           <Text style={styles.disclaimerText}>
-            Pagamento 100% seguro processado via Stripe. Cancele quando quiser nas configurações da conta.
+            A confirmação do valor e das condições ocorre na loja antes de concluir. A renovação é automática até o cancelamento nas configurações da sua assinatura.
           </Text>
         </View>
+        <View style={styles.legalLinks}>
+          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL('https://classfy.com.br/termos')}><Text style={styles.legalText}>Termos de uso</Text></Pressable>
+          <Text style={styles.legalText}>·</Text>
+          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL('https://classfy.com.br/privacidade')}><Text style={styles.legalText}>Privacidade</Text></Pressable>
+        </View>
       </ScrollView>
+      <BillingMessageDialog message={billing.message} onClose={billing.dismissMessage} />
     </AppScreen>
   );
 }
@@ -491,6 +506,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 2,
   },
+  priceUnavailable: { fontSize: 14, color: colors.muted, lineHeight: 21 },
+  billingStatus: { marginHorizontal: spacing.lg, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSubtle, alignItems: 'center', gap: spacing.sm },
+  billingStatusText: { color: colors.muted, fontSize: 12, lineHeight: 18, textAlign: 'center' },
+  billingActions: { paddingHorizontal: spacing.lg, marginTop: spacing.xl, gap: spacing.md, alignItems: 'center' },
+  restoreButton: { alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: spacing.sm, minHeight: 46, width: '100%', borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  restoreText: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  billingLink: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+  legalLinks: { flexDirection: 'row', justifyContent: 'center', gap: spacing.md, marginTop: spacing.md },
+  legalText: { color: colors.muted, fontSize: 11, textDecorationLine: 'underline' },
   featuresList: {
     gap: 10,
     marginBottom: spacing.xl,

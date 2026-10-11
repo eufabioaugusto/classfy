@@ -7,6 +7,7 @@ import {
   getPlanFromProduct,
   getSubscriptionPeriodEnd,
 } from "../_shared/stripe-subscription.ts";
+import { activeStoreProvider } from "../_shared/store-entitlement.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -62,6 +63,15 @@ serve(async (req) => {
       );
     }
 
+    const { data: storeProfile, error: storeProfileError } = await supabaseClient.from("profiles")
+      .select("plan, plan_expires_at, entitlement_source, subscription_status").eq("id", user.id).maybeSingle();
+    if (storeProfileError) throw storeProfileError;
+    const storeProvider = activeStoreProvider(storeProfile);
+    if (storeProvider) return new Response(JSON.stringify({
+      hasSubscription: true, plan: storeProfile!.plan,
+      subscriptionEnd: storeProfile!.plan_expires_at, provider: storeProvider,
+    }), {headers: {...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store"}, status: 200});
+
     // Initialize Stripe
     const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
       apiVersion: "2025-08-27.basil",
@@ -75,6 +85,13 @@ serve(async (req) => {
         email: user.email,
       },
     );
+
+    // A busca do cliente pode ter obtido um perfil mais recente que a primeira leitura.
+    const refreshedStoreProvider = activeStoreProvider(profile);
+    if (refreshedStoreProvider) return new Response(JSON.stringify({
+      hasSubscription: true, plan: profile!.plan,
+      subscriptionEnd: profile!.plan_expires_at, provider: refreshedStoreProvider,
+    }), {headers: {...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store"}, status: 200});
 
     if (!customerId) {
       const expiresAt = profile?.plan_expires_at

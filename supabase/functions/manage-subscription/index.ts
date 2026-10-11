@@ -2,11 +2,13 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import {
+  assertStripeSubscriptionProvider,
   findBillableSubscription,
   findStripeCustomer,
   getSubscriptionPeriodEnd,
   isSubscriptionPlan,
   STRIPE_PLANS,
+  StripeSubscriptionProviderError,
 } from "../_shared/stripe-subscription.ts";
 
 const corsHeaders = {
@@ -59,6 +61,7 @@ serve(async (req) => {
       },
     );
 
+    assertStripeSubscriptionProvider(profile);
     if (!customerId) {
       throw new Error("No Stripe customer found");
     }
@@ -168,7 +171,9 @@ serve(async (req) => {
       : "Unknown error";
     return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 500,
+      status: error instanceof StripeSubscriptionProviderError
+        ? error.status
+        : 500,
     });
   }
 });
