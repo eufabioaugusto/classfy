@@ -1,8 +1,9 @@
-import { BarChart3, LayoutDashboard, Library, Radio, Rocket, Target } from "lucide-react";
+import { BarChart3, FolderOpen, LayoutDashboard, Library, Radio, Rocket, Target } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 const studioRoutes = [
   { label: "Visão geral", path: "/studio", Icon: LayoutDashboard },
+  { label: "Projetos", path: "/studio/projects", Icon: FolderOpen },
   { label: "Analytics", path: "/studio/analytics", Icon: BarChart3 },
   { label: "Conteúdos", path: "/studio/contents", Icon: Library },
   { label: "Metas", path: "/studio/goals", Icon: Target },
@@ -17,7 +18,7 @@ export function StudioNavigation() {
   return (
     <nav className="studio-nav" aria-label="Navegação do Studio">
       {studioRoutes.map(({ label, path, Icon }) => {
-        const isActive = location.pathname === path;
+        const isActive = location.pathname === path || path === "/studio/projects" && location.pathname.startsWith(`${path}/`);
 
         return (
           <button

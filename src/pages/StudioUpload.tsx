@@ -57,6 +57,7 @@ import {
   seekAndCaptureCover,
 } from "@/components/video-lobby/seekAndCapture";
 import { useVideoCompression } from "@/hooks/useVideoCompression";
+import { StudioEditorHandoff } from "@/components/studio/editor/StudioEditorHandoff";
 import { useMediaUpload } from "@/hooks/useMediaUpload";
 import { usePublicationDraft } from "@/hooks/usePublicationDraft";
 import { compressImage } from "@/utils/imageCompression";
@@ -700,7 +701,7 @@ function StudioUpload() {
     }
   };
 
-  const handleFileSelect = async (file?: File) => {
+  const handleFileSelect = async (file?: File, projectTitle?: string) => {
     if (!file) return;
     const isAudio = file.type.startsWith("audio/");
     const isVideo = file.type.startsWith("video/");
@@ -723,7 +724,7 @@ function StudioUpload() {
     mediaUpload.reset();
     if (!title.trim()) {
       setTitle(
-        file.name
+        projectTitle?.trim() || file.name
           .replace(/\.[^/.]+$/, "")
           .replace(/[_-]+/g, " ")
           .replace(/\s+/g, " ")
@@ -1090,6 +1091,17 @@ function StudioUpload() {
             </div>
           </div>
         )}
+        {user && <StudioEditorHandoff
+          owner={user.id}
+          kind={contentType}
+          disabled={draftIsHydrating || isResolvingResume || !!editId || hasSelectedMedia || submitting}
+          onUse={async ({ project, file }) => {
+            if (hasSelectedMedia || editId || draftIsHydrating || isResolvingResume || submitting) return;
+            if (!description.trim()) setDescription(project.description);
+            if (!tags.length) setTags(project.tags);
+            await handleFileSelect(file, project.title);
+          }}
+        />}
         <nav className="studio-wizard-steps" aria-label="Etapas da publicação">
           <ol>
             {wizardSteps.map((step, index) => (

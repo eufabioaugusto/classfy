@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/vite-env.d.ts",
+    "shared/studio/**/*.ts",
+    "src/lib/studio/editor/**/*.ts",
+    "src/components/studio/editor/**/*.tsx",
+    "src/components/studio/editor/**/*.ts",
+    "src/pages/StudioProjects.tsx",
+    "src/pages/StudioEditor.tsx"
+  ]
+}
