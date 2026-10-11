@@ -27,7 +27,7 @@ export const UpgradeModal = ({ open, onOpenChange, requiredPlan = "pro" }: Upgra
       return;
     }
     onOpenChange(false);
-    if (currentPlan === planType || (currentPlan === "premium" && planType === "pro")) navigate("/conta");
+    if (currentPlan === planType || (currentPlan === "premium" && planType === "pro")) navigate("/conta?tab=plan");
     else startSubscription(planType);
   };
 
