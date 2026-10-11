@@ -1,7 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
+import { useSubscriptionCheckout } from "@/components/billing/SubscriptionCheckoutProvider";
+import { hasCurrentPaidPlan } from "@/lib/billing/subscriptionCheckout";
 import { AppShell } from "@/components/layout";
 import { PlansHero } from "@/components/plans/PlansHero";
 import { PlanCards } from "@/components/plans/PlanCards";
@@ -14,7 +14,8 @@ import "@/styles/plans-v2.css";
 export default function Planos() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
-  const currentPlan = (profile?.plan || "free") as "free" | "pro" | "premium";
+  const { startSubscription } = useSubscriptionCheckout();
+  const currentPlan = (hasCurrentPaidPlan(profile) ? profile!.plan : "free") as "free" | "pro" | "premium";
 
   const handleSubscribe = async (planType: "pro" | "premium") => {
     if (!user) {
@@ -22,46 +23,11 @@ export default function Planos() {
       return;
     }
 
-    // If user already has this plan, open customer portal to manage
-    if (currentPlan === planType) {
-      try {
-        const { data, error } = await supabase.functions.invoke("customer-portal", {});
-        if (error) throw error;
-        if (data?.url) window.open(data.url, "_blank");
-      } catch (error) {
-        console.error("Error opening portal:", error);
-        toast.error("Erro ao abrir gerenciamento da assinatura");
-      }
+    if (currentPlan === planType || (currentPlan === "premium" && planType === "pro")) {
+      navigate("/conta");
       return;
     }
-
-    if (currentPlan === "premium" && planType === "pro" && !window.confirm("Deseja mudar para o Pro ao fim do período atual?")) return;
-
-    if (currentPlan !== "free") {
-      try {
-        const { data, error } = await supabase.functions.invoke("manage-subscription", {
-          body: { action: planType === "premium" ? "upgrade" : "downgrade", newPlan: planType },
-        });
-        if (error) throw error;
-        toast.success(data?.message || "Solicitação recebida");
-      } catch (error) {
-        console.error("Error changing subscription:", error);
-        toast.error("Erro ao mudar assinatura");
-      }
-      return;
-    }
-
-    try {
-      const { data, error } = await supabase.functions.invoke("create-subscription-checkout", {
-        body: { plan: planType },
-      });
-
-      if (error) throw error;
-      if (data?.url) window.open(data.url, "_blank");
-    } catch (error) {
-      console.error("Error creating checkout:", error);
-      toast.error("Erro ao processar assinatura");
-    }
+    startSubscription(planType);
   };
 
   return (

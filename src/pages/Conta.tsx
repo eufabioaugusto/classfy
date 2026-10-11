@@ -48,6 +48,9 @@ import { LibraryTemplate } from "@/components/templates";
 import { V2Badge, V2Card, V2CardContent, V2CardHeader } from "@/components/v2";
 import { PlanOfferCard } from "@/components/plans/PlanOfferCard";
 import type { PaidPlan } from "@/config/planOffers";
+import { useSubscriptionCheckout } from "@/components/billing/SubscriptionCheckoutProvider";
+import { hasCurrentPaidPlan } from "@/lib/billing/subscriptionCheckout";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
 import { MessagePrivacySettings } from "@/components/settings/MessagePrivacySettings";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
@@ -59,6 +62,11 @@ import "@/styles/account-v2.css";
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
   const navigate = useNavigate();
+  const { startSubscription } = useSubscriptionCheckout();
+  const [downgradeOpen, setDowngradeOpen] = useState(false);
+  const [cancelSubscriptionOpen, setCancelSubscriptionOpen] = useState(false);
+  const [billingActionOwner, setBillingActionOwner] = useState<string | null>(null);
+  useEffect(() => { setDowngradeOpen(false); setCancelSubscriptionOpen(false); setBillingActionOwner(null); }, [user?.id]);
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [wallet, setWallet] = useState<any>(null);
@@ -316,21 +324,25 @@ export default function Conta() {
   };
 
   const handlePaidPlanAction = async (plan: PaidPlan) => {
-    if (plan === "pro" && profile?.plan === "premium" && !confirm("Deseja fazer downgrade para o plano Pro?")) return;
+    if (plan === "pro" && profile?.plan === "premium" && hasCurrentPaidPlan(profile)) { setBillingActionOwner(user?.id ?? null); setDowngradeOpen(true); return; }
+    startSubscription(plan, async () => { await fetchData(); });
+  };
+
+  const confirmDowngrade = async () => {
+    const owner = billingActionOwner;
+    if (!owner || user?.id !== owner || submitting) return;
     try {
       setSubmitting(true);
-      if (profile?.plan === "free") {
-        const { data, error } = await supabase.functions.invoke("create-subscription-checkout", { body: { plan } });
-        if (error) throw error;
-        if (data?.url) window.open(data.url, "_blank");
-      } else {
-        const { data, error } = await supabase.functions.invoke("manage-subscription", {
-          body: { action: plan === "premium" ? "upgrade" : "downgrade", newPlan: plan },
-        });
-        if (error) throw error;
-        toast({ title: "Sucesso!", description: data.message });
-        await fetchData();
-      }
+      const session = await supabase.auth.getSession();
+      if (session.data.session?.user.id !== owner) throw new Error("Sua sessão mudou. Entre novamente.");
+      const { data, error } = await supabase.functions.invoke("manage-subscription", { body: { action: "downgrade", newPlan: "pro" } });
+      if (error) throw error;
+      const current = await supabase.auth.getSession();
+      if (current.data.session?.user.id !== owner) return;
+      toast({ title: "Solicitação recebida", description: data.message });
+      await refreshProfile();
+      await fetchData();
+      setDowngradeOpen(false);
     } catch (error: any) {
       toast({ title: "Erro", description: error.message, variant: "destructive" });
     } finally {
@@ -352,6 +364,49 @@ export default function Conta() {
 
   return (
     <AppShell title="Configurações">
+      <AlertDialog open={downgradeOpen && billingActionOwner === user?.id} onOpenChange={setDowngradeOpen}>
+        <AlertDialogContent className="rounded-2xl border-white/10 bg-[#16171c] text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mudar para o Pro?</AlertDialogTitle>
+            <AlertDialogDescription>Seu Premium permanece disponível até o fim do período atual. Depois, a assinatura passa a R$ 29,90 por mês.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={submitting}>Manter Premium</AlertDialogCancel>
+            <AlertDialogAction disabled={submitting} onClick={event => { event.preventDefault(); void confirmDowngrade(); }}>{submitting ? "Confirmando…" : "Confirmar mudança"}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={cancelSubscriptionOpen && billingActionOwner === user?.id} onOpenChange={setCancelSubscriptionOpen}>
+        <AlertDialogContent className="rounded-2xl border-white/10 bg-[#16171c] text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar a renovação?</AlertDialogTitle>
+            <AlertDialogDescription>Você mantém o acesso ao {profile?.plan === "premium" ? "Premium" : "Pro"} até o fim do período já pago. Não haverá uma nova cobrança mensal.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={submitting}>Manter assinatura</AlertDialogCancel>
+            <AlertDialogAction disabled={submitting} onClick={async event => {
+              event.preventDefault();
+              const owner = billingActionOwner;
+              if (!owner || user.id !== owner || submitting) return;
+              try {
+                setSubmitting(true);
+                const session = await supabase.auth.getSession();
+                if (session.data.session?.user.id !== owner) throw new Error("Sua sessão mudou. Entre novamente.");
+                const { data, error } = await supabase.functions.invoke('manage-subscription', { body: { action: 'cancel' } });
+                if (error) throw error;
+                const current = await supabase.auth.getSession();
+                if (current.data.session?.user.id !== owner) return;
+                toast({ title: "Renovação cancelada", description: data.message });
+                await refreshProfile();
+                await fetchData();
+                setCancelSubscriptionOpen(false);
+              } catch (error: any) {
+                toast({ title: "Não foi possível cancelar", description: error.message, variant: "destructive" });
+              } finally { setSubmitting(false); }
+            }}>{submitting ? "Confirmando…" : "Cancelar renovação"}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <LibraryTemplate className="account-v2" width="contained" header={
         <PageHeader
           eyebrow="Sua conta"
@@ -946,7 +1001,7 @@ export default function Conta() {
                             try {
                               const { data, error } = await supabase.functions.invoke('customer-portal');
                               if (error) throw error;
-                              if (data?.url) window.open(data.url, '_blank');
+                              if (data?.url && new URL(data.url).origin === 'https://billing.stripe.com') window.location.assign(data.url);
                             } catch (error: any) {
                               toast({
                                 title: "Erro",
@@ -1056,22 +1111,7 @@ export default function Conta() {
                       size="sm"
                       className="text-muted-foreground hover:text-destructive"
                       disabled={submitting}
-                      onClick={async () => {
-                        if (!confirm(`Tem certeza que deseja cancelar? Você perderá acesso ao plano ${profile?.plan?.toUpperCase()} ao final do período.`)) return;
-                        try {
-                          setSubmitting(true);
-                          const { data, error } = await supabase.functions.invoke('manage-subscription', {
-                            body: { action: 'cancel' }
-                          });
-                          if (error) throw error;
-                          toast({ title: "Assinatura Cancelada", description: data.message });
-                          await fetchData();
-                        } catch (error: any) {
-                          toast({ title: "Erro", description: error.message, variant: "destructive" });
-                        } finally {
-                          setSubmitting(false);
-                        }
-                      }}
+                      onClick={() => { setBillingActionOwner(user.id); setCancelSubscriptionOpen(true); }}
                     >
                       {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                       Cancelar assinatura

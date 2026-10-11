@@ -3,10 +3,10 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PlanOfferCard } from "@/components/plans/PlanOfferCard";
 import type { PaidPlan } from "@/config/planOffers";
-import { supabase } from "@/integrations/supabase/client";
+import { useSubscriptionCheckout } from "@/components/billing/SubscriptionCheckoutProvider";
+import { hasCurrentPaidPlan } from "@/lib/billing/subscriptionCheckout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
 
 interface UpgradeModalProps {
   open: boolean;
@@ -17,7 +17,8 @@ interface UpgradeModalProps {
 export const UpgradeModal = ({ open, onOpenChange, requiredPlan = "pro" }: UpgradeModalProps) => {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
-  const currentPlan = profile?.plan || "free";
+  const { startSubscription } = useSubscriptionCheckout();
+  const currentPlan = hasCurrentPaidPlan(profile) ? profile!.plan : "free";
 
   const handleSubscribe = async (planType: PaidPlan) => {
     if (!user) {
@@ -25,25 +26,9 @@ export const UpgradeModal = ({ open, onOpenChange, requiredPlan = "pro" }: Upgra
       navigate("/auth");
       return;
     }
-    if (currentPlan === "premium" && planType === "pro" && !window.confirm("Deseja mudar para o Pro ao fim do período atual?")) return;
-    try {
-      const samePlan = currentPlan === planType;
-      const changingPaidPlan = currentPlan !== "free" && !samePlan;
-      const functionName = samePlan ? "customer-portal" : changingPaidPlan ? "manage-subscription" : "create-subscription-checkout";
-      const options = samePlan ? {} : changingPaidPlan
-        ? { body: { action: planType === "premium" ? "upgrade" : "downgrade", newPlan: planType } }
-        : { body: { plan: planType } };
-      const { data, error } = await supabase.functions.invoke(functionName, options);
-      if (error) throw error;
-      if (changingPaidPlan) toast.success(data?.message || "Solicitação recebida");
-      if (data?.url) {
-        window.open(data.url, "_blank");
-      }
-      if (changingPaidPlan || data?.url) onOpenChange(false);
-    } catch (error) {
-      console.error("Error opening subscription flow:", error);
-      toast.error("Erro ao abrir assinatura");
-    }
+    onOpenChange(false);
+    if (currentPlan === planType || (currentPlan === "premium" && planType === "pro")) navigate("/conta");
+    else startSubscription(planType);
   };
 
   return (
