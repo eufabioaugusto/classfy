@@ -59,3 +59,27 @@ critérios de aceite estão em [STUDIO_EDITOR_INTERACTIONS.md](./STUDIO_EDITOR_I
 - Tabs: Home, Explore, Rewards, Profile
 - Rotas: Watch, Creator, Auth, Settings
 - Home busca `contents` aprovados do Supabase quando as variaveis publicas existem; sem env, usa preview local.
+
+## Assinaturas oficiais no aplicativo
+
+A tela Premium usa `expo-iap` 6.0.0 (StoreKit 2 e Google Play Billing), com preços localizados enviados pela loja. Não abre checkout Stripe para contratar planos. Uma assinatura feita na web continua válida na mesma conta Classfy; a gestão permanece no canal da compra original.
+
+Compras são vinculadas ao UUID da conta Classfy (`appAccountToken` na Apple e `obfuscatedAccountId` no Google). O aplicativo envia a transação à função `mobile-subscription`; somente a confirmação do servidor permite finalizar a transação e atualizar o perfil. A restauração segue a mesma verificação. Transações pendentes ou com validação indisponível permanecem sem finalização para permitir nova tentativa.
+
+### Ativação e validação
+
+1. Criar os produtos mensais no App Store Connect: `br.com.classfy.pro.monthly` e `br.com.classfy.premium.monthly`, no mesmo grupo de assinaturas. Configurar ordem dos níveis, descrição, preços, territórios e revisão. São necessários Apple Developer Program e acordos bancários/tributários ativos para distribuição e cobrança reais.
+2. No Google Play Console, criar `classfy_pro` e `classfy_premium`, cada um com plano base recorrente `monthly`, preços e territórios. Configurar testadores e um canal de testes antes de produção. O catálogo exibe apenas o plano mensal regular, sem selecionar ofertas introdutórias implicitamente.
+3. Configurar as credenciais e notificações de servidor conforme a documentação da função `mobile-subscription`. Sem configuração, o catálogo fica desabilitado e o app informa que as assinaturas estão em preparação.
+4. Gerar uma **nova compilação nativa** com o plugin `expo-iap`. Expo Go e instalações anteriores sem o módulo nativo não suportam compras; atualização JavaScript/Metro não adiciona esse módulo. É possível compilar e validar o app localmente sem publicar nem contratar EAS; a compra real depende das contas e produtos de cada loja.
+5. Testar compra aprovada, pendente e cancelada, restauração, troca de conta Classfy, renovação, reembolso, expiração e falha de rede no sandbox de cada loja. Confirmar a atualização do plano no servidor e na web antes de habilitar produção.
+
+Comandos de validação do cliente (na raiz do repositório):
+
+```bash
+npx vitest run mobile/src/features/billing --environment node
+```
+
+No diretório `mobile`, `npx tsc --noEmit` valida tipos e `npx expo config --type prebuild` valida o plugin. O fluxo de compra mantém transações não confirmadas no servidor recuperáveis por **Restaurar compras**; não concede acesso por resultado local da loja.
+
+Referências: [Expo: compras no app](https://docs.expo.dev/guides/in-app-purchases/), [OpenIAP: Expo](https://openiap.dev/docs/setup/expo), [Apple: assinaturas](https://developer.apple.com/app-store/subscriptions/), [Google Play: assinaturas](https://developer.android.com/google/play/billing/subscriptions).
