@@ -34,6 +34,7 @@ const Salvos = lazy(() => import("./pages/Salvos"));
 const Studio = lazy(() => import("./pages/Studio"));
 const StudioProjects = lazy(() => import("./pages/StudioProjects"));
 const StudioEditor = lazy(() => import("./pages/StudioEditor"));
+const StudioRecord = lazy(() => import("./pages/StudioRecord"));
 const StudioUpload = lazy(() => import("./pages/StudioUpload"));
 const StudioUploadCurso = lazy(() => import("./pages/StudioUploadCurso"));
 const StudioContents = lazy(() => import("./pages/StudioContents"));
@@ -86,14 +87,14 @@ function AppContent() {
   const { closeMiniPlayer } = useMiniPlayer();
   const backgroundLocation = isMobile ? (location.state as any)?.backgroundLocation : null;
   const isBroadcastRoute = /^\/live\/[^/]+\/broadcast\/?$/.test(location.pathname);
-  const isStudioEditor = /^\/studio\/projects\/[^/]+\/?$/.test(location.pathname);
+  const isStudioWorkspace = /^\/studio\/projects\/[^/]+\/?$/.test(location.pathname) || /^\/studio\/record\/?$/.test(location.pathname);
   const liveRouteId = /^\/live\/([^/]+)\/?$/.exec(location.pathname)?.[1] ?? null;
   const [liveSessionId, setLiveSessionId] = useState<string | null>(liveRouteId);
   const [liveReturnPath, setLiveReturnPath] = useState("/");
   const previousLocation = useRef(location);
 
   useEffect(() => {
-    if (isBroadcastRoute || isStudioEditor || location.pathname === "/auth") {
+    if (isBroadcastRoute || isStudioWorkspace || location.pathname === "/auth") {
       setLiveSessionId(null);
     }
     if (liveRouteId) {
@@ -104,15 +105,15 @@ function AppContent() {
       setLiveSessionId(liveRouteId);
     }
     previousLocation.current = location;
-  }, [isBroadcastRoute, isStudioEditor, liveRouteId, location]);
+  }, [isBroadcastRoute, isStudioWorkspace, liveRouteId, location]);
 
-  const activeLiveId = isBroadcastRoute || isStudioEditor || location.pathname === "/auth" ? null : liveRouteId ?? liveSessionId;
+  const activeLiveId = isBroadcastRoute || isStudioWorkspace || location.pathname === "/auth" ? null : liveRouteId ?? liveSessionId;
   useEffect(() => {
     if (activeLiveId) closeMiniPlayer();
   }, [activeLiveId, closeMiniPlayer]);
   useEffect(() => {
-    if (isStudioEditor) closeMiniPlayer();
-  }, [isStudioEditor, closeMiniPlayer]);
+    if (isStudioWorkspace) closeMiniPlayer();
+  }, [isStudioWorkspace, closeMiniPlayer]);
   const closeLive = () => {
     if (liveRouteId) navigate(liveReturnPath);
     setLiveSessionId(null);
@@ -120,6 +121,7 @@ function AppContent() {
   const loadingLabels: Record<string, string> = {
     "/studio": "Carregando Studio",
     "/studio/projects": "Carregando projetos",
+    "/studio/record": "Abrindo gravação",
     "/studio/goals": "Carregando metas",
     "/studio/analytics": "Carregando Analytics",
     "/studio/contents": "Carregando conteúdos",
@@ -158,6 +160,7 @@ function AppContent() {
       <Route path="/studio" element={<Studio />} />
       <Route path="/studio/projects" element={<StudioProjects />} />
       <Route path="/studio/projects/:projectId" element={<StudioEditor />} />
+      <Route path="/studio/record" element={<StudioRecord />} />
       <Route path="/studio/upload" element={<StudioUpload />} />
       <Route path="/studio/upload/curso" element={<StudioUploadCurso />} />
       <Route path="/studio/contents" element={<StudioContents />} />
@@ -205,7 +208,7 @@ function AppContent() {
   return (
     <>
       <OnboardingGate />
-      {!isBroadcastRoute && !isStudioEditor && <GlobalClassy />}
+      {!isBroadcastRoute && !isStudioWorkspace && <GlobalClassy />}
       <RouteLoadBoundary>
         <Suspense fallback={liveOpening}>
           {backgroundLocation ? (
@@ -238,8 +241,8 @@ function AppContent() {
           />
         </Suspense>
       )}
-      {!isBroadcastRoute && !isStudioEditor && !activeLiveId && location.pathname !== "/onboarding" && <MiniPlayer />}
-      {!isBroadcastRoute && !isStudioEditor && !liveRouteId && location.pathname !== "/onboarding" && <MobileBottomNav />}
+      {!isBroadcastRoute && !isStudioWorkspace && !activeLiveId && location.pathname !== "/onboarding" && <MiniPlayer />}
+      {!isBroadcastRoute && !isStudioWorkspace && !liveRouteId && location.pathname !== "/onboarding" && <MobileBottomNav />}
     </>
   );
 }

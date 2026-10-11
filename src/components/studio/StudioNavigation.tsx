@@ -1,8 +1,9 @@
-import { BarChart3, FolderOpen, LayoutDashboard, Library, Radio, Rocket, Target } from "lucide-react";
+import { BarChart3, Camera, FolderOpen, LayoutDashboard, Library, Radio, Rocket, Target } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 const studioRoutes = [
   { label: "Visão geral", path: "/studio", Icon: LayoutDashboard },
+  { label: "Gravar", path: "/studio/record", Icon: Camera },
   { label: "Projetos", path: "/studio/projects", Icon: FolderOpen },
   { label: "Analytics", path: "/studio/analytics", Icon: BarChart3 },
   { label: "Conteúdos", path: "/studio/contents", Icon: Library },
