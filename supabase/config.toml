@@ -30,6 +30,9 @@ verify_jwt = true
 [functions.create-subscription-checkout]
 verify_jwt = true
 
+[functions.web-subscription-checkout]
+verify_jwt = true
+
 [functions.verify-content-purchase]
 verify_jwt = true
 

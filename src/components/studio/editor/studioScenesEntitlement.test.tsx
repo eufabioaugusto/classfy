@@ -3,13 +3,16 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioPremiumProfile } from '@/lib/studio/editor/entitlementPremium';
-const io = vi.hoisted(() => ({ owner: 'creator', role: 'creator', rows: new Map<string, unknown>(), query: null as null | ((owner: string) => Promise<unknown>), selects: vi.fn(), invoke: vi.fn(), open: vi.fn() }));
+const io = vi.hoisted(() => ({ owner: 'creator', role: 'creator', rows: new Map<string, unknown>(), query: null as null | ((owner: string) => Promise<unknown>), selects: vi.fn(), invoke: vi.fn(), open: vi.fn(), checkout: vi.fn() }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {
   auth: { getSession: async () => ({ data: { session: { user: { id: io.owner }, access_token: 'fixture-session' } }, error: null }), getUser: async () => ({ data: { user: { id: io.owner } }, error: null }) },
   functions: { invoke: io.invoke },
   from: () => ({ select: () => ({ eq: (_column: string, owner: string) => ({ abortSignal: () => ({ single: () => { io.selects(owner); return io.query ? io.query(owner) : Promise.resolve({ data: io.rows.get(owner), error: null }); } }) }) }) }),
 } }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: io.owner }, role: io.role, loading: false, profile: { plan: 'premium', plan_expires_at: null } }) }));
+// The shared provider owns payment/session identity; its real component suite
+// covers Stripe and stale acknowledgements. Here the handoff is the boundary.
+vi.mock('@/components/billing/SubscriptionCheckoutProvider', () => ({ useSubscriptionCheckout: () => ({ startSubscription: io.checkout }) }));
 // The page test exercises the entitlement/offer boundary. Recording and file
 // persistence are owned by the workspace suite; this host starts no devices.
 vi.mock('./StudioRecordingWorkspace', () => ({ StudioRecordingWorkspace: (props: { owner: string; canUseScenes?: boolean; onUpgradeScenes?: () => void }) => <div><output aria-label="Acesso a cenas">{props.canUseScenes ? 'liberado' : 'bloqueado'}</output><button onClick={() => { if (!props.canUseScenes) props.onUpgradeScenes?.(); }}>Gravação com cenas</button><button>Gravação básica</button></div> }));
@@ -101,16 +104,24 @@ describe('entitlement de cenas e oferta ligada à conta atual', () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toBe('Não foi possível confirmar seu plano. Tente novamente.');
     io.query = null; await click('Tentar confirmar plano'); expect(access.canUseScenes).toBe(true); expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(io.invoke).not.toHaveBeenCalled();
   });
-  it('checkout oficial é explícito, oferece link se popup bloqueado e não libera cenas antes de pagamento', async () => {
-    io.rows.set('creator', profile('creator', { plan: 'free', entitlement_source: 'free' })); io.invoke.mockResolvedValue({ data: { url: 'https://checkout.stripe.com/fixture' }, error: null });
+  it('checkout integrado é explícito, fecha a oferta sem popup e não libera cenas por resposta otimista', async () => {
+    io.rows.set('creator', profile('creator', { plan: 'free', entitlement_source: 'free' }));
     await render('creator', true); await click('Solicitar cenas'); await click('Ativar Premium');
-    expect(io.invoke).toHaveBeenCalledWith('create-subscription-checkout', expect.objectContaining({ body: { plan: 'premium' } })); expect(document.querySelector<HTMLAnchorElement>('a.sce-upgrade-checkout')?.href).toBe('https://checkout.stripe.com/fixture'); expect(access.canUseScenes).toBe(false);
+    expect(io.checkout).toHaveBeenCalledOnce(); expect(io.checkout).toHaveBeenCalledWith('premium', expect.any(Function));
+    expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(window.open).not.toHaveBeenCalled(); expect(io.invoke).not.toHaveBeenCalled(); expect(access.canUseScenes).toBe(false);
+    const onConfirmed = io.checkout.mock.calls[0][1];
+    io.invoke.mockResolvedValue({ data: { hasSubscription: true, plan: 'premium' }, error: null });
+    await act(async () => onConfirmed()); expect(access.canUseScenes).toBe(false);
+    io.rows.set('creator', profile()); await act(async () => onConfirmed()); expect(access.canUseScenes).toBe(true);
   });
-  it('owner/unmount durante checkout fecha a reserva e não navega uma resposta antiga', async () => {
-    io.rows.set('creator', profile('creator', { plan: 'free', entitlement_source: 'free' })); const checkout = deferred<unknown>(); io.invoke.mockImplementation(() => checkout.promise);
-    const popup = { close: vi.fn(), location: { replace: vi.fn() }, closed: false, opener: window }; io.open.mockReturnValue(popup);
-    await render('creator', true); await click('Solicitar cenas'); await click('Ativar Premium'); expect(io.invoke).toHaveBeenCalledOnce();
-    await act(async () => root.render(null)); await act(async () => checkout.resolve({ data: { url: 'https://checkout.stripe.com/fixture' }, error: null }));
-    expect(popup.close).toHaveBeenCalled(); expect(popup.location.replace).not.toHaveBeenCalled(); expect(document.querySelector('a.sce-upgrade-checkout')).toBeNull();
+  it('owner/unmount após handoff não verifica nem libera a conta nova pelo callback antigo', async () => {
+    io.rows.set('creator', profile('creator', { plan: 'free', entitlement_source: 'free' }));
+    await render('creator', true); await click('Solicitar cenas'); await click('Ativar Premium');
+    const onConfirmed = io.checkout.mock.calls[0][1];
+    io.owner = 'other'; io.rows.set('other', profile('other', { plan: 'free', entitlement_source: 'free' })); await render('other', true);
+    const reads = io.selects.mock.calls.length; await act(async () => onConfirmed());
+    expect(io.selects).toHaveBeenCalledTimes(reads); expect(io.invoke).not.toHaveBeenCalled(); expect(access.canUseScenes).toBe(false); expect(access.profile?.id).toBe('other');
+    await act(async () => root.render(null)); await act(async () => onConfirmed());
+    expect(io.selects).toHaveBeenCalledTimes(reads); expect(io.invoke).not.toHaveBeenCalled(); expect(window.open).not.toHaveBeenCalled(); expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 });
