@@ -1,4 +1,7 @@
 import { inspectStudioMedia } from './media';
+import { studioGrade, type StudioGrade } from '../../../../shared/studio/model';
+import { createStudioCaptureVideoProcessor, studioCaptureGrade, studioCaptureIdentityGrade, studioCaptureVideoControls, type StudioCaptureVideoControls, type StudioCaptureVideoPatch, type StudioCaptureVideoProcessor } from './captureVideo';
+export type { StudioCaptureVideoControls, StudioCaptureVideoPatch } from './captureVideo';
 
 export type StudioCaptureMode = 'camera' | 'screen' | 'audio';
 export type StudioCaptureDevice = { id: string; name: string };
@@ -9,11 +12,13 @@ export type StudioCaptureState = {
   devices: { cameras: StudioCaptureDevice[]; microphones: StudioCaptureDevice[] };
   microphoneEnabled: boolean; levels: { averageDb: number; peakDb: number }[];
   width?: number; height?: number; frameRate?: number;
+  videoControls?: StudioCaptureVideoControls | null;
 };
 export type StudioCaptureController = {
   prepare(): Promise<void>; start(): void; stop(): Promise<File>; flip(): Promise<void>;
   selectDevices(selection: { cameraId?: string; microphoneId?: string }): Promise<void>;
   setMicrophoneEnabled(enabled: boolean): void;
+  configureVideo(patch: StudioCaptureVideoPatch): Promise<void>;
   cancel(): void; dispose(): void; subscribe(listener: (state: StudioCaptureState) => void): () => void;
 };
 export function studioAudioLevels(channels: readonly Float32Array[]) {
@@ -27,24 +32,27 @@ export function studioCaptureMime(mode: StudioCaptureMode): string {
   const candidates = mode === 'audio' ? ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'] : ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
   return candidates.find(type => MediaRecorder.isTypeSupported(type)) ?? '';
 }
-type Pipeline = { stream: MediaStream; camera: MediaStreamTrack | null; microphone: MediaStreamTrack | null; display: MediaStream | null; context: AudioContext | null; analyser: AnalyserNode | null };
+type Pipeline = { stream: MediaStream; camera: MediaStreamTrack | null; microphone: MediaStreamTrack | null; display: MediaStream | null; context: AudioContext | null; analyser: AnalyserNode | null; processor: StudioCaptureVideoProcessor | null };
 /** No permission, enumeration or device work is performed by construction. */
 export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId }: { mode: StudioCaptureMode; facing?: 'user' | 'environment'; deviceId?: string; cameraId?: string }): StudioCaptureController {
   let state: StudioCaptureState = { phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true, levels: [] };
-  const tracks = new Set<MediaStreamTrack>(), contexts = new Set<AudioContext>(), listeners = new Set<(state: StudioCaptureState) => void>();
+  const tracks = new Set<MediaStreamTrack>(), contexts = new Set<AudioContext>(), processors = new Set<StudioCaptureVideoProcessor>(), listeners = new Set<(state: StudioCaptureState) => void>();
   const media = navigator.mediaDevices;
   let generation = 0, enumeration = 0, authorized = false, closed = false, pipeline: Pipeline | null = null, recorder: MediaRecorder | null = null;
   let chunks: Blob[] = [], meterTimer: ReturnType<typeof setInterval> | null = null, started = 0, stopPromise: Promise<File> | null = null, recordingGeneration = 0, notice: string | null = null;
   let stopReject: ((reason: unknown) => void) | null = null, candidate: File | null = null;
-  const snapshot = () => ({ ...state, levels: state.levels.map(value => ({ ...value })), devices: { cameras: state.devices.cameras.map(value => ({ ...value })), microphones: state.devices.microphones.map(value => ({ ...value })) } });
+  let grade: StudioGrade = studioGrade(), digitalZoom = 1;
+  let requestedProfile = { width: 1920, height: 1080, frameRate: 30 };
+  const snapshot = () => ({ ...state, videoControls: state.videoControls ? { ...state.videoControls, grade: { ...state.videoControls.grade }, zoom: { ...state.videoControls.zoom }, resolutions: state.videoControls.resolutions.map(value => ({ ...value })), frameRates: [...state.videoControls.frameRates] } : null, levels: state.levels.map(value => ({ ...value })), devices: { cameras: state.devices.cameras.map(value => ({ ...value })), microphones: state.devices.microphones.map(value => ({ ...value })) } });
   const publish = (patch: Partial<StudioCaptureState>) => { if (closed) return; state = { ...state, ...patch }; listeners.forEach(listener => listener(snapshot())); };
   const assert = (expected: number) => { if (closed || expected !== generation) throw new DOMException('Captura cancelada.', 'AbortError'); };
   const closeContext = (context: AudioContext) => { if (!contexts.delete(context)) return; void context.close().catch(() => undefined); };
+  const closeProcessor = (processor: StudioCaptureVideoProcessor) => { if (processors.delete(processor)) processor.dispose(); };
   const releaseTrack = (track: MediaStreamTrack) => { if (!tracks.delete(track)) return; track.onended = null; track.onmute = null; track.onunmute = null; track.stop(); };
   const stopMeter = () => { if (meterTimer) clearInterval(meterTimer); meterTimer = null; };
   const stopDevices = () => {
-    stopMeter(); [...tracks].forEach(releaseTrack); [...contexts].forEach(closeContext); pipeline = null;
-    publish({ stream: null, input: null, camera: null, levels: [], width: undefined, height: undefined, frameRate: undefined });
+    stopMeter(); [...processors].forEach(closeProcessor); [...tracks].forEach(releaseTrack); [...contexts].forEach(closeContext); pipeline = null;
+    publish({ stream: null, input: null, camera: null, levels: [], width: undefined, height: undefined, frameRate: undefined, videoControls: null });
   };
   const own = (stream: MediaStream, expected: number) => {
     if (closed || generation !== expected) { new Set(stream.getTracks()).forEach(track => track.stop()); assert(expected); }
@@ -69,9 +77,20 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId 
       if (pipeline && [...tracks].some(track => track.readyState === 'ended')) interrupt();
     } catch { /* The active tracks remain usable if enumeration is unavailable. */ }
   };
-  const videoConstraints = (id: string | undefined): MediaTrackConstraints => ({ ...(id ? { deviceId: { exact: id } } : { facingMode: { ideal: facing } }), width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } });
+  const videoConstraints = (id: string | undefined): MediaTrackConstraints => ({ ...(id ? { deviceId: { exact: id } } : { facingMode: { ideal: facing } }), width: { ideal: requestedProfile.width }, height: { ideal: requestedProfile.height }, frameRate: { ideal: requestedProfile.frameRate } });
   const audioConstraints = (id: string | undefined): true | MediaTrackConstraints => id ? { deviceId: { exact: id }, echoCancellation: true } : true;
-  const buildPipeline = async (camera: MediaStreamTrack | null, microphone: MediaStreamTrack | null, display: MediaStream | null, expected: number): Promise<Pipeline> => {
+  const prepareProcessor = async (camera: MediaStreamTrack, expected: number, nextGrade = grade, nextZoom = digitalZoom) => {
+    const hardware = studioCaptureVideoControls(camera, null).zoom.mode === 'hardware';
+    const processor = createStudioCaptureVideoProcessor(camera, nextGrade, hardware ? 1 : nextZoom, error => {
+      if (pipeline?.processor !== processor || closed) return;
+      notice = error.message; if (state.phase === 'recording') void controller.stop().catch(() => undefined);
+      else { generation++; enumeration++; stopDevices(); publish({ phase: 'error', error: error.message }); }
+    });
+    if (processor) { processors.add(processor); own(processor.stream, expected); await processor.prepare(); assert(expected); }
+    else if (!studioCaptureIdentityGrade(nextGrade)) throw new Error('Este navegador não oferece processamento de cor na câmera.');
+    return processor;
+  };
+  const buildPipeline = async (camera: MediaStreamTrack | null, microphone: MediaStreamTrack | null, display: MediaStream | null, expected: number, nextZoom = digitalZoom): Promise<Pipeline> => {
     if (microphone) microphone.enabled = state.microphoneEnabled;
     let context: AudioContext | null = null, analyser: AnalyserNode | null = null;
     if (microphone || display?.getAudioTracks().length) {
@@ -80,14 +99,15 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId 
       // track yields silence; display audio can continue without false mic peaks.
       if (microphone) { analyser = context.createAnalyser(); analyser.fftSize = 2048; context.createMediaStreamSource(new MediaStream([microphone])).connect(analyser); }
     }
+    const processor = camera ? pipeline?.camera === camera ? pipeline.processor : await prepareProcessor(camera, expected, grade, nextZoom) : null;
     let stream: MediaStream;
     if (display) {
       const destination = context!.createMediaStreamDestination();
       if (display.getAudioTracks().length) context!.createMediaStreamSource(display).connect(destination);
       if (microphone) context!.createMediaStreamSource(new MediaStream([microphone])).connect(destination);
       stream = own(new MediaStream([...display.getVideoTracks(), ...destination.stream.getAudioTracks()]), expected);
-    } else stream = own(new MediaStream([...(camera ? [camera] : []), ...(microphone ? [microphone] : [])]), expected);
-    assert(expected); return { stream, camera, microphone, display, context, analyser };
+    } else stream = own(new MediaStream([...(processor ? processor.stream.getVideoTracks() : camera ? [camera] : []), ...(microphone ? [microphone] : [])]), expected);
+    assert(expected); return { stream, camera, microphone, display, context, analyser, processor };
   };
   const meter = () => {
     const mic = pipeline?.microphone, analyser = pipeline?.analyser;
@@ -103,6 +123,7 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId 
     if (next.microphone) next.microphone.enabled = state.microphoneEnabled;
     const retained = new Set([...next.stream.getTracks(), ...(next.display?.getTracks() ?? []), ...(next.camera ? [next.camera] : []), ...(next.microphone ? [next.microphone] : [])]);
     [...tracks].forEach(track => { if (!retained.has(track)) releaseTrack(track); });
+    [...processors].forEach(processor => { if (processor !== next.processor) closeProcessor(processor); });
     [...contexts].forEach(context => { if (context !== next.context) closeContext(context); }); pipeline = next;
     retained.forEach(track => {
       track.onended = () => { if (tracks.has(track)) interrupt(); };
@@ -110,7 +131,8 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId 
       track.onunmute = () => { if (tracks.has(track) && track === pipeline?.microphone) meter(); };
     });
     const settings = next.camera?.getSettings() ?? next.display?.getVideoTracks()[0]?.getSettings();
-    publish({ phase: 'ready', stream: next.stream, input: inputIdentity(next.microphone, 'Microfone autorizado'), camera: inputIdentity(next.camera, 'Câmera autorizada'), width: settings?.width, height: settings?.height, frameRate: settings?.frameRate, levels: [], error: null });
+    next.processor?.setVisible(document.visibilityState !== 'hidden');
+    publish({ phase: 'ready', stream: next.stream, input: inputIdentity(next.microphone, 'Microfone autorizado'), camera: inputIdentity(next.camera, 'Câmera autorizada'), width: settings?.width, height: settings?.height, frameRate: settings?.frameRate, videoControls: next.camera ? studioCaptureVideoControls(next.camera, next.processor, grade, digitalZoom) : null, levels: [], error: null });
     meterTimer = setInterval(() => { if (!closed && expected === generation) meter(); }, 100);
     authorized = true; void refreshDevices();
   };
@@ -146,18 +168,77 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId 
       const replaceCamera = changeCamera && (!nextCamera || pipeline.camera?.getSettings().deviceId !== nextCamera);
       const replaceMic = changeMicrophone && (!nextMicrophone || pipeline.microphone?.getSettings().deviceId !== nextMicrophone);
       if (!replaceCamera && !replaceMic) { cameraId = nextCamera; deviceId = nextMicrophone; return; }
-      const original = pipeline, originalTracks = new Set(tracks), originalContexts = new Set(contexts), expected = ++generation;
+      const original = pipeline, originalTracks = new Set(tracks), originalContexts = new Set(contexts), originalProcessors = new Set(processors), expected = ++generation;
       enumeration++; stopMeter(); publish({ phase: 'preparing', error: null });
       try {
         const source = own(await media.getUserMedia({ video: replaceCamera ? videoConstraints(nextCamera) : false, audio: replaceMic ? audioConstraints(nextMicrophone) : false }), expected);
         const camera = replaceCamera ? source.getVideoTracks()[0] ?? null : original.camera, microphone = replaceMic ? source.getAudioTracks()[0] ?? null : original.microphone;
         if (replaceCamera && !camera || replaceMic && !microphone) throw new Error('O dispositivo escolhido não forneceu uma entrada válida.');
-        const next = await buildPipeline(camera, microphone, original.display, expected);
-        assert(expected); cameraId = nextCamera; deviceId = nextMicrophone; install(next, expected);
+        const next = await buildPipeline(camera, microphone, original.display, expected, replaceCamera ? 1 : digitalZoom);
+        assert(expected); cameraId = nextCamera; deviceId = nextMicrophone; if (replaceCamera) digitalZoom = 1; install(next, expected);
       } catch (error) {
         if (!closed && expected === generation) {
           [...tracks].forEach(track => { if (!originalTracks.has(track)) releaseTrack(track); }); [...contexts].forEach(context => { if (!originalContexts.has(context)) closeContext(context); });
+          [...processors].forEach(processor => { if (!originalProcessors.has(processor)) closeProcessor(processor); });
           install(original, expected); publish({ error: captureError(error) });
+        }
+        throw friendlyError(error);
+      }
+    },
+    async configureVideo(patch) {
+      assertCanSelect();
+      if (mode !== 'camera' || state.phase !== 'ready' || !pipeline?.camera || !state.videoControls) throw new Error('Ative a câmera antes de ajustar a imagem.');
+      const original = pipeline, camera = original.camera!, controls = state.videoControls;
+      const nextGrade = studioCaptureGrade(grade, patch.grade), zoom = patch.zoom ?? controls.zoom.value;
+      if (!Number.isFinite(zoom) || zoom < controls.zoom.min || zoom > controls.zoom.max) throw new Error('O zoom está fora dos limites desta câmera.');
+      if (!controls.effects && !studioCaptureIdentityGrade(nextGrade)) throw new Error('Este navegador não oferece processamento de cor na câmera.');
+      const settings = camera.getSettings(), profile = { width: patch.width ?? settings.width, height: patch.height ?? settings.height, frameRate: patch.frameRate ?? settings.frameRate };
+      const profilePatch = patch.width !== undefined || patch.height !== undefined || patch.frameRate !== undefined;
+      if (profilePatch && (![profile.width, profile.height, profile.frameRate].every(value => Number.isFinite(value) && value! > 0) || profile.frameRate! > 60)) throw new Error('Escolha uma resolução e cadência válidas, até 60 FPS.');
+      const resize = profilePatch && (profile.width !== settings.width || profile.height !== settings.height || profile.frameRate !== settings.frameRate);
+      const hardwareZoom = controls.zoom.mode === 'hardware' && patch.zoom !== undefined;
+      // Pure GPU controls reuse the same surface/track. They never rebuild the audio graph or recorder.
+      if (!resize && !hardwareZoom) {
+        original.processor?.configure(nextGrade, controls.zoom.mode === 'digital' ? zoom : 1);
+        grade = nextGrade; if (controls.zoom.mode === 'digital') digitalZoom = zoom;
+        publish({ videoControls: studioCaptureVideoControls(camera, original.processor, grade, digitalZoom), error: null }); return;
+      }
+      if (!camera.applyConstraints) throw new Error('Este navegador não permite ajustar o perfil da câmera.');
+      const expected = ++generation, originalConstraints = camera.getConstraints?.() ?? {}, originalTracks = new Set(tracks), originalProcessors = new Set(processors);
+      enumeration++; stopMeter(); publish({ phase: 'preparing', error: null, videoControls: { ...controls, busy: true } });
+      let applied = false;
+      try {
+        const advanced = hardwareZoom ? [{ zoom }] : undefined;
+        await camera.applyConstraints({ ...originalConstraints, ...(resize ? { width: { exact: profile.width }, height: { exact: profile.height }, frameRate: { exact: profile.frameRate } } : {}), ...(advanced ? { advanced } : {}) } as MediaTrackConstraints); applied = true; assert(expected);
+        let confirmed = camera.getSettings() as MediaTrackSettings & { zoom?: number };
+        if (resize && (confirmed.width !== profile.width || confirmed.height !== profile.height || !confirmed.frameRate || Math.abs(confirmed.frameRate - profile.frameRate!) > .1)) throw new Error('A câmera não confirmou essa combinação de resolução e FPS. Escolha outra opção.');
+        // Label and crop follow only the hardware ACK. An ignored advanced constraint is an error, not an optimistic zoom.
+        if (hardwareZoom) {
+          let remaining = 20;
+          while ((!Number.isFinite(confirmed.zoom) || Math.abs(confirmed.zoom! - zoom) > Math.max(.02, controls.zoom.step)) && remaining-- > 0) {
+            await new Promise(resolve => setTimeout(resolve, 50)); assert(expected); confirmed = camera.getSettings() as MediaTrackSettings & { zoom?: number };
+          }
+          if (!Number.isFinite(confirmed.zoom) || Math.abs(confirmed.zoom! - zoom) > Math.max(.02, controls.zoom.step)) throw new Error('A câmera não confirmou o zoom solicitado.');
+        }
+        let processor = original.processor;
+        if (resize) processor = await prepareProcessor(camera, expected, nextGrade, controls.zoom.mode === 'digital' ? zoom : 1);
+        else processor?.configure(nextGrade, controls.zoom.mode === 'digital' ? zoom : 1);
+        assert(expected); grade = nextGrade; if (controls.zoom.mode === 'digital') digitalZoom = zoom;
+        if (resize) requestedProfile = { width: confirmed.width!, height: confirmed.height!, frameRate: confirmed.frameRate! };
+        const stream = resize ? own(new MediaStream([...(processor ? processor.stream.getVideoTracks() : [camera]), ...(original.microphone ? [original.microphone] : [])]), expected) : original.stream;
+        install({ ...original, stream, processor }, expected);
+      } catch (error) {
+        if (!closed && expected === generation) {
+          [...processors].forEach(processor => { if (!originalProcessors.has(processor)) closeProcessor(processor); }); [...tracks].forEach(track => { if (!originalTracks.has(track)) releaseTrack(track); });
+          try {
+            if (applied) {
+              const oldZoom = (settings as MediaTrackSettings & { zoom?: number }).zoom;
+              await camera.applyConstraints({ ...originalConstraints, ...(settings.width ? { width: { exact: settings.width } } : {}), ...(settings.height ? { height: { exact: settings.height } } : {}), ...(settings.frameRate ? { frameRate: { exact: settings.frameRate } } : {}), ...(Number.isFinite(oldZoom) ? { advanced: [{ zoom: oldZoom }] } : {}) } as MediaTrackConstraints); assert(expected);
+              const restored = camera.getSettings(); if (restored.width !== settings.width || restored.height !== settings.height || Math.abs((restored.frameRate || 0) - (settings.frameRate || 0)) > .1) throw new Error('O perfil anterior não foi confirmado.');
+            }
+            install(original, expected); publish({ error: captureError(error) });
+          }
+          catch (restoreError) { if (!closed && expected === generation) { stopDevices(); publish({ phase: 'error', error: `A câmera não recuperou o perfil anterior. Ative a entrada novamente. ${captureError(restoreError)}` }); } }
         }
         throw friendlyError(error);
       }
@@ -170,10 +251,12 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId 
     },
     start() {
       if (closed || state.phase !== 'ready' || !state.stream) throw new Error('Ative a entrada antes de gravar.');
+      if (document.visibilityState === 'hidden') throw new Error('Volte a esta aba para iniciar a gravação.');
       if ([...tracks].some(track => track.readyState === 'ended')) { interrupt(); throw new Error('Uma entrada foi desconectada. Ative a captura novamente.'); }
       const mime = studioCaptureMime(mode); if (!mime) throw new Error('O navegador não oferece um formato de gravação compatível.');
       chunks = []; stopPromise = null; notice = null; recordingGeneration = generation;
-      recorder = new MediaRecorder(state.stream, { mimeType: mime, ...(mode !== 'audio' ? { videoBitsPerSecond: 8000000 } : {}), audioBitsPerSecond: 192000 });
+      const videoBits = Math.round(Math.min(60000000, Math.max(8000000, (state.width || 1920) * (state.height || 1080) * (state.frameRate || 30) * .13)));
+      recorder = new MediaRecorder(state.stream, { mimeType: mime, ...(mode !== 'audio' ? { videoBitsPerSecond: videoBits } : {}), audioBitsPerSecond: 192000 });
       const ownedGeneration = recordingGeneration;
       recorder.ondataavailable = event => { if (ownedGeneration === generation && event.data.size) chunks.push(event.data); };
       recorder.onerror = () => { notice = 'O gravador encontrou um erro. Tentaremos preservar o trecho disponível.'; void controller.stop().catch(() => undefined); };
@@ -212,7 +295,18 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId 
     dispose() { if (closed) return; controller.cancel(); closed = true; listeners.clear(); document.removeEventListener('visibilitychange', visibility); media?.removeEventListener?.('devicechange', devicechange); },
     subscribe(listener) { listeners.add(listener); listener(snapshot()); return () => listeners.delete(listener); },
   };
-  const visibility = () => { if (document.visibilityState === 'visible') return; if (state.phase === 'recording') { notice = 'A gravação foi encerrada ao sair desta aba. Confira o trecho antes de usar.'; void controller.stop().catch(() => undefined); } else if (state.phase === 'ready' || state.phase === 'preparing') controller.cancel(); };
+  const visibility = () => {
+    if (document.visibilityState === 'hidden') {
+      if (state.phase === 'recording') { notice = 'A gravação foi encerrada ao sair desta aba. Confira o trecho antes de usar.'; void controller.stop().catch(() => undefined); }
+      else if (pipeline) processors.forEach(processor => processor.setVisible(false));
+      else if (state.phase === 'preparing') controller.cancel();
+      return;
+    }
+    if (!pipeline || !['ready', 'preparing'].includes(state.phase)) return;
+    if ([...tracks].some(track => track.readyState === 'ended')) { interrupt(); return; }
+    const owned = pipeline, expected = generation; processors.forEach(processor => processor.setVisible(true));
+    void owned.context?.resume().catch(error => { if (!closed && expected === generation && pipeline === owned) publish({ error: captureError(error) }); });
+  };
   const devicechange = () => { void refreshDevices(); };
   document.addEventListener('visibilitychange', visibility); media?.addEventListener?.('devicechange', devicechange); return controller;
 }

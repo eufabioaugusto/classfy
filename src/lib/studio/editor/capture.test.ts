@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStudioCapture, studioAudioLevels, type StudioCaptureState } from './capture';
+import * as videoProcessing from './captureVideo';
+import { studioGrade } from '../../../../shared/studio/model';
 const mocks=vi.hoisted(()=>({inspect:vi.fn()}));
 vi.mock('./media',()=>({inspectStudioMedia:mocks.inspect}));
 function deferred<T>(){let resolve!:(value:T)=>void;let reject!:(value:unknown)=>void;const promise=new Promise<T>((a,b)=>{resolve=a;reject=b;});return{promise,resolve,reject};}
@@ -31,7 +33,7 @@ beforeEach(()=>{
   mediaDevices.enumerateDevices.mockReset().mockResolvedValue([]);mediaDevices.addEventListener.mockClear();mediaDevices.removeEventListener.mockClear();
   mocks.inspect.mockReset().mockResolvedValue({duration:.75,hasAudio:true});
 });
-afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});
+afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();vi.restoreAllMocks();});
 describe('captura privada e áudio real',()=>{
   it('construção não solicita câmera ou mic; prepare mostra a entrada realmente autorizada',async()=>{
     const stream=new Stream();mediaDevices.getUserMedia.mockResolvedValue(stream);const capture=createStudioCapture({mode:'audio'});let state:any;capture.subscribe(next=>state=next);
@@ -138,5 +140,87 @@ describe('confirmação tardia do caminho de áudio',()=>{
     const oldMic=new Track('audio','old','Antigo'),newMic=new Track('audio','new','Novo');mediaDevices.getUserMedia.mockResolvedValueOnce(new Stream([oldMic])).mockResolvedValueOnce(new Stream([newMic]));
     const h=watch({mode:'audio'});await h.capture.prepare();const changing=h.capture.selectDevices({microphoneId:'new'});await drain();expect(h.state().phase).toBe('preparing');h.capture.setMicrophoneEnabled(false);pending.resolve();await changing;
     expect(h.state().phase).toBe('ready');expect(h.state().microphoneEnabled).toBe(false);expect(newMic.enabled).toBe(false);await vi.advanceTimersByTimeAsync(100);expect(h.state().levels[0].averageDb).toBe(-120);h.capture.dispose();
+  });
+});
+
+describe('perfil confirmado e pixels gravados',()=>{
+  function cameraWithCapabilities(hardware=false) {
+    const camera=new Track('video','sensor','Câmera real');
+    let settings={deviceId:'sensor',width:1920,height:1080,frameRate:30,...(hardware?{zoom:1}:{})};
+    camera.getSettings=()=>({...settings});
+    const apply=vi.fn(async(patch:any)=>{
+      settings={...settings,...(patch.width?.exact?{width:patch.width.exact}:{}),...(patch.height?.exact?{height:patch.height.exact}:{}),...(patch.frameRate?.exact?{frameRate:patch.frameRate.exact}:{}),...(patch.advanced?.[0]?.zoom!==undefined?{zoom:patch.advanced[0].zoom}:{})};
+    });
+    Object.assign(camera,{getCapabilities:()=>({width:{min:640,max:3840},height:{min:360,max:2160},frameRate:{min:15,max:60},...(hardware?{zoom:{min:1,max:8,step:.1}}:{})}),getConstraints:()=>({width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}}),applyConstraints:apply});
+    return{camera,apply,settings:()=>settings,setSettings:(patch:Partial<typeof settings>)=>{settings={...settings,...patch};}};
+  }
+  function processors() {
+    const list:{stream:Stream;effects:boolean;prepare:ReturnType<typeof vi.fn>;configure:ReturnType<typeof vi.fn>;setVisible:ReturnType<typeof vi.fn>;dispose:ReturnType<typeof vi.fn>}[]=[];
+    const factory=vi.spyOn(videoProcessing,'createStudioCaptureVideoProcessor').mockImplementation(()=>{
+      const processor={stream:new Stream([new Track('video',`gpu-${list.length}`,'GPU output')]),effects:true,prepare:vi.fn(async()=>{}),configure:vi.fn(),setVisible:vi.fn(),dispose:vi.fn()};list.push(processor);return processor as unknown as videoProcessing.StudioCaptureVideoProcessor;
+    });return{factory,list};
+  }
+  it('o mesmo track processado alimenta prévia e MediaRecorder; grade/digital zoom não recompõem áudio nem deixam raw escapar',async()=>{
+    const p=processors(),cam=cameraWithCapabilities();const mic=new Track();mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,mic]));
+    class OutputRecorder extends Recorder{constructor(public recordedStream:Stream){super();}}vi.stubGlobal('MediaRecorder',OutputRecorder);
+    const h=watch({mode:'camera'});await h.capture.prepare();const preview=h.state().stream;
+    expect(preview!.getVideoTracks()).toEqual(p.list[0].stream.getVideoTracks());expect(preview!.getVideoTracks()).not.toContain(cam.camera);
+    await h.capture.configureVideo({zoom:2,grade:{preset:'cinematic',exposure:.5,intensity:.6}});
+    expect(p.list[0].configure).toHaveBeenLastCalledWith({...studioGrade('cinematic'),exposure:.5,intensity:.6},2);
+    expect(h.state().stream).toBe(preview);expect(h.state().videoControls?.zoom).toMatchObject({mode:'digital',value:2,max:4});expect(Audio.instances).toHaveLength(1);
+    h.capture.start();expect((Recorder.instances[0] as OutputRecorder).recordedStream).toBe(preview);await expect(h.capture.configureVideo({zoom:3})).rejects.toThrow('antes de iniciar');
+    await h.capture.stop();expect(p.list[0].dispose).toHaveBeenCalledTimes(1);expect(cam.camera.stop).toHaveBeenCalledTimes(1);expect(p.list[0].stream.tracks[0].stop).toHaveBeenCalledTimes(1);h.capture.dispose();
+  });
+  it('aplica 4K60 à câmera e recria somente saída GPU; dimensões/cadência refletem getSettings',async()=>{
+    const p=processors(),cam=cameraWithCapabilities();mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,new Track()]));const h=watch({mode:'camera'});await h.capture.prepare();const context=Audio.instances[0];
+    expect(h.state().videoControls?.resolutions.at(-1)).toMatchObject({width:3840,height:2160});expect(h.state().videoControls?.frameRates).toEqual([24,30,60]);
+    await h.capture.configureVideo({width:3840,height:2160,frameRate:60});expect(cam.apply).toHaveBeenCalledWith(expect.objectContaining({width:{exact:3840},height:{exact:2160},frameRate:{exact:60}}));
+    expect(h.state()).toMatchObject({phase:'ready',width:3840,height:2160,frameRate:60});expect(p.list[0].dispose).toHaveBeenCalledTimes(1);expect(h.state().stream!.getVideoTracks()).toEqual(p.list[1].stream.getVideoTracks());expect(context.close).not.toHaveBeenCalled();expect(Audio.instances).toHaveLength(1);h.capture.dispose();
+  });
+  it('combinação ignorada não assume 4K; restaura perfil anterior e mantém prévia/grade',async()=>{
+    const p=processors(),cam=cameraWithCapabilities();cam.apply.mockImplementationOnce(async()=>{});mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,new Track()]));const h=watch({mode:'camera'});await h.capture.prepare();const preview=h.state().stream;
+    await expect(h.capture.configureVideo({width:3840,height:2160,frameRate:60,grade:{preset:'studio'}})).rejects.toThrow('não confirmou');
+    expect(h.state()).toMatchObject({phase:'ready',width:1920,height:1080,frameRate:30});expect(h.state().stream).toBe(preview);expect(h.state().videoControls?.grade.preset).toBe('natural');expect(p.list).toHaveLength(1);expect(cam.apply).toHaveBeenCalledTimes(2);h.capture.dispose();
+  });
+  it('zoom hardware espera ACK real sem crop duplo e nunca publica alvo ignorado',async()=>{
+    const p=processors(),cam=cameraWithCapabilities(true);mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,new Track()]));const h=watch({mode:'camera'});await h.capture.prepare();
+    cam.apply.mockImplementationOnce(async()=>{setTimeout(()=>cam.setSettings({zoom:2} as any),150);});
+    const applying=h.capture.configureVideo({zoom:2});await drain();expect(h.state().videoControls?.zoom.value).toBe(1);expect(h.state().videoControls?.busy).toBe(true);await vi.advanceTimersByTimeAsync(200);await applying;
+    expect(h.state().videoControls?.zoom).toMatchObject({mode:'hardware',value:2,max:8});expect(p.list[0].configure).toHaveBeenLastCalledWith(studioGrade(),1);
+    cam.apply.mockImplementationOnce(async()=>{});const ignored=h.capture.configureVideo({zoom:3});const failed=expect(ignored).rejects.toThrow('não confirmou o zoom');await vi.advanceTimersByTimeAsync(1100);await failed;expect(h.state().videoControls?.zoom.value).toBe(2);expect(h.state().phase).toBe('ready');h.capture.dispose();
+  });
+  it('cancel durante applyConstraints não instala perfil tardio nem restaura câmera encerrada',async()=>{
+    const p=processors(),cam=cameraWithCapabilities(),pending=deferred<void>();cam.apply.mockReturnValueOnce(pending.promise);mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,new Track()]));const h=watch({mode:'camera'});await h.capture.prepare();
+    const applying=h.capture.configureVideo({width:3840,height:2160});h.capture.cancel();pending.resolve();await expect(applying).rejects.toMatchObject({name:'AbortError'});expect(h.state().phase).toBe('idle');expect(cam.apply).toHaveBeenCalledTimes(1);expect(p.list[0].dispose).toHaveBeenCalledTimes(1);expect(cam.camera.stop).toHaveBeenCalledTimes(1);h.capture.dispose();
+  });
+  it('fallback sem processamento não aceita tratamento fictício e não perde original pendente',async()=>{
+    const cam=cameraWithCapabilities();mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,new Track()]));const h=watch({mode:'camera'});await h.capture.prepare();expect(h.state().videoControls).toMatchObject({processed:false,effects:false,zoom:{mode:'none'}});
+    await expect(h.capture.configureVideo({grade:{preset:'cinematic'}})).rejects.toThrow('não oferece processamento');h.capture.start();mocks.inspect.mockRejectedValueOnce(new Error('decoder'));await expect(h.capture.stop()).rejects.toThrow('decoder');const file=h.state().file;
+    await expect(h.capture.configureVideo({zoom:1})).rejects.toThrow('take pendente');expect(h.state().file).toBe(file);h.capture.dispose();
+  });
+  it('outro take conserva zoom/preset efetivos; outra câmera reinicia somente o zoom digital',async()=>{
+    const p=processors(),cam=cameraWithCapabilities();mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,new Track()]));const h=watch({mode:'camera'});await h.capture.prepare();await h.capture.configureVideo({zoom:2,grade:{preset:'studio'}});h.capture.start();await h.capture.stop();h.capture.cancel();
+    const next=cameraWithCapabilities();mediaDevices.getUserMedia.mockResolvedValueOnce(new Stream([next.camera,new Track()]));await h.capture.prepare();expect(p.factory.mock.calls[1][1]).toMatchObject({preset:'studio'});expect(p.factory.mock.calls[1][2]).toBe(2);expect(h.state().videoControls?.zoom.value).toBe(2);
+    const other=new Track('video','other','Outra');mediaDevices.getUserMedia.mockResolvedValueOnce(new Stream([other]));await h.capture.selectDevices({cameraId:'other'});expect(p.factory.mock.calls[2][2]).toBe(1);expect(h.state().videoControls?.zoom.value).toBe(1);expect(h.state().videoControls?.grade.preset).toBe('studio');h.capture.dispose();
+  });
+  it('getSettings sem FPS não bloqueia tratamento/zoom e não inventa uma opção de cadência',async()=>{
+    const p=processors(),camera=new Track('video');camera.getSettings=()=>({deviceId:'sparse',width:1920,height:1080} as any);mediaDevices.getUserMedia.mockResolvedValue(new Stream([camera,new Track()]));const h=watch({mode:'camera'});await h.capture.prepare();expect(h.state().videoControls?.frameRates).toEqual([]);
+    await h.capture.configureVideo({zoom:1.5,grade:{preset:'cinematic'}});expect(p.list[0].configure).toHaveBeenLastCalledWith(studioGrade('cinematic'),1.5);expect(h.state().frameRate).toBeUndefined();h.capture.dispose();
+  });
+});
+
+describe('continuidade privada entre abas',()=>{
+  function visibility(value:'visible'|'hidden'){Object.defineProperty(document,'visibilityState',{configurable:true,value});document.dispatchEvent(new Event('visibilitychange'));}
+  afterEach(()=>Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'}));
+  it('ready câmera e tela permanecem vivos; retorno não pede permissão, grava ou perde o mic',async()=>{
+    for(const mode of ['camera','screen'] as const){
+      const video=new Track('video','camera','Camera'),mic=new Track();mediaDevices.getUserMedia.mockResolvedValue(new Stream(mode==='camera'?[video,mic]:[mic]));mediaDevices.getDisplayMedia.mockResolvedValue(new Stream([video]));
+      const h=watch({mode});await h.capture.prepare();const stream=h.state().stream,calls=mediaDevices.getUserMedia.mock.calls.length,context=Audio.instances.at(-1)!;
+      visibility('hidden');expect(h.state().phase).toBe('ready');expect(h.state().stream).toBe(stream);expect(video.stop).not.toHaveBeenCalled();expect(mic.stop).not.toHaveBeenCalled();expect(()=>h.capture.start()).toThrow('Volte');
+      visibility('visible');await drain();expect(h.state().stream).toBe(stream);expect(mediaDevices.getUserMedia).toHaveBeenCalledTimes(calls);expect(context.resume).toHaveBeenCalledTimes(2);expect(Recorder.instances).toHaveLength(0);h.capture.dispose();
+    }
+  });
+  it('REC oculto conclui exatamente um arquivo parcial, retorno não reabre câmera',async()=>{
+    mediaDevices.getUserMedia.mockResolvedValue(new Stream());const h=watch({mode:'audio'});await h.capture.prepare();h.capture.start();visibility('hidden');await vi.waitFor(()=>expect(h.state().phase).toBe('recorded'));const file=h.state().file;visibility('visible');await drain();expect(h.state().file).toBe(file);expect(h.state().error).toContain('encerrada ao sair');expect(Recorder.instances[0].stop).toHaveBeenCalledTimes(1);expect(mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);h.capture.dispose();
   });
 });
