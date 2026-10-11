@@ -30,6 +30,7 @@ const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = n
 function project(): StudioProject { return withStudioTakes({ version: 2, id: 'project', ownerId: 'owner', kind: 'aula', title: 'Aula', description: '', objective: '', audience: '', script: '', tags: [], visibility: 'free', price: '0', editing: emptyStudioEditing('aula'), revision: 0, state: 'draft', progress: 0, createdAt: '2026-10-11', updatedAt: '2026-10-11' }); }
 const info = { kind: 'video', duration: 2, width: 1920, height: 1080, frameRate: 30, hasAudio: true, colorSpace: 'rec709', warnings: [] };
 const button = (label: string) => Array.from(host.querySelectorAll('button')).find(element => element.textContent?.trim() === label)!;
+async function answer(label: string) { const dialog = document.querySelector('[role="alertdialog"]'); expect(dialog).toBeTruthy(); const element = Array.from(dialog!.querySelectorAll('button')).find(value => value.textContent?.trim() === label)!; expect(element).toBeTruthy(); await act(async () => element.click()); }
 async function click(label: string) { const element = button(label); expect(element, `button ${label}`).toBeTruthy(); await act(async () => element.click()); }
 async function mount() { await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="project" /></MemoryRouter>)); }
 async function openRecording() { await click('Câmera'); expect(host.querySelector('[aria-label="Gravar câmera"]')).toBeTruthy(); }
@@ -37,6 +38,7 @@ async function openRecording() { await click('Câmera'); expect(host.querySelect
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   initializeStudioExitGuard();
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
   recording = new File(['original recorded bytes'], 'camera.webm', { type: 'video/webm' }); lastSaved = undefined;
@@ -95,8 +97,8 @@ describe('fronteiras reais workspace → Recorder → persistência', () => {
       await act(async () => root.render(<BrowserRouter><Routes><Route path="/editor" element={<StudioEditorWorkspace owner="owner" projectId="project" />} /><Route path="*" element={<span>Projetos</span>} /></Routes></BrowserRouter>));
       await openRecording(); const controller = boundaries.capture.mock.results[0].value;
       await pop(2, '/projects'); await pop(3, '/editor');
-      expect(confirm).toHaveBeenCalledTimes(1); expect(host.querySelector('[aria-label="Gravar câmera"]')).toBeTruthy(); expect(controller.dispose).not.toHaveBeenCalled(); expect(boundaries.put).not.toHaveBeenCalled();
-      confirm.mockReturnValue(true); await pop(2, '/projects'); await pop(3, '/editor'); expect(go).toHaveBeenLastCalledWith(-1);
+      expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Descartar a gravação e sair?'); await answer('Continuar no editor'); expect(confirm).not.toHaveBeenCalled(); expect(host.querySelector('[aria-label="Gravar câmera"]')).toBeTruthy(); expect(controller.dispose).not.toHaveBeenCalled(); expect(boundaries.put).not.toHaveBeenCalled();
+      await pop(2, '/projects'); await pop(3, '/editor'); await answer('Descartar e sair'); expect(go).toHaveBeenLastCalledWith(-1); expect(button('Usar gravação').disabled).toBe(true); await click('Usar gravação'); expect(boundaries.put).not.toHaveBeenCalled();
       await pop(2, '/projects'); expect(host.textContent).toBe('Projetos'); expect(controller.dispose).toHaveBeenCalledTimes(1); expect(boundaries.put).not.toHaveBeenCalled();
     } finally { go.mockRestore(); confirm.mockRestore(); window.history.replaceState(null, '', '/'); }
   });
@@ -120,4 +122,64 @@ describe('fronteiras reais workspace → Recorder → persistência', () => {
       expect(go).toHaveBeenLastCalledWith(-1); await pop(2, '/projects'); expect(host.textContent).toBe('Projetos');
     } finally { go.mockRestore(); window.history.replaceState(null, '', '/'); }
   });
+  it('Back com seletor pendente bloqueia drop e atalhos antes do render e cancelar conserva a sessão do editor', async () => {
+    const original = addText(addMainAsset(project(), { id: 'video', kind: 'video', name: 'Aula', uri: 'file://original', durationTicks: studioTicks(2), width: 1920, height: 1080 }), 'Seu texto', 0, 2, { itemId: 'text' });
+    boundaries.get.mockResolvedValue(original); window.history.replaceState({ idx: 3, key: 'editor' }, '', '/editor');
+    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined), native = vi.spyOn(window, 'confirm');
+    const pop = async (index: number, url: string) => { window.history.replaceState({ idx: index }, '', url); await act(async () => window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))); };
+    try {
+      await act(async () => root.render(<BrowserRouter><Routes><Route path="/editor" element={<StudioEditorWorkspace owner="owner" projectId="project" />} /><Route path="*" element={<span>Projetos</span>} /></Routes></BrowserRouter>));
+      await act(async () => host.querySelector<HTMLElement>('[aria-label="Camada Seu texto"]')!.click()); await click('Importar arquivos');
+      await act(async () => {
+        window.history.replaceState({ idx: 2 }, '', '/projects'); window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+        const drop = new Event('drop', { bubbles: true, cancelable: true }); Object.defineProperty(drop, 'dataTransfer', { value: { files: [recording], types: ['Files'] } }); host.querySelector('.se-preview-area')!.dispatchEvent(drop);
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+      });
+      await pop(3, '/editor'); expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Cancelar a operação e sair?');
+      expect(boundaries.inspect).not.toHaveBeenCalled(); expect(boundaries.save).not.toHaveBeenCalled(); expect(host.querySelector('[aria-label="Camada Seu texto"]')).toBeTruthy();
+      await answer('Continuar no editor'); expect(go).toHaveBeenLastCalledWith(1); expect(host.querySelector('[aria-label="Escolhendo arquivo"]')).toBeTruthy(); expect(native).not.toHaveBeenCalled();
+      await act(async () => host.querySelector('input[type="file"][multiple]')!.dispatchEvent(new Event('cancel', { bubbles: true }))); await openRecording();
+    } finally { go.mockRestore(); native.mockRestore(); window.history.replaceState(null, '', '/'); }
+  });
+  it('aprovação de saída expira se o seletor autorizado já foi cancelado, sem cancelar um fluxo posterior', async () => {
+    window.history.replaceState({ idx: 3, key: 'editor' }, '', '/editor'); const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined);
+    const pop = async (index: number, url: string) => { window.history.replaceState({ idx: index }, '', url); await act(async () => window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))); };
+    try {
+      await act(async () => root.render(<BrowserRouter><Routes><Route path="/editor" element={<StudioEditorWorkspace owner="owner" projectId="project" />} /><Route path="*" element={<span>Projetos</span>} /></Routes></BrowserRouter>));
+      await click('Importar arquivos'); await pop(2, '/projects'); await pop(3, '/editor');
+      await act(async () => host.querySelector('input[type="file"][multiple]')!.dispatchEvent(new Event('cancel', { bubbles: true })));
+      await answer('Cancelar e sair'); expect(go).toHaveBeenLastCalledWith(1); expect(host.querySelector('.se-editor')).toBeTruthy();
+      await openRecording(); expect(boundaries.capture.mock.results[0].value.cancel).not.toHaveBeenCalled(); expect(boundaries.put).not.toHaveBeenCalled();
+    } finally { go.mockRestore(); window.history.replaceState(null, '', '/'); }
+  });
+  it('troca de conta durante a pergunta encerra apenas o Recorder antigo e não aceita uma saída tardia no novo projeto', async () => {
+    window.history.replaceState({ idx: 3, key: 'editor' }, '', '/editor'); const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined);
+    const render = (owner: string) => root.render(<BrowserRouter><Routes><Route path="/editor" element={<StudioEditorWorkspace owner={owner} projectId="project" />} /><Route path="*" element={<span>Projetos</span>} /></Routes></BrowserRouter>);
+    const pop = async (index: number, url: string) => { window.history.replaceState({ idx: index }, '', url); await act(async () => window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))); };
+    try {
+      await act(async () => render('owner')); await openRecording(); const old = boundaries.capture.mock.results[0].value;
+      await pop(2, '/projects'); await pop(3, '/editor'); const oldAccept = Array.from(document.querySelectorAll('[role="alertdialog"] button')).find(element => element.textContent === 'Descartar e sair') as HTMLButtonElement;
+      boundaries.get.mockResolvedValue(withStudioTakes({ ...project(), ownerId: 'other-owner', editing: emptyStudioEditing('aula') })); await act(async () => render('other-owner'));
+      await act(async () => oldAccept.click()); expect(document.querySelector('[role="alertdialog"]')).toBeNull(); expect(host.querySelector('[aria-label="Gravar câmera"]')).toBeNull(); expect(old.dispose).toHaveBeenCalledTimes(1); expect(boundaries.put).not.toHaveBeenCalled(); expect(go).toHaveBeenLastCalledWith(1);
+      await openRecording(); expect(boundaries.capture.mock.results.at(-1)!.value.cancel).not.toHaveBeenCalled(); expect(button('Usar gravação').disabled).toBe(false);
+    } finally { go.mockRestore(); window.history.replaceState(null, '', '/'); }
+  });
+
+  it('após aprovar a saída o Recorder continua bloqueado até o flush resolver, e erro de disco mantém o original', async () => {
+    window.history.replaceState({ idx: 3, key: 'editor' }, '', '/editor'); const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined);
+    const pop = async (index: number, url: string) => { window.history.replaceState({ idx: index }, '', url); await act(async () => window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))); };
+    try {
+      await act(async () => root.render(<BrowserRouter><Routes><Route path="/editor" element={<StudioEditorWorkspace owner="owner" projectId="project" />} /><Route path="*" element={<span>Projetos</span>} /></Routes></BrowserRouter>));
+      await openRecording(); boundaries.save.mockRejectedValueOnce(new Error('Quota inicial')); await click('Usar gravação');
+      expect(host.querySelector('[aria-label="Gravar câmera"]')).toBeTruthy(); expect(boundaries.put).toHaveBeenCalledTimes(1);
+      let reject!: (cause: Error) => void; const writing = new Promise<StudioProject>((_resolve, fail) => { reject = fail; }); boundaries.save.mockImplementationOnce(() => writing);
+      await pop(2, '/projects'); await pop(3, '/editor'); await answer('Descartar e sair');
+      expect(document.querySelector('[role="alertdialog"]')).toBeNull(); expect(button('Usar gravação').disabled).toBe(true); expect(button('Gravar outro').disabled).toBe(true); expect(go).toHaveBeenLastCalledWith(1);
+      await click('Usar gravação'); expect(boundaries.save).toHaveBeenCalledTimes(2);
+      await act(async () => reject(new Error('Sem espaço para salvar')));
+      expect(host.textContent).toContain('Sem espaço para salvar'); expect(go).toHaveBeenLastCalledWith(1); expect(host.querySelector('[aria-label="Gravar câmera"]')).toBeTruthy(); expect(button('Usar gravação').disabled).toBe(false);
+      await click('Usar gravação'); expect(boundaries.put).toHaveBeenCalledTimes(1); expect(boundaries.put.mock.calls[0][3]).toBe(recording); expect(lastSaved?.takes).toHaveLength(1);
+    } finally { go.mockRestore(); window.history.replaceState(null, '', '/'); }
+  });
+
 });

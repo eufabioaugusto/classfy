@@ -1,0 +1,13 @@
+.se-confirmation-overlay { position: fixed; inset: 0; z-index: 120; background: #050609a8; }
+.se-confirmation { position: fixed; top: 50%; left: 50%; z-index: 121; transform: translate(-50%, -50%); box-sizing: border-box; width: min(420px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 28px; border: 1px solid #ffffff1c; border-radius: 18px; background: #17191f; color: #f1f2f5; font-family: Inter, system-ui, sans-serif; color-scheme: dark; text-align: center; box-shadow: 0 16px 56px #0004; }
+.se-confirmation-icon { display: flex; align-items: center; justify-content: center; width: 50px; height: 50px; margin: 0 auto 18px; border: 1px solid #ef506633; border-radius: 15px; background: #ef506614; color: #ff8295; }
+.se-confirmation-title { margin: 0; color: #f4f5f7; font-size: 20px; font-weight: 600; line-height: 1.3; letter-spacing: -.4px; overflow-wrap: anywhere; }
+.se-confirmation-description { margin: 12px 0 24px; color: #aeb3bf; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.se-confirmation-actions { display: flex; gap: 10px; }
+.se-confirmation-actions button { box-sizing: border-box; flex: 1 1 0; min-width: 0; min-height: 42px; padding: 11px 14px; border: 1px solid #ffffff26; border-radius: 9px; font: 500 13px/1.4 Inter, system-ui, sans-serif; cursor: pointer; }
+.se-confirmation-cancel { background: #ffffff05; color: #e0e3e9; }
+.se-confirmation-cancel:hover { background: #ffffff0d; }
+.se-confirmation-actions .se-confirmation-accept { border-color: #de254e; background: #de254e; color: white; }
+.se-confirmation-accept:hover { filter: brightness(.96); }
+.se-confirmation-actions button:focus-visible { outline: 2px solid #f98b9e; outline-offset: 3px; }
+@media (max-width: 480px) { .se-confirmation { width: calc(100vw - 32px); padding: 24px 20px; } .se-confirmation-title { font-size: 19px; } }

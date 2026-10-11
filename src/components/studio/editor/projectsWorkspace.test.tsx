@@ -11,7 +11,7 @@ let host: HTMLDivElement, root: Root;
 function fixture(owner = 'owner', id = 'project', title = 'Aula local'): StudioProject { return withStudioTakes({ version: 2, id, ownerId: owner, kind: 'aula', title, description: '', objective: '', audience: '', script: '', tags: [], visibility: 'free', price: '0', editing: emptyStudioEditing('aula'), revision: 0, state: 'draft', progress: 0, createdAt: '2026-10-11', updatedAt: '2026-10-11' }); }
 function Location() { const location = useLocation(); return <output data-location>{location.pathname}{location.search}</output>; }
 async function mount(owner = 'owner') { await act(async () => root.render(<MemoryRouter initialEntries={['/studio/projects']}><StudioProjectsWorkspace key={owner} owner={owner} /><Location /></MemoryRouter>)); }
-async function click(label: string) { const element = Array.from(host.querySelectorAll('button')).find(button => button.textContent?.trim() === label || button.getAttribute('aria-label') === label); expect(element, label).toBeTruthy(); await act(async () => element!.click()); }
+async function click(label: string) { const element = Array.from(document.body.querySelectorAll('button')).find(button => button.textContent?.trim() === label || button.getAttribute('aria-label') === label); expect(element, label).toBeTruthy(); await act(async () => element!.click()); }
 async function input(element: HTMLInputElement, value: string) { await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(element, value); element.dispatchEvent(new Event('input', { bubbles: true })); }); }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -32,6 +32,64 @@ describe('galeria desktop de projetos reais', () => {
     expect(storage.save).toHaveBeenCalledTimes(1); const saved = storage.save.mock.calls[0][1] as StudioProject; expect(saved.title).toBe('Aula editada'); expect(saved.takes).toEqual([]); expect(saved.editing).toBeDefined();
     await click('Opções de Aula local'); await click('Excluir'); expect(storage.remove).not.toHaveBeenCalled(); await click('Cancelar'); expect(storage.remove).not.toHaveBeenCalled();
     await click('Excluir'); await click('Excluir projeto'); expect(storage.remove.mock.calls).toEqual([['owner', 'project']]);
+  });
+
+  it('a exclusão usa o diálogo central; Cancelar e Escape preservam o alvo e devolvem o foco ao menu', async () => {
+    await mount(); await click('Opções de Aula local');
+    const trigger = Array.from(host.querySelectorAll('button')).find(button => button.textContent?.trim() === 'Excluir')!;
+    trigger.focus(); await click('Excluir');
+    const dialog = document.querySelector('[role="alertdialog"]')!;
+    expect(dialog).toBeTruthy(); expect(dialog.textContent).toContain('Aula local');
+    expect(document.activeElement?.textContent).toBe('Cancelar');
+    await click('Cancelar'); await act(async () => new Promise(resolve => setTimeout(resolve, 0)));
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(storage.remove).not.toHaveBeenCalled(); expect(document.activeElement).toBe(trigger);
+    trigger.focus(); await click('Excluir');
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull(); expect(storage.remove).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Duplicar projeto');
+  });
+  it('duas confirmações no mesmo frame excluem só o projeto confirmado e bloqueiam novas ações até a escrita', async () => {
+    let resolve!: () => void;
+    storage.remove.mockImplementation(() => new Promise<void>(accept => { resolve = accept; }));
+    await mount(); await click('Opções de Aula local'); await click('Excluir');
+    const approve = document.querySelector('[role="alertdialog"] .se-confirmation-accept') as HTMLButtonElement;
+    await act(async () => { approve.click(); approve.click(); });
+    expect(storage.remove.mock.calls).toEqual([['owner', 'project']]);
+    expect((host.querySelector('[aria-label="Editar Aula local"]') as HTMLButtonElement).disabled).toBe(true);
+    await click('Gravar'); expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/projects');
+    await act(async () => resolve());
+    expect(storage.remove).toHaveBeenCalledTimes(1); expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+  it('trocar a conta cancela o diálogo e um botão antigo não apaga dados da conta nova', async () => {
+    const renderOwner = async (owner: string) => act(async () => root.render(<MemoryRouter><StudioProjectsWorkspace owner={owner} /><Location /></MemoryRouter>));
+    await renderOwner('first'); await click('Opções de Aula local'); await click('Excluir');
+    const staleApprove = document.querySelector('[role="alertdialog"] .se-confirmation-accept') as HTMLButtonElement;
+    await renderOwner('second'); await act(async () => staleApprove.click());
+    expect(storage.remove).not.toHaveBeenCalled(); expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    expect((host.querySelector('[aria-label="Opções de Aula local"]') as HTMLButtonElement).disabled).toBe(false);
+    await click('Opções de Aula local'); await click('Excluir'); await click('Excluir projeto');
+    expect(storage.remove.mock.calls).toEqual([['second', 'project']]);
+  });
+  it('perder visibilidade antes da confirmação ser entregue impede a exclusão', async () => {
+    let visibility: DocumentVisibilityState = 'visible';
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
+    try {
+      await mount(); await click('Opções de Aula local'); await click('Excluir');
+      const approve = document.querySelector('[role="alertdialog"] .se-confirmation-accept') as HTMLButtonElement;
+      await act(async () => { approve.click(); visibility = 'hidden'; });
+      expect(storage.remove).not.toHaveBeenCalled(); expect(host.querySelector('.se-project-card')).toBeTruthy();
+    } finally { delete (document as unknown as { visibilityState?: DocumentVisibilityState }).visibilityState; }
+  });
+  it('a escrita da conta antiga não mantém a galeria nova ocupada nem fecha seu menu', async () => {
+    let resolve!: () => void;
+    storage.remove.mockImplementationOnce(() => new Promise<void>(accept => { resolve = accept; }));
+    const renderOwner = async (owner: string) => act(async () => root.render(<MemoryRouter><StudioProjectsWorkspace owner={owner} /><Location /></MemoryRouter>));
+    await renderOwner('first'); await click('Opções de Aula local'); await click('Excluir'); await click('Excluir projeto');
+    await renderOwner('second'); await click('Opções de Aula local'); await act(async () => resolve());
+    expect(storage.remove.mock.calls).toEqual([['first', 'project']]);
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Duplicar projeto');
+    expect((host.querySelector('[aria-label="Opções de Aula local"]') as HTMLButtonElement).disabled).toBe(false);
   });
   it('a duplicação da conta antiga não troca a galeria depois da mudança de conta', async () => {
     let resolve!: () => void; const pending = new Promise<void>(accept => { resolve = accept; }); storage.duplicate.mockReturnValueOnce(pending);
