@@ -42,12 +42,13 @@ async function createExportTarget(estimatedBytes: number): Promise<ExportTarget>
   const target = new BufferTarget();
   return {target, async file(name,mime) { if (!target.buffer) throw new Error('O encoder não produziu um arquivo.'); return new File([target.buffer],name,{type:mime}); },async release(){}};
 }
-export type StudioExportOptions = { signal?:AbortSignal; onProgress?:(value:number)=>void };
+export type StudioExportKernel = Pick<StudioRenderKernel, 'draw' | 'mixAudio' | 'dispose'>;
+export type StudioExportOptions = { signal?:AbortSignal; onProgress?:(value:number)=>void; kernelFactory?:(recipe:StudioRenderRecipe, resolver:StudioAssetResolver, signal?:AbortSignal)=>StudioExportKernel };
 /** Offline encoding: encoder backpressure + bounded frame/audio decoding, no realtime recorder. */
 export async function exportStudioProject(project: StudioProject, resolveAsset: StudioAssetResolver, options: StudioExportOptions = {}): Promise<File> {
   return exportStudioRecipe(compileStudioRecipe(structuredClone(project)),resolveAsset,{...options,name:project.title});
 }
-export async function exportStudioRecipe(inputRecipe: StudioRenderRecipe, resolveAsset: StudioAssetResolver, {signal,onProgress,name='Montagem Classfy'}: StudioExportOptions & {name?:string} = {}): Promise<File> {
+export async function exportStudioRecipe(inputRecipe: StudioRenderRecipe, resolveAsset: StudioAssetResolver, {signal,onProgress,name='Montagem Classfy',kernelFactory}: StudioExportOptions & {name?:string} = {}): Promise<File> {
   // The immutable snapshot is taken before the first await, including source trim/rate/grade.
   const recipe = structuredClone(inputRecipe), issues = validateStudioRecipe(recipe); if (issues.length) throw new Error(issues[0]); assertStudioActive(signal);
   const duration = recipe.durationTicks / recipe.timebase, fps = recipe.output.frameRateNumerator / recipe.output.frameRateDenominator;
@@ -58,7 +59,10 @@ export async function exportStudioRecipe(inputRecipe: StudioRenderRecipe, resolv
   if (hasAudio && !await canEncodeAudio('aac',{numberOfChannels:2,sampleRate:48000,quality:audioQuality})) throw new Error('Este navegador não oferece encoder AAC para o áudio da montagem. Use Chrome, Edge ou Safari atualizado.');
   const audioDelay = hasAudio ? await getStudioAACDelay(signal) : 0;
   assertStudioActive(signal); const storage = await createExportTarget(duration * ((recipe.mediaType === 'video' ? bitrate : 0) + (hasAudio ? 192000 : 0)) / 8 * 1.2);
-  const canvas = studioCanvas(recipe.output.width,recipe.output.height), kernel = new StudioRenderKernel(recipe,resolveAsset,signal);
+  const canvas = studioCanvas(recipe.output.width,recipe.output.height);
+  let kernel: StudioExportKernel;
+  try { kernel = kernelFactory ? kernelFactory(recipe,resolveAsset,signal) : new StudioRenderKernel(recipe,resolveAsset,signal); }
+  catch (error) { canvas.width=1; canvas.height=1; await storage.release(); throw error; }
   const output = new Output({format:new Mp4OutputFormat({fastStart:false}),target:storage.target});
   const video = recipe.mediaType === 'video' ? new CanvasSource(canvas,{codec:'avc',quality,keyFrameInterval:2,latencyMode:'quality'}) : null;
   const audio = hasAudio ? new StudioAACSource(duration,audioDelay,signal) : null;

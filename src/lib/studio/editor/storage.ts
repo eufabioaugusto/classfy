@@ -100,10 +100,10 @@ export function createStudioBrowserStorage(options: { indexedDB?: IDBFactory; da
     const row = await transaction(['projects'], 'readonly', tx => request(tx.objectStore('projects').get([owner, projectId])));
     return row ? materialize(row) : null;
   }
-  async function createProject(owner: string, kind: StudioKind, title = ''): Promise<StudioProject> {
-    identity(owner);
+  async function createProject(owner: string, kind: StudioKind, title = '', preferredId?: string): Promise<StudioProject> {
+    identity(owner); if (preferredId !== undefined) identity(preferredId);
     const timestamp = now().toISOString();
-    const project = withStudioTakes({ version: 2, id: id(), ownerId: owner, kind, title, description: '', objective: '', audience: '', script: '', tags: [],
+    const project = withStudioTakes({ version: 2, id: preferredId ?? id(), ownerId: owner, kind, title, description: '', objective: '', audience: '', script: '', tags: [],
       visibility: 'free', price: '0', editing: withStudioOutputSelection(emptyStudioEditing(kind), { resolution: 'original', frameRate: 'original' }), createdAt: timestamp, updatedAt: timestamp, revision: 0, state: 'draft', progress: 0 });
     const row = canonical(owner, project);
     await transaction(['projects'], 'readwrite', async tx => { await request(tx.objectStore('projects').add(row)); });

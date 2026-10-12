@@ -15,7 +15,7 @@ vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: io.owne
 vi.mock('@/components/billing/SubscriptionCheckoutProvider', () => ({ useSubscriptionCheckout: () => ({ startSubscription: io.checkout }) }));
 // The page test exercises the entitlement/offer boundary. Recording and file
 // persistence are owned by the workspace suite; this host starts no devices.
-vi.mock('./StudioRecordingWorkspace', () => ({ StudioRecordingWorkspace: (props: { owner: string; canUseScenes?: boolean; onUpgradeScenes?: () => void }) => <div><output aria-label="Acesso a cenas">{props.canUseScenes ? 'liberado' : 'bloqueado'}</output><button onClick={() => { if (!props.canUseScenes) props.onUpgradeScenes?.(); }}>Gravação com cenas</button><button>Gravação básica</button></div> }));
+vi.mock('./StudioRecordingWorkspace', () => ({ StudioRecordingWorkspace: (props: { owner: string; canUseScenes?: boolean; onUpgradeScenes?: () => void; onUpgradeRemote?: () => void }) => <div><output aria-label="Acesso a cenas">{props.canUseScenes ? 'liberado' : 'bloqueado'}</output><button onClick={() => { if (!props.canUseScenes) props.onUpgradeScenes?.(); }}>Gravação com cenas</button><button onClick={() => { if (!props.canUseScenes) props.onUpgradeRemote?.(); }}>Usar meu iPhone</button><button>Gravação básica</button></div> }));
 import { useStudioPremiumEntitlement } from './useStudioPremiumEntitlement';
 import { StudioScenesUpgradeDialog } from './StudioScenesUpgradeDialog';
 import StudioRecord from '@/pages/StudioRecord';
@@ -41,6 +41,12 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('entitlement de cenas e oferta ligada à conta atual', () => {
+  it.each(['free', 'pro'] as const)('%s recebe oferta específica do iPhone sem nova aba, sessão de captura ou cobrança', async plan => {
+    io.rows.set('creator', profile('creator', { plan, entitlement_source: plan === 'free' ? 'free' : 'stripe' })); await page(); await click('Usar meu iPhone');
+    const dialog = document.querySelector('[role="dialog"]')!; expect(dialog.textContent).toContain('Seu iPhone vira câmera Pro.'); expect(dialog.textContent).toContain('Original até 4K'); expect(dialog.textContent).not.toContain('Três cenas');
+    expect(io.invoke).not.toHaveBeenCalled(); expect(window.open).not.toHaveBeenCalled(); expect(io.checkout).not.toHaveBeenCalled();
+    await click('Continuar com gravação básica'); expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(host.textContent).toContain('Gravação básica');
+  });
   it('loading permanece bloqueado até consulta real confirmar Premium', async () => {
     const pending = deferred<unknown>(); io.query = () => pending.promise; await render(); expect(access.loading).toBe(true); expect(access.canUseScenes).toBe(false);
     await act(async () => pending.resolve({ data: profile(), error: null })); expect(access.canUseScenes).toBe(true); expect(access.loading).toBe(false); expect(io.invoke).not.toHaveBeenCalled();

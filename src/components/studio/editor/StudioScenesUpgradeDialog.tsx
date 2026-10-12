@@ -1,20 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { ArrowRight, Check, Crown, Loader2, Monitor, RefreshCw, Video, X } from 'lucide-react';
+import { ArrowRight, Check, Crown, Loader2, Monitor, RefreshCw, Smartphone, Video, X } from 'lucide-react';
 import { PLAN_OFFERS } from '@/config/planOffers';
 import { StudioPremiumError, studioPremiumAccess, type StudioPremiumProfile } from '@/lib/studio/editor/entitlementPremium';
 import { useSubscriptionCheckout } from '@/components/billing/SubscriptionCheckoutProvider';
 import '@/styles/studio-scenes-upgrade.css';
+import '@/styles/studio-remote-camera.css';
 
 type Entitlement = {
   canUseScenes: boolean; loading: boolean; error: string | null; profile: StudioPremiumProfile | null;
   refresh(verifySubscription?: boolean): Promise<boolean>;
 };
-type Props = { open: boolean; onOpenChange(open: boolean): void; owner: string; entitlement: Entitlement };
+type Props = { open: boolean; onOpenChange(open: boolean): void; owner: string; entitlement: Entitlement; feature?: 'scenes' | 'iphone' };
 type Operation = { controller: AbortController };
 
 /** This offer unlocks a Studio recording tool, never content playback. */
-export function StudioScenesUpgradeDialog({ open, onOpenChange, owner, entitlement }: Props) {
+export function StudioScenesUpgradeDialog({ open, onOpenChange, owner, entitlement, feature = 'scenes' }: Props) {
   const [busy, setBusy] = useState(false), [failure, setFailure] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
   const { startSubscription } = useSubscriptionCheckout();
   const [portal, setPortal] = useState<HTMLElement | undefined>(() => document.fullscreenElement as HTMLElement ?? undefined);
@@ -69,19 +70,17 @@ export function StudioScenesUpgradeDialog({ open, onOpenChange, owner, entitleme
     <Dialog.Portal container={portal}>
       <Dialog.Overlay className="sce-upgrade-overlay" />
       <Dialog.Content className="sce-upgrade" onOpenAutoFocus={event => { event.preventDefault(); document.getElementById('sce-upgrade-close')?.focus(); }}>
-        <Dialog.Close id="sce-upgrade-close" className="sce-upgrade-close" aria-label="Fechar oferta de cenas"><X size={20} /></Dialog.Close>
+        <Dialog.Close id="sce-upgrade-close" className="sce-upgrade-close" aria-label={feature === 'iphone' ? 'Fechar oferta de câmera remota' : 'Fechar oferta de cenas'}><X size={20} /></Dialog.Close>
         <div className="sce-upgrade-brand"><Crown size={17} /> STUDIO PREMIUM</div>
-        <Dialog.Title className="sce-upgrade-title">Gravação com cenas</Dialog.Title>
-        <Dialog.Description className="sce-upgrade-description">Sua aula acompanha o que você está mostrando. Alterne a apresentação enquanto grava.</Dialog.Description>
-        <div className="sce-upgrade-scenes" aria-label="Três cenas de gravação">
+        <Dialog.Title className="sce-upgrade-title">{feature === 'iphone' ? 'Seu iPhone vira câmera Pro.' : 'Gravação com cenas'}</Dialog.Title>
+        <Dialog.Description className="sce-upgrade-description">{feature === 'iphone' ? 'Enquadre no computador, grave no iPhone e receba seu original direto no Studio.' : 'Sua aula acompanha o que você está mostrando. Alterne a apresentação enquanto grava.'}</Dialog.Description>
+        {feature === 'iphone' ? <div className="src-upgrade-visual" aria-label="Câmera remota do iPhone"><Smartphone size={58} strokeWidth={1.1} /><ArrowRight size={22} /><span><strong>Original até 4K</strong>Prévia no seu computador<small>Captura nativa. Sem placa de captura.</small></span><i>STUDIO × IPHONE</i></div> : <div className="sce-upgrade-scenes" aria-label="Três cenas de gravação">
           <div><div className="sce-upgrade-scene sce-upgrade-scene--camera"><span className="sce-upgrade-person" /></div><strong><Video size={14} /> Câmera</strong></div>
           <div><div className="sce-upgrade-scene sce-upgrade-scene--screen"><span className="sce-upgrade-screen"><i /><i /><i /></span></div><strong><Monitor size={14} /> Tela</strong></div>
           <div><div className="sce-upgrade-scene sce-upgrade-scene--both"><span className="sce-upgrade-screen"><i /><i /><i /></span><span className="sce-upgrade-pip"><span className="sce-upgrade-person" /></span></div><strong><Video size={14} /> Tela + câmera</strong></div>
-        </div>
+        </div>}
         <ul className="sce-upgrade-benefits">
-          <li><Check size={16} /> Troque de cena sem encerrar o take.</li>
-          <li><Check size={16} /> Ajuste a posição e o tamanho da câmera sobre a tela.</li>
-          <li><Check size={16} /> Apresente demonstrações e volte à câmera no mesmo vídeo.</li>
+          {feature === 'iphone' ? <><li><Check size={16} /> Original gravado no iPhone, em até 4K.</li><li><Check size={16} /> Controle REC, exposição, foco e balanço de branco.</li><li><Check size={16} /> Continue com seu original mesmo se a prévia oscilar.</li></> : <><li><Check size={16} /> Troque de cena sem encerrar o take.</li><li><Check size={16} /> Ajuste a posição e o tamanho da câmera sobre a tela.</li><li><Check size={16} /> Apresente demonstrações e volte à câmera no mesmo vídeo.</li></>}
         </ul>
         <div className="sce-upgrade-offer"><div><span>PLANO {PLAN_OFFERS.premium.title.toUpperCase()}</span><p><strong>R$ {PLAN_OFFERS.premium.price}</strong> / mês</p></div><span className="sce-upgrade-plan">Seu plano: {plan}</span></div>
         {(failure || entitlement.error) && <p className="sce-upgrade-error" role="alert">{failure ?? entitlement.error}</p>}

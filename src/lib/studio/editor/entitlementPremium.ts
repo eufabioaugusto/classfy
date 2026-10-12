@@ -28,7 +28,7 @@ const expiry = (value: string | null | undefined) => {
 export function studioPremiumAccess(profile: StudioPremiumProfile | null | undefined, now = Date.now()): StudioPremiumAccess {
   const denied = (reason: StudioPremiumAccess['reason']): StudioPremiumAccess => ({ canUseScenes: false, effectivePlan: 'free', expiresAt: null, reason });
   if (!profile || !Number.isFinite(now) || !['free', 'pro', 'premium'].includes(profile.plan)
-    || !['free', 'stripe', 'admin', 'legacy'].includes(profile.entitlement_source)) return denied('unknown');
+    || !['free', 'stripe', 'admin', 'legacy', 'apple', 'google'].includes(profile.entitlement_source)) return denied('unknown');
   if (profile.plan === 'free' || profile.entitlement_source === 'free') return denied('inactive');
   // A current administrative grant is independent from Stripe status, just as
   // sync_subscription_state_v1 preserves that grant until its explicit expiry.

@@ -35,6 +35,35 @@ function session(h = library(), options: Partial<StudioRecordingSessionOptions> 
 }
 
 describe('sessão de gravação com comandos/receita e IndexedDB reais', () => {
+  it('take remoto reabre após receipt perdido sem duplicar projeto, fonte ou montagem', async () => {
+    const h = library(), takeId = 'd13958d1-6047-4291-8e0d-38a2918a9aa3', first = session(h), source = file('iphone-master.mp4', 'native-original', 'video/mp4');
+    const save = h.storage.saveProject;
+    vi.spyOn(h.storage, 'saveProject').mockImplementationOnce(async (owner, project) => { await save(owner, project); throw new Error('receipt remoto perdido'); });
+    await expect(first.session.append(source, { operationId: takeId, remoteTakeId: takeId })).rejects.toThrow('receipt remoto perdido');
+    const restored = session(h), repeated = await restored.session.append(file('iphone-master.mp4', 'native-original', 'video/mp4'), { operationId: takeId, remoteTakeId: takeId });
+    expect(repeated.id).toBe(takeId); expect(repeated.takes).toHaveLength(1); expect(repeated.revision).toBe(1); expect(await h.storage.listProjects('owner')).toHaveLength(1);
+    expect(repeated.editing!.assets[0].id).toBe(`remote-${takeId}`); expect(repeated.editing!.main[0].id).toBe(`remote-clip-${takeId}`);
+  });
+  it('take remoto criado antes de falha no save retoma projeto vazio e bytes já persistidos', async () => {
+    const h = library(), takeId = '02cfb293-d3af-4481-9c0a-6644a2f34bc9', first = session(h), source = file('iphone.mp4', 'native-original', 'video/mp4');
+    vi.spyOn(h.storage, 'saveProject').mockRejectedValueOnce(new Error('disco indisponível'));
+    await expect(first.session.append(source, { operationId: takeId, remoteTakeId: takeId })).rejects.toThrow('disco indisponível');
+    expect((await h.storage.getProject('owner', takeId))!.takes).toHaveLength(0);
+    const restored = session(h), saved = await restored.session.append(file('iphone.mp4', 'native-original', 'video/mp4'), { operationId: takeId, remoteTakeId: takeId });
+    expect(saved.id).toBe(takeId); expect(saved.takes).toHaveLength(1); expect(await h.storage.listProjects('owner')).toHaveLength(1);
+  });
+  it('ID remoto reutilizado com bytes diferentes não sobrescreve original mesmo com mesmo tamanho e nome', async () => {
+    const h = library(), takeId = '46d1fd38-d088-462a-8e03-ea5612319930', first = session(h);
+    const saved = await first.session.append(file('iphone.mp4', 'native-original', 'video/mp4'), { operationId: takeId, remoteTakeId: takeId });
+    await expect(session(h).session.append(file('iphone.mp4', 'native-different', 'video/mp4'), { operationId: takeId, remoteTakeId: takeId })).rejects.toThrow('não corresponde');
+    expect((await h.storage.getProject('owner', saved.id))!.revision).toBe(1); expect(await (await h.storage.getAsset('owner', saved.id, `remote-${takeId}`))!.text()).toBe('native-original');
+  });
+  it('ID remoto com projeto de outro formato falha sem sobrescrever conteúdo; owner permanece isolado', async () => {
+    const h = library(), takeId = '5e98eb5a-8c1f-449b-80df-b33b1d2e955c'; await h.storage.createProject('owner', 'short', 'Original vertical', takeId);
+    const recorder = session(h); await expect(recorder.session.append(file(), { remoteTakeId: takeId })).rejects.toThrow('não corresponde'); expect(recorder.inspect).not.toHaveBeenCalled();
+    const foreign = session(h, { owner: 'other', projectId: takeId }); await expect(foreign.session.append(file(), { remoteTakeId: takeId })).rejects.toThrow('conta'); expect(await h.storage.listProjects('other')).toEqual([]);
+    expect((await h.storage.getProject('owner', takeId))!.title).toBe('Original vertical');
+  });
   it('não cria projeto ao abrir, nem para mídia vazia, inválida ou formato incompatível', async () => {
     const h = session();
     expect(h.session.current()).toBeNull(); expect(await h.session.loadExisting()).toBeNull();
