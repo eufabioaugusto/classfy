@@ -104,7 +104,7 @@ export function createStudioBrowserStorage(options: { indexedDB?: IDBFactory; da
     identity(owner);
     const timestamp = now().toISOString();
     const project = withStudioTakes({ version: 2, id: id(), ownerId: owner, kind, title, description: '', objective: '', audience: '', script: '', tags: [],
-      visibility: 'free', price: '0', editing: withStudioOutputSelection(emptyStudioEditing(kind), { resolution: 'hd', frameRate: 30 }), createdAt: timestamp, updatedAt: timestamp, revision: 0, state: 'draft', progress: 0 });
+      visibility: 'free', price: '0', editing: withStudioOutputSelection(emptyStudioEditing(kind), { resolution: 'original', frameRate: 'original' }), createdAt: timestamp, updatedAt: timestamp, revision: 0, state: 'draft', progress: 0 });
     const row = canonical(owner, project);
     await transaction(['projects'], 'readwrite', async tx => { await request(tx.objectStore('projects').add(row)); });
     return materialize(row);

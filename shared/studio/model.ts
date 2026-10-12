@@ -196,12 +196,12 @@ export type StudioLayer = {
   /** Reversible track switches; source opacity and gain stay on each item. */
   hidden?: boolean; muted?: boolean;
 };
-export type StudioOutputSelection = { resolution: 'original' | 'hd' | '2k' | '4k'; frameRate: 'original' | 24 | 30 | 60 };
+export type StudioOutputSelection = { resolution: 'original' | '720p' | 'hd' | '2k' | '4k'; frameRate: 'original' | 24 | 30 | 60 };
 export type StudioOutputWarning = { code: 'upscale' | 'downscale' | 'fps-conversion' | 'sdr-conversion' | 'unknown-source'; message: string; assetIds: string[] };
 /** Structural bridge contract; old binaries expose only their proven 1080p30 profile. */
 export type StudioOutputCapabilities = {
   version: number; available: boolean; colorSpace: 'rec709'; minimumDimension: number; maximumDimension: number; maximumShortDimension: number; maximumPixels: number; arbitraryEvenDimensions: boolean;
-  resolutions: readonly { id: 'hd' | '2k' | '4k'; width: number; height: number; codec: 'h264' | 'hevc' }[];
+  resolutions: readonly { id: '720p' | 'hd' | '2k' | '4k'; width: number; height: number; codec: 'h264' | 'hevc' }[];
   frameRates: readonly { numerator: number; denominator: number }[]; supportsHEVC: boolean;
 };
 export type StudioOutputProfile = {
@@ -604,7 +604,7 @@ const studioOutputRates = [
   { numerator: 24000, denominator: 1001 }, { numerator: 30000, denominator: 1001 }, { numerator: 60000, denominator: 1001 },
 ] as const;
 function validStudioOutputSelection(value: StudioOutputSelection) {
-  return !!value && ['original', 'hd', '2k', '4k'].includes(value.resolution)
+  return !!value && ['original', '720p', 'hd', '2k', '4k'].includes(value.resolution)
     && (value.frameRate === 'original' || [24, 30, 60].includes(value.frameRate));
 }
 function validStudioOutputDimensions(output: StudioOutputProfile, aspect: StudioEditing['canvas']['aspectRatio']) {
@@ -629,7 +629,7 @@ function resolveStudioOutput(editing: StudioEditing, activeAssets: readonly Stud
     ? Math.max(asset.width!, asset.height! * 9 / 16) : editing.canvas.aspectRatio === 'square'
       ? Math.max(asset.width!, asset.height!) : Math.max(asset.height!, asset.width! * 9 / 16)).filter(value => Number.isFinite(value) && value > 0);
   const shortEdge = resolution === 'original' ? Math.max(64, Math.min(2160, Math.ceil((edges.length ? Math.max(...edges) : 1080) / 2) * 2))
-    : resolution === '4k' ? 2160 : resolution === '2k' ? 1440 : 1080;
+    : resolution === '4k' ? 2160 : resolution === '2k' ? 1440 : resolution === '720p' ? 720 : 1080;
   const longEdge = Math.min(3840, Math.round(shortEdge * 16 / 9 / 2) * 2);
   const portrait = editing.canvas.aspectRatio === 'portrait', square = editing.canvas.aspectRatio === 'square';
   const sources = activeAssets.filter(asset => asset.kind === 'video').map(asset => asset.frameRate ?? 0).filter(value => Number.isFinite(value) && value > 0);

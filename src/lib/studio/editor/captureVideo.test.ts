@@ -43,7 +43,7 @@ describe('capacidade e tratamento da câmera',()=>{
     expect(engine.effects).toBe(true);expect(engine.stream.getVideoTracks()).toEqual([fixture.output]);expect(fixture.gl.texImage2D.mock.calls[0].at(-1)).toBe(fixture.video);expect((fixture.video.srcObject as MediaStream).getTracks()).toEqual([track]);
     engine.configure({...studioGrade('cinematic'),exposure:.5,intensity:.7,temperature:.2},2);
     expect(fixture.uniforms).toMatchObject({preset:2,exposure:.5,intensity:.7,temperature:.2,zoom:2});expect(fixture.gl.drawArrays).toHaveBeenCalledTimes(2);expect((fixture.output as any).requestFrame).toHaveBeenCalledTimes(2);
-    expect(fixture.gl.shaderSource.mock.calls[1][1]).toContain('(uv-.5)/zoom+.5');engine.dispose();expect(fixture.video.srcObject).toBeNull();expect(fixture.video.isConnected).toBe(false);expect(fixture.gl.deleteShader).toHaveBeenCalledTimes(2);expect((fixture.output as any).stop).not.toHaveBeenCalled();
+    expect(fixture.gl.shaderSource.mock.calls[1][1]).toContain('(pos-.5)/zoom+.5');engine.dispose();expect(fixture.video.srcObject).toBeNull();expect(fixture.video.isConnected).toBe(false);expect(fixture.gl.deleteShader).toHaveBeenCalledTimes(2);expect((fixture.output as any).stop).not.toHaveBeenCalled();
   });
   it('sem GPU o zoom é crop 2D real e filtro é recusado explicitamente',async()=>{
     const fixture=surface(false);const engine=createStudioCaptureVideoProcessor(source(),studioGrade(),1,vi.fn())!;await engine.prepare();expect(engine.effects).toBe(false);

@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBIndex } from 'fake-indexeddb';
 import { Blob as NodeBlob, File as NodeFile } from 'node:buffer';
 import { createStudioCapture, type StudioCaptureState } from './capture';
-const mocks = vi.hoisted(() => ({ inspect: vi.fn(), compositions: [] as unknown[], readyError: null as Error | null }));
+const mocks = vi.hoisted(() => ({ inspect: vi.fn(), compositions: [] as unknown[], readyError: null as Error | null, configureError: null as Error | null, readyWait: null as Promise<void> | null }));
 vi.mock('./media', () => ({ inspectStudioMedia: mocks.inspect }));
 vi.mock('./sceneComposition', () => ({ createStudioSceneComposition: vi.fn((options: unknown) => {
-  const track = new Track('video', 'program', 'Program'), composition = { options, track, effects: true, ready: vi.fn(async () => { if (mocks.readyError) throw mocks.readyError; }), setSource: vi.fn(async () => {}), removeSource: vi.fn(), configure: vi.fn(async () => {}), dispose: vi.fn(() => track.stop()) };
+  const track = new Track('video', 'program', 'Program'), composition = { options, track, effects: true, ready: vi.fn(async () => { if (mocks.readyWait) await mocks.readyWait; if (mocks.readyError) throw mocks.readyError; }), setSource: vi.fn(async () => {}), removeSource: vi.fn(), configure: vi.fn(async () => { if (mocks.configureError) throw mocks.configureError; }), dispose: vi.fn(() => track.stop()) };
   mocks.compositions.push(composition); return composition;
 }) }));
 class Track {
@@ -14,7 +14,7 @@ class Track {
   stop = vi.fn(() => { this.readyState = 'ended'; });
   getSettings() { return { deviceId: this.deviceId, width: 1920, height: 1080, frameRate: 30 }; }
   getCapabilities() { return { width: { min: 640, max: 1920 }, height: { min: 360, max: 1080 }, frameRate: { min: 24, max: 30 } }; }
-  getConstraints() { return {}; } applyConstraints = vi.fn(async () => {});
+  getConstraints() { return {}; } applyConstraints = vi.fn(async (_constraints: MediaTrackConstraints) => {});
 }
 class Stream { constructor(public tracks: Track[] = []) {} getTracks() { return this.tracks; } getVideoTracks() { return this.tracks.filter(track => track.kind === 'video'); } getAudioTracks() { return this.tracks.filter(track => track.kind === 'audio'); } }
 class Node { connect = vi.fn(); disconnect = vi.fn(); }
@@ -30,17 +30,17 @@ class Audio {
 class Recorder {
   static instances: Recorder[] = []; static isTypeSupported() { return true; } state = 'inactive'; mimeType = 'video/webm';
   ondataavailable: ((event: { data: Blob }) => void) | null = null; onerror: (() => void) | null = null; onstop: (() => void) | null = null;
-  constructor(public stream: Stream) { Recorder.instances.push(this); } start() { this.state = 'recording'; }
+  constructor(public stream: Stream, public options?: MediaRecorderOptions) { Recorder.instances.push(this); } start() { this.state = 'recording'; }
   stop = vi.fn(() => { this.state = 'inactive'; queueMicrotask(() => { this.ondataavailable?.({ data: new Blob(['header+frames+audio'], { type: this.mimeType }) }); this.onstop?.(); }); });
 }
 const events = new EventTarget(), media = { getUserMedia: vi.fn(), getDisplayMedia: vi.fn(), enumerateDevices: vi.fn(async () => []), addEventListener: events.addEventListener.bind(events), removeEventListener: events.removeEventListener.bind(events) };
 const pending = <T>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { resolve, promise }; };
 const watch = (aspectRatio: '16:9' | '9:16' = '16:9') => { const capture = createStudioCapture({ mode: 'scenes', aspectRatio }); let state!: StudioCaptureState; capture.subscribe(value => { state = value; }); return { capture, state: () => state }; };
 const sources = () => ({ camera: new Track('video', 'continuity', 'iPhone conectado'), mic: new Track('audio', 'usb', 'Microfone USB'), screen: new Track('video', 'display', 'Janela da aula'), system: new Track('audio', 'system', 'Áudio compartilhado') });
-const composition = () => mocks.compositions.at(-1) as { configure: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; removeSource: ReturnType<typeof vi.fn>; setSource: ReturnType<typeof vi.fn>; options: { onError(error: Error): void; onSourceLost(source: 'camera' | 'screen'): void } };
+const composition = () => mocks.compositions.at(-1) as { track: Track; configure: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; removeSource: ReturnType<typeof vi.fn>; setSource: ReturnType<typeof vi.fn>; options: { width: number; height: number; fps: number; onError(error: Error): void; onSourceLost(source: 'camera' | 'screen'): void } };
 const visibility = (value: string) => { Object.defineProperty(document, 'visibilityState', { configurable: true, value }); document.dispatchEvent(new Event('visibilitychange')); };
 beforeEach(() => {
-  mocks.compositions.length = 0; mocks.readyError = null; Audio.instances = []; Recorder.instances = []; media.getUserMedia.mockReset(); media.getDisplayMedia.mockReset(); mocks.inspect.mockReset().mockResolvedValue({ kind: 'video', duration: 3, hasAudio: true });
+  mocks.compositions.length = 0; mocks.readyError = null; mocks.configureError = null; mocks.readyWait = null; Audio.instances = []; Recorder.instances = []; media.getUserMedia.mockReset(); media.getDisplayMedia.mockReset(); mocks.inspect.mockReset().mockResolvedValue({ kind: 'video', duration: 3, hasAudio: true });
   vi.stubGlobal('MediaRecorder', Recorder); vi.stubGlobal('MediaStream', Stream); vi.stubGlobal('AudioContext', Audio); vi.stubGlobal('indexedDB', new IDBFactory());
   // fake-indexeddb uses the host structuredClone; Node's native Blob preserves real bytes across that boundary.
   vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('File', NodeFile);
@@ -49,6 +49,98 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); visibility('visible'); });
 describe('sessão única de cenas Premium', () => {
+  it.each(['16:9', '9:16'] as const)('reconfigura todos os formatos de saída em %s sem nova permissão e conserva REC durante trocas de cena', async aspect => {
+    const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen, s.system])); const h = watch(aspect);
+    await h.capture.prepare(); await h.capture.prepareScreen!(); h.capture.selectScene!('screen-camera');
+    const audio = h.state().stream!.getAudioTracks()[0], preview = h.state().cameraPreviewStream;
+    expect(h.state().outputVideo?.resolutions.map(value => value.label)).toEqual(['720p', '1080p', '2K', '4K']);
+    expect(h.state().outputVideo?.frameRates).toEqual([24, 30, 60]);
+    for (const [index, format] of h.state().outputVideo!.resolutions.entries()) {
+      const old = composition(), fps = [24, 30, 60, 60][index];
+      await h.capture.configureVideo({ output: { width: format.width, height: format.height, frameRate: fps } });
+      expect(h.state()).toMatchObject({ phase: 'ready', width: format.width, height: format.height, frameRate: fps, scenes: { selected: 'screen-camera', screenReady: true, cameraReady: true } });
+      expect(composition().options).toMatchObject({ width: format.width, height: format.height, fps });
+      expect(composition().setSource).toHaveBeenCalledWith('camera', s.camera); expect(composition().setSource).toHaveBeenCalledWith('screen', s.screen);
+      expect(old.dispose).toHaveBeenCalledOnce(); expect(old.track.readyState).toBe('ended');
+      expect(h.state().stream!.getAudioTracks()[0]).toBe(audio); expect(h.state().cameraPreviewStream).toBe(preview);
+    }
+    const program = h.state().stream, prepared = composition(); h.capture.start();
+    expect(Recorder.instances[0].options?.videoBitsPerSecond).toBeGreaterThan(60_000_000);
+    for (const selected of ['camera', 'screen', 'screen-camera', 'camera'] as const) h.capture.selectScene!(selected);
+    await expect(h.capture.configureVideo({ width: 1280, height: 720 })).rejects.toThrow('antes de iniciar');
+    expect(h.state().stream).toBe(program); expect(composition()).toBe(prepared); expect(Recorder.instances).toHaveLength(1); expect(Recorder.instances[0].stop).not.toHaveBeenCalled();
+    expect(media.getUserMedia).toHaveBeenCalledTimes(1); expect(media.getDisplayMedia).toHaveBeenCalledTimes(1); expect(s.camera.stop).not.toHaveBeenCalled(); expect(s.screen.stop).not.toHaveBeenCalled(); expect(s.mic.stop).not.toHaveBeenCalled();
+    await h.capture.stop(); h.capture.dispose();
+  });
+  it('ampliação usa dimensões reais e geometria da fonte, independente das resoluções oferecidas pela câmera', async () => {
+    const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen])); const h = watch();
+    await h.capture.prepare(); await h.capture.prepareScreen!(); s.camera.applyConstraints.mockRejectedValueOnce(new DOMException('Fonte limitada a 1080p', 'OverconstrainedError')); s.screen.applyConstraints.mockRejectedValueOnce(new DOMException('Janela não oferece 4K', 'OverconstrainedError'));
+    await h.capture.configureVideo({ width: 3840, height: 2160 });
+    expect(h.state().outputVideo).toMatchObject({ sourceWidth: 1920, sourceHeight: 1080, scaled: true });
+    expect(h.state().videoControls?.resolutions.some(value => value.label === '4K')).toBe(false);
+    s.screen.getSettings = () => ({ deviceId: 'display', width: 3840, height: 2160, frameRate: 30 }); h.capture.selectScene!('screen');
+    expect(h.state().outputVideo).toMatchObject({ sourceWidth: 3840, sourceHeight: 2160, scaled: false });
+    h.capture.selectScene!('screen-camera'); expect(h.state().outputVideo?.scaled).toBe(false);
+    await h.capture.configureVideo({ zoom: 4 }); expect(h.state().outputVideo?.scaled).toBe(true); h.capture.dispose();
+    media.getUserMedia.mockResolvedValue(new Stream([new Track('video', 'portrait', 'Câmera'), new Track('audio', 'mic', 'Microfone')])); const vertical = watch('9:16'); await vertical.capture.prepare();
+    expect(vertical.state().outputVideo?.scaled).toBe(true); // Filling a portrait frame crops and enlarges a landscape source.
+    vertical.capture.dispose();
+  });
+  it.each(['9:16', '16:9'] as const)('cenas negociam câmera portrait em 4K sem girar a fonte para saída %s', async aspectRatio => {
+    const s = sources(); let settings = { deviceId: 'portrait', width: 1080, height: 1920, frameRate: 30 }; s.camera.getSettings = () => ({ ...settings });
+    s.camera.getCapabilities = () => ({ width: { min: 360, max: 2160 }, height: { min: 640, max: 3840 }, frameRate: { min: 24, max: 30 } });
+    s.camera.applyConstraints.mockImplementation(async constraints => {
+      const width = (constraints.width as ConstrainULongRange)?.ideal, height = (constraints.height as ConstrainULongRange)?.ideal;
+      if (width && height) { if (width > 2160 || height > 3840) throw new DOMException('Fonte portrait', 'OverconstrainedError'); settings = { ...settings, width, height }; }
+    });
+    media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); const h = watch(aspectRatio); await h.capture.prepare();
+    const width = aspectRatio === '9:16' ? 2160 : 3840, height = aspectRatio === '9:16' ? 3840 : 2160; await h.capture.configureVideo({ output: { width, height } });
+    expect(s.camera.applyConstraints).toHaveBeenCalledOnce(); expect(s.camera.applyConstraints).toHaveBeenCalledWith(expect.objectContaining({ width: { ideal: 2160 }, height: { ideal: 3840 } }));
+    expect(h.state()).toMatchObject({ width, height, outputVideo: { sourceWidth: 2160, sourceHeight: 3840, scaled: aspectRatio === '16:9' } }); expect(composition().options).toMatchObject({ width, height });
+    h.capture.start(); expect(Recorder.instances[0].stream).toBe(h.state().stream); await h.capture.stop(); h.capture.dispose();
+  });
+  it.each(['ready', 'configure'] as const)('falha %s no worker candidato preserva perfil anterior e libera tentativa posterior', async stage => {
+    const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); const h = watch(); await h.capture.prepare(); const old = composition(), program = h.state().stream;
+    if (stage === 'ready') mocks.readyError = new Error('GPU recusou 4K'); else mocks.configureError = new Error('GPU recusou 4K');
+    await expect(h.capture.configureVideo({ width: 3840, height: 2160, frameRate: 60 })).rejects.toThrow('GPU recusou');
+    const rejected = composition(); expect(rejected.dispose).toHaveBeenCalledOnce(); expect(rejected.track.readyState).toBe('ended'); expect(old.dispose).not.toHaveBeenCalled();
+    expect(h.state()).toMatchObject({ phase: 'ready', width: 1920, height: 1080, frameRate: 30 }); expect(h.state().stream).toBe(program); expect(s.camera.applyConstraints).toHaveBeenLastCalledWith({});
+    mocks.readyError = null; mocks.configureError = null; await h.capture.configureVideo({ width: 2560, height: 1440, frameRate: 24 });
+    expect(h.state()).toMatchObject({ phase: 'ready', width: 2560, height: 1440, frameRate: 24 }); expect(old.dispose).toHaveBeenCalledOnce();
+    h.capture.start(); expect(Recorder.instances).toHaveLength(1); await h.capture.stop(); expect(media.getUserMedia).toHaveBeenCalledTimes(1); h.capture.dispose();
+  });
+  it('cancelamento durante reconf fecha o worker candidato e não ressuscita Program ou fontes', async () => {
+    const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); const h = watch(); await h.capture.prepare();
+    const ready = pending<void>(); mocks.readyWait = ready.promise; const changing = h.capture.configureVideo({ width: 3840, height: 2160 }); const rejected = expect(changing).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => expect(mocks.compositions).toHaveLength(2)); const engine = composition(); expect(h.state().phase).toBe('preparing'); expect(() => h.capture.start()).toThrow('Prepare');
+    h.capture.cancel(); expect(engine.track.readyState).toBe('ended'); ready.resolve(); await rejected;
+    expect(h.state()).toMatchObject({ phase: 'idle', stream: null, cameraPreviewStream: null }); expect(s.camera.readyState).toBe('ended'); expect(Recorder.instances).toHaveLength(0); h.capture.dispose();
+  });
+  it('formatos inválidos são rejeitados antes de tocar fonte ou criar worker', async () => {
+    const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); const h = watch(); await h.capture.prepare(); const program = h.state().stream;
+    for (const patch of [{ width: 7680, height: 4320 }, { width: 1280, height: 1080 }, { frameRate: 120 }, { frameRate: NaN }]) await expect(h.capture.configureVideo(patch)).rejects.toThrow('Escolha uma saída');
+    expect(mocks.compositions).toHaveLength(1); expect(s.camera.applyConstraints).not.toHaveBeenCalled(); expect(h.state().stream).toBe(program); expect(h.state().phase).toBe('ready'); h.capture.dispose();
+  });
+  it('saída 4K continua configurável com cena só tela depois de desconectar câmera', async () => {
+    const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen])); const h = watch();
+    await h.capture.prepare(); await h.capture.prepareScreen!(); s.camera.readyState = 'ended'; s.camera.onended?.();
+    expect(h.state()).toMatchObject({ phase: 'ready', videoControls: null, scenes: { selected: 'screen', cameraReady: false, screenReady: true } });
+    await h.capture.configureVideo({ output: { width: 3840, height: 2160, frameRate: 60 } });
+    expect(h.state()).toMatchObject({ phase: 'ready', width: 3840, height: 2160, frameRate: 60, outputVideo: { sourceWidth: 1920, sourceHeight: 1080, scaled: true } });
+    expect(composition().setSource).toHaveBeenCalledWith('screen', s.screen); expect(composition().setSource).not.toHaveBeenCalledWith('camera', expect.anything());
+    h.capture.start(); expect(h.state().phase).toBe('recording'); await h.capture.stop(); expect(media.getDisplayMedia).toHaveBeenCalledOnce(); h.capture.dispose();
+  });
+  it('controle físico confirmado atualiza câmera sem recriar Program ou alterar resolução de saída', async () => {
+    const s = sources(); let iso = 100, exposureMode = 'continuous';
+    s.camera.getSettings = () => ({ deviceId: 'continuity', width: 1920, height: 1080, frameRate: 30, iso, exposureMode });
+    s.camera.getCapabilities = () => ({ width: { min: 640, max: 1920 }, height: { min: 360, max: 1080 }, frameRate: { min: 24, max: 30 }, iso: { min: 100, max: 1600, step: 100 }, exposureMode: ['continuous', 'manual'] });
+    s.camera.applyConstraints.mockImplementation(async constraints => { const requested = constraints.advanced?.at(-1) as { iso?: number; exposureMode?: string } | undefined; iso = requested?.iso ?? iso; exposureMode = requested?.exposureMode ?? exposureMode; });
+    media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); const h = watch(); await h.capture.prepare(); const program = h.state().stream;
+    await h.capture.configureVideo({ hardware: { iso: 400 } });
+    expect(h.state()).toMatchObject({ phase: 'ready', width: 1920, height: 1080, videoControls: { hardware: { ranges: { iso: { value: 400 } }, modes: { exposureMode: { value: 'manual' } } } } });
+    expect(h.state().stream).toBe(program); expect(mocks.compositions).toHaveLength(1); expect(media.getUserMedia).toHaveBeenCalledOnce();
+    await expect(h.capture.configureVideo({ hardware: { iso: 800 }, output: { width: 3840, height: 2160 } })).rejects.toThrow('separadamente'); expect(iso).toBe(400); h.capture.dispose();
+  });
   it('prévia pessoal reutiliza só a câmera autorizada e permanece separada do Program em cena só tela', async () => {
     const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen, s.system])); const h = watch();
     expect(h.state().cameraPreviewStream ?? null).toBeNull(); await h.capture.prepare();
@@ -137,6 +229,14 @@ describe('sessão única de cenas Premium', () => {
   });
   it('worker/transfer runtime indisponível falha antes permissões e encerra output já criado', async () => {
     mocks.readyError = new Error('Transferência de vídeo indisponível.'); const h = watch(); await expect(h.capture.prepare()).rejects.toThrow('Transferência'); expect(media.getUserMedia).not.toHaveBeenCalled(); expect(composition().dispose).toHaveBeenCalled(); expect(h.state().phase).toBe('error'); h.capture.dispose();
+  });
+  it('autoplay que mantém resume pendente encerra worker/câmera/mic após deadline em vez de preparar indefinidamente', async () => {
+    const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic]));
+    class SuspendedAudio extends Audio { resume = vi.fn(async () => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] }); return new Promise<void>(() => {}); }); }
+    vi.stubGlobal('AudioContext', SuspendedAudio); const h = watch(), opening = h.capture.prepare(), rejected = expect(opening).rejects.toThrow('não ativou o áudio');
+    await vi.waitFor(() => expect(Audio.instances).toHaveLength(1)); await vi.advanceTimersByTimeAsync(8000); await rejected;
+    expect(h.state()).toMatchObject({ phase: 'error', stream: null, cameraPreviewStream: null }); expect(s.camera.stop).toHaveBeenCalledOnce(); expect(s.mic.stop).toHaveBeenCalledOnce(); expect(composition().dispose).toHaveBeenCalledOnce(); expect(Audio.instances[0].close).toHaveBeenCalledOnce();
+    h.capture.dispose(); vi.useRealTimers();
   });
   it('ordem real inactive→error→dataavailable→stop preserva chunk final sem depender de stop imperativo', async () => {
     const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); const h = watch(); await h.capture.prepare(); h.capture.start(); const recorder = Recorder.instances[0];

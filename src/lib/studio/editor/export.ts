@@ -6,7 +6,7 @@ import { getStudioAACDelay, StudioAACSource } from './exportAudio';
 
 export type StudioBrowserExportCapabilities = {
   available: boolean; reason?: string; audio: boolean; colorSpace: 'rec709';
-  profiles: { resolution: 'hd' | '2k' | '4k'; width: number; height: number; frameRate: 24 | 30 | 60 }[];
+  profiles: { resolution: '720p' | 'hd' | '2k' | '4k'; width: number; height: number; frameRate: 24 | 30 | 60 }[];
 };
 const cleanup = new WeakMap<File, () => Promise<void>>();
 let capabilities: Promise<StudioBrowserExportCapabilities> | null = null;
@@ -17,7 +17,7 @@ export function getStudioExportCapabilities(): Promise<StudioBrowserExportCapabi
   return capabilities ??= (async () => {
     const audio = await canEncodeAudio('aac', { numberOfChannels:2, sampleRate:48000, quality:audioQuality }).catch(() => false);
     const profiles: StudioBrowserExportCapabilities['profiles'] = [];
-    for (const [resolution,width,height] of [['hd',1920,1080],['2k',2560,1440],['4k',3840,2160]] as const) for (const frameRate of [24,30,60] as const) {
+    for (const [resolution,width,height] of [['720p',1280,720],['hd',1920,1080],['2k',2560,1440],['4k',3840,2160]] as const) for (const frameRate of [24,30,60] as const) {
       if (await canEncodeVideo('avc', { width,height,frameRate,quality:new Quality({bitrate:studioExportBitrate(width,height,frameRate)}) }).catch(() => false)) profiles.push({resolution,width,height,frameRate});
     }
     return { available: profiles.length > 0, audio, colorSpace:'rec709', profiles, ...(!profiles.length ? {reason:'Este navegador não oferece encoder H.264 para exportar MP4. Use Chrome, Edge ou Safari atualizado.'} : {}) };

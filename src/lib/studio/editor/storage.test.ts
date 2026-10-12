@@ -29,12 +29,20 @@ async function imported(owner = 'owner-a') {
 }
 
 describe('IndexedDB real com isolamento de conta e confirmação transacional', () => {
-  it('novo projeto escolhe HD30 explicitamente e reabertura preserva a seleção', async () => {
+  it('novo projeto conserva resolução e cadência originais e reabertura preserva a seleção', async () => {
     const h = library(), project = await h.storage.createProject('owner', 'short');
-    expect(project.editing!.output.selection).toEqual({ resolution: 'hd', frameRate: 30 });
+    expect(project.editing!.output.selection).toEqual({ resolution: 'original', frameRate: 'original' });
     const reopened = await h.reopen().getProject('owner', project.id);
-    expect(reopened!.editing!.output.selection).toEqual({ resolution: 'hd', frameRate: 30 });
+    expect(reopened!.editing!.output.selection).toEqual({ resolution: 'original', frameRate: 'original' });
     expect(compileStudioRecipe(reopened!).output).toMatchObject({ width: 1080, height: 1920, frameRateNumerator: 30, frameRateDenominator: 1 });
+  });
+  it('original 4K60 não é reduzido silenciosamente ao entrar em um projeto novo', async () => {
+    const h = library(), blank = await h.storage.createProject('owner', 'aula');
+    const asset = { ...source('owner', blank.id), width: 3840, height: 2160, frameRate: 60 };
+    await h.storage.putAsset('owner', blank.id, asset.id, new Blob(['4K original']) as unknown as Parameters<typeof h.storage.putAsset>[3]);
+    const project = await h.storage.saveProject('owner', addMainAsset(blank, asset, 'main'));
+    expect(compileStudioRecipe(project).output).toMatchObject({ width: 3840, height: 2160, frameRateNumerator: 60, frameRateDenominator: 1 });
+    expect(compileStudioRecipe((await h.reopen().getProject('owner', blank.id))!).output).toMatchObject({ width: 3840, height: 2160, frameRateNumerator: 60 });
   });
   it('salva schema único e reabre outro runtime com fonte e receita intactas', async () => {
     const h = await imported();

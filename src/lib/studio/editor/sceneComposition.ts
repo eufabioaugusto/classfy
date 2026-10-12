@@ -20,10 +20,16 @@ export function createStudioSceneComposition({ width, height, fps, onError, onSo
 }): StudioSceneComposition {
   const support = studioScenesSupport(); if (!support.supported) throw new Error(support.reason);
   const scope = globalThis as Scope, track = new scope.MediaStreamTrackGenerator({ kind: 'video' });
+  const observerTrack = track.clone();
+  let observer: { readable: ReadableStream<VideoFrame> };
+  try { observer = new scope.MediaStreamTrackProcessor({ track: observerTrack, maxBufferSize: 1 }); }
+  catch (error) { observerTrack.stop(); track.stop(); throw new Error('O navegador não permite confirmar a saída das cenas.', { cause: error }); }
   let worker: Worker;
   try { worker = new Worker(new URL('./sceneComposition.worker.ts', import.meta.url), { type: 'module' }); }
-  catch (error) { track.stop(); throw error; }
+  catch (error) { observerTrack.stop(); track.stop(); throw error; }
   let disposed = false, effects = false, sequence = 0, requestSequence = 0, sawFrame = false, lastFrame = performance.now(), rendering = false;
+  let terminating: ReturnType<typeof setTimeout> | null = null, terminated = false;
+  const terminate = () => { if (terminated) return; terminated = true; if (terminating) clearTimeout(terminating); terminating = null; worker.terminate(); };
   const readers = new Map<number, MediaStreamTrack>(), active: Partial<Record<'camera' | 'screen', number>> = {}, requested: Partial<Record<'camera' | 'screen', number>> = {};
   const waiting = new Map<string, Waiter>();
   const wait = (key: string) => { const pending = new Promise<void>((resolve, reject) => {
@@ -36,6 +42,7 @@ export function createStudioSceneComposition({ width, height, fps, onError, onSo
   const ready = wait('ready'); void ready.catch(() => undefined);
   const fail = (error: Error) => { if (disposed) return; waiting.forEach(value => { clearTimeout(value.timer); value.reject(error); }); waiting.clear(); onError(error); };
   worker.onmessage = ({ data }: MessageEvent<Receipt>) => {
+    if (data.type === 'disposed') { if (disposed) terminate(); return; }
     if (disposed) return;
     if (data.type === 'ready') { effects = !!data.effects; settle('ready'); }
     else if (data.type === 'frame') { lastFrame = performance.now(); sawFrame = true; settle('frame'); }
@@ -52,8 +59,8 @@ export function createStudioSceneComposition({ width, height, fps, onError, onSo
     } else if (data.type === 'error') fail(new Error(data.message || 'A composição das cenas foi interrompida.'));
   };
   worker.onerror = () => fail(new Error('O processamento contínuo das cenas foi interrompido. O trecho capturado será preservado.'));
-  try { worker.postMessage({ type: 'init', width, height, fps, writable: track.writable }, [track.writable as unknown as Transferable]); }
-  catch (error) { worker.terminate(); track.stop(); settle('ready', error instanceof Error ? error : new Error('Este navegador não permite processar vídeo em segundo plano.')); }
+  try { worker.postMessage({ type: 'init', width, height, fps, writable: track.writable, outputReadable: observer.readable }, [track.writable as unknown as Transferable, observer.readable]); }
+  catch (error) { terminate(); observerTrack.stop(); track.stop(); settle('ready', error instanceof Error ? error : new Error('Este navegador não permite processar vídeo em segundo plano.')); }
   // This watchdog observes actual worker output, including while the page is hidden; it never manufactures fresh frames.
   const watchdog = setInterval(() => { if (!disposed && rendering && sawFrame && performance.now() - lastFrame > 6000) fail(new Error('As cenas deixaram de entregar imagem. O trecho capturado será preservado.')); }, 1000);
   return {
@@ -78,6 +85,11 @@ export function createStudioSceneComposition({ width, height, fps, onError, onSo
       try { worker.postMessage({ type: 'configure', selected, config, grade, zoom, request }); await pending; }
       catch (error) { settle(`request:${request}`, error instanceof Error ? error : new Error('A configuração das cenas falhou.')); throw error; }
     },
-    dispose() { if (disposed) return; disposed = true; clearInterval(watchdog); waiting.forEach(value => { clearTimeout(value.timer); value.reject(new DOMException('Captura cancelada.', 'AbortError')); }); waiting.clear(); readers.forEach(value => value.stop()); readers.clear(); worker.postMessage({ type: 'dispose' }); worker.terminate(); track.stop(); },
+    dispose() {
+      if (disposed) return; disposed = true; clearInterval(watchdog); waiting.forEach(value => { clearTimeout(value.timer); value.reject(new DOMException('Captura cancelada.', 'AbortError')); }); waiting.clear(); readers.forEach(value => value.stop()); readers.clear();
+      // Allow the worker to close its owned frames/readers before terminating its realm; the deadline also covers a stalled GPU callback.
+      if (!terminated) { terminating = setTimeout(terminate, 1000); try { worker.postMessage({ type: 'dispose' }); } catch { terminate(); } }
+      observerTrack.stop(); track.stop();
+    },
   };
 }
