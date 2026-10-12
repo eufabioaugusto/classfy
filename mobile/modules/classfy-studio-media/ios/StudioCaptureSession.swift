@@ -287,12 +287,16 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     // Speech. Recreating the entire session here would reset ISO before REC.
     if configured, configuration.position == request.position, configuration.quality == request.quality,
       configuration.fps == request.fps, configuration.cinematic == request.cinematic {
+      // Clear explicit proxy dimensions before turning its connection. iOS
+      // rejects width/height whose aspect ratio disagrees with orientation.
+      frames.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange]
       for connection in [movie.connection(with: .video), frames.connection(with: .video)] {
         if connection?.isVideoOrientationSupported == true { connection?.videoOrientation = orientation }
         if connection?.isVideoMirroringSupported == true {
           connection?.automaticallyAdjustsVideoMirroring = false; connection?.isVideoMirrored = request.mirrored
         }
       }
+      if let device = videoInput?.device { configurePreviewDimensions(device: device, orientation: orientation) }
       configuration = request; revision += 1
       onConfiguration?(request, previewProcessed, generation)
       return
@@ -360,11 +364,9 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         audioMonitoringAvailable = true
       } else { audioFrames.setSampleBufferDelegate(nil, queue: nil) }
       frames.alwaysDiscardsLateVideoFrames = true
-      // This output feeds the screen, never the original MovieFileOutput.
-      // Preview-sized buffers avoid shading a full 4K frame just to display it
-      // on a phone, while capture keeps its negotiated resolution and cadence.
+      // This output feeds the display/network proxy, never MovieFileOutput.
+      // Its explicit dimensions are applied after its orientation is set.
       frames.automaticallyConfiguresOutputBufferDimensions = false
-      frames.deliversPreviewSizedOutputBuffers = true
       frames.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange]
       if useProcessed && session.canAddOutput(frames) {
         session.addOutput(frames)
@@ -383,6 +385,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
           connection.automaticallyAdjustsVideoMirroring = false; connection.isVideoMirrored = request.mirrored
         }
       }
+      if useProcessed { configurePreviewDimensions(device: device, orientation: orientation) }
       if let connection = movie.connection(with: .video), connection.isVideoStabilizationSupported {
         connection.preferredVideoStabilizationMode = .standard
       }
@@ -413,6 +416,23 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       if audioMonitoringAvailable { audioFrames.setSampleBufferDelegate(self, queue: audioQueue) }
       startAudioMonitor()
       throw error
+    }
+  }
+
+  private func configurePreviewDimensions(device: AVCaptureDevice, orientation: AVCaptureVideoOrientation) {
+    frames.automaticallyConfiguresOutputBufferDimensions = false
+    if #available(iOS 16.0, *) {
+      let source = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+      let dimensions = StudioCapturePreviewProfile.dimensions(sourceWidth: Int(source.width),
+        sourceHeight: Int(source.height), portrait: orientation == .portrait)
+      // iOS 16+ downsamples directly in AVCapture, avoiding both an arbitrary
+      // screen-sized source and 4K frames sent through the real-time encoder.
+      frames.deliversPreviewSizedOutputBuffers = false
+      frames.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+        kCVPixelBufferWidthKey as String: dimensions.width, kCVPixelBufferHeightKey as String: dimensions.height]
+    } else {
+      // iOS 15 does not accept explicit VideoDataOutput dimensions.
+      frames.deliversPreviewSizedOutputBuffers = true
     }
   }
 

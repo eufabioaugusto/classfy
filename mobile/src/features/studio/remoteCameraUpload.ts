@@ -3,6 +3,18 @@ import type {RemoteCameraJournal,RemoteTakeJournal} from './remoteCameraJournal'
 import type {StudioRemoteResponse} from './remoteCameraProtocol';
 
 export const REMOTE_CAMERA_PART_BYTES=6*1024*1024;
+const privateValue=/(?:https?|wss?|file):\/\/\S+|Bearer\s+\S+|\beyJ[\w-]+\.[\w-]+\.[\w-]+\b|\b[A-Za-z0-9_-]{43,}\b/gi;
+/** Preserve the provider's reason without exposing signed URLs, tokens or originals. */
+async function rejectedUpload(response:Response,message:string):Promise<Error> {
+  let detail='';
+  try {
+    const value=await response.clone().json() as Record<string,unknown>;
+    const reason=typeof value.message==='string'?value.message:typeof value.error==='string'?value.error:'';
+    const code=typeof value.code==='string'?value.code:'';
+    detail=[code,reason].filter(Boolean).join(': ').replace(privateValue,'[dado privado omitido]').slice(0,240);
+  }catch {/* HTML/proxy responses contain no trusted provider message. */}
+  return new Error(`${message} (HTTP ${response.status}${detail?`; ${detail}`:''}).`);
+}
 type UploadDependencies={
   sessionId:string;deviceId:string;take:RemoteTakeJournal;check():void;
   request(action:string,body:Record<string,unknown>):Promise<StudioRemoteResponse>;
@@ -34,19 +46,19 @@ export async function uploadRemoteCameraOriginal(deps:UploadDependencies) {
       tusUrl=resolveTusLocation(tusUrl,target.endpoint);
       const probe=await fetch(tusUrl,{method:'HEAD',headers});check();
       if([404,410].includes(probe.status))tusUrl=undefined;
-      else if(!probe.ok)throw new Error('Não foi possível retomar esta parte do original.');
+      else if(!probe.ok)throw await rejectedUpload(probe,'Não foi possível retomar esta parte do original');
     }
     if(!tusUrl) {
       const metadata=Object.entries({bucketName:target.bucket,objectName:target.path,contentType:target.mime,cacheControl:'3600'})
         .map(([key,value])=>`${key} ${btoa(value)}`).join(',');
       const opened=await fetch(target.endpoint,{method:'POST',headers:{...headers,'Upload-Length':String(partBytes),'Upload-Metadata':metadata}});check();
-      if(opened.status!==201)throw new Error('Não foi possível preparar esta parte do original.');
+      if(opened.status!==201)throw await rejectedUpload(opened,'Não foi possível preparar esta parte do original');
       tusUrl=resolveTusLocation(opened.headers.get('Location'),target.endpoint);
       const url=tusUrl;await deps.mutate(journal=>({...journal,takes:journal.takes.map(value=>value.id===take.id
         ?{...value,phase:'uploading',partUrls:{...value.partUrls,[String(partIndex)]:url}}:value)}));check();
     }
     const head=await fetch(tusUrl,{method:'HEAD',headers});check();
-    if(!head.ok)throw new Error('Não foi possível confirmar o envio desta parte.');
+    if(!head.ok)throw await rejectedUpload(head,'Não foi possível confirmar o envio desta parte');
     const offset=parseTusOffset(head.headers.get('Upload-Offset'),partBytes);
     deps.onProgress?.(partOffset+offset);
     if(offset<partBytes) {
@@ -54,8 +66,9 @@ export async function uploadRemoteCameraOriginal(deps:UploadDependencies) {
       if(bytes.length!==length)throw new Error('O original não entregou os bytes esperados.');
       const body=bytes.byteOffset===0&&bytes.buffer.byteLength===bytes.byteLength?bytes.buffer:bytes.slice().buffer;
       const patch=await fetch(tusUrl,{method:'PATCH',headers:{...headers,'Upload-Offset':String(offset),'Content-Type':'application/offset+octet-stream'},body:body as ArrayBuffer});check();
-      if(patch.status!==204||parseTusOffset(patch.headers.get('Upload-Offset'),partBytes)!==partBytes)
-        throw new Error('O envio foi pausado; a próxima tentativa retomará os bytes recebidos.');
+      if(patch.status!==204)throw await rejectedUpload(patch,'O envio desta parte foi pausado');
+      if(parseTusOffset(patch.headers.get('Upload-Offset'),partBytes)!==partBytes)
+        throw new Error('O servidor não confirmou os bytes desta parte. Retome o envio para consultar os bytes recebidos.');
       deps.onProgress?.(partOffset+partBytes);
     }
   }

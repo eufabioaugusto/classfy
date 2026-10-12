@@ -66,7 +66,9 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
         self.previewLayer.opacity = 1
         self.metalView?.layer.opacity = 0
         self.applyPreviewConfiguration(configuration)
-        self.remotePreview?.setPortrait(configuration.orientation == "portrait")
+        let source = configuration.quality == "720p" ? (1280, 720) : (1920, 1080)
+        self.remotePreview?.setProfile(sourceWidth: source.0, sourceHeight: source.1,
+          portrait: configuration.orientation == "portrait", fps: configuration.fps)
         if !processed { self.metalView?.isPaused = true }
       }
     }
@@ -106,7 +108,10 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
           let state = try result.get()
           guard state["previewProcessed"] as? Bool == true else { throw StudioCaptureError.unavailable("Esta combinação não oferece prévia remota. Escolha um formato compatível.") }
           let portrait = state["orientation"] as? String == "portrait"
-          let preview = try StudioCameraRemotePreview(module: module, width: portrait ? 720 : 1280, height: portrait ? 1280 : 720, fps: 30)
+          let dimensions = StudioCapturePreviewProfile.dimensions(sourceWidth: state["width"] as? Int ?? 1920,
+            sourceHeight: state["height"] as? Int ?? 1080, portrait: portrait)
+          let preview = try StudioCameraRemotePreview(module: module, width: dimensions.width,
+            height: dimensions.height, fps: min(StudioCapturePreviewProfile.maxFPS, state["fps"] as? Int ?? 30))
           self.remotePreview = preview
           self.capture.onRemoteFrame = { [weak preview] buffer, timestamp in preview?.receive(buffer, timestamp: timestamp) }
           preview.register { [weak self] descriptor in

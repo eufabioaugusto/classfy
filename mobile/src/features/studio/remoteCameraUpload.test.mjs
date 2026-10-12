@@ -20,7 +20,7 @@ function harness(options={}) {
     },
     fetch:async(url,init)=>{
       calls.push({action:init.method,url,headers:init.headers,bytes:init.body?.byteLength});
-      if(init.method==='POST')return new Response(null,{status:201,headers:{Location:options.location||`${endpoint}/part-${calls.filter(call=>call.action==='POST').length-1}`}});
+      if(init.method==='POST')return options.postResponse?.()||new Response(null,{status:201,headers:{Location:options.location||`${endpoint}/part-${calls.filter(call=>call.action==='POST').length-1}`}});
       if(init.method==='HEAD')return new Response(null,{status:options.expired&&url.endsWith('old')?410:200,headers:{'Upload-Offset':String(offsets.get(url)||0)}});
       const offset=Number(init.headers['Upload-Offset'])+init.body.byteLength;offsets.set(url,offset);
       if(losePatch){losePatch=false;throw Error('patch-response-lost');}
@@ -38,6 +38,31 @@ test('original maior que parte usa offsets exatos, arquivos privados e memória 
   assert.equal(h.calls.at(-1).action,'upload-complete');assert.deepEqual(h.calls.at(-1).body,{sessionId:'session',takeId:'take',deviceId:'device'});
   assert.ok(h.calls.filter(call=>['POST','HEAD','PATCH'].includes(call.action)).every(call=>call.headers['x-signature']==='test-signature'));
   assert.equal(JSON.stringify(h.journal()).includes('test-signature'),false);assert.equal(h.journal().takes[0].uri,h.take.uri);
+});
+test('falha de preparo informa HTTP/motivo do provedor sem divulgar credenciais e preserva original/cursor',async()=>{
+  const h=harness({bytes:20,postResponse:()=>Response.json({code:'InvalidSignature',error:'Invalid signed upload token Bearer abc https://storage.invalid/private?token=private'}, {status:403})});
+  await assert.rejects(h.retry(),error=>{
+    assert.match(error.message,/HTTP 403; InvalidSignature: Invalid signed upload token/);
+    assert.equal(error.message.includes('Bearer'),false);assert.equal(error.message.includes('https://'),false);assert.equal(error.message.includes('token=private'),false);return true;
+  });
+  assert.equal(h.reads.length,0);assert.equal(h.calls.filter(call=>call.action==='PATCH').length,0);
+  assert.equal(h.journal().takes[0].uri,h.take.uri);assert.equal(h.journal().takes[0].partUrls,undefined);
+});
+test('erro HTML de proxy não entra na UI; retomada depois do POST recusado reabre somente a parte',async()=>{
+  let refused=true;
+  const h=harness({bytes:20,postResponse:()=>refused?new Response('<html>credential=secret</html>',{status:502}):null});
+  await assert.rejects(h.retry(),/Não foi possível preparar esta parte do original \(HTTP 502\)\./);
+  refused=false;await h.retry();assert.equal(h.calls.filter(call=>call.action==='PATCH').length,1);assert.equal(h.calls.at(-1).action,'upload-complete');
+});
+test('TUS signed endpoint e location /sign mantêm assinatura na mesma origem',async()=>{
+  const h=harness({bytes:20,target:{endpoint:'https://storage.invalid/upload/resumable/sign'},location:'https://storage.invalid/upload/resumable/sign/private-upload'});
+  await h.retry();assert.equal(h.calls.find(call=>call.action==='POST').url,'https://storage.invalid/upload/resumable/sign');
+  assert.ok(h.calls.filter(call=>['HEAD','PATCH'].includes(call.action)).every(call=>call.url.endsWith('/sign/private-upload')));
+  assert.equal(h.calls.at(-1).action,'upload-complete');
+});
+test('mensagem técnica real Invalid Compact JWS prevalece sobre rótulo Unauthorized',async()=>{
+  const h=harness({bytes:20,postResponse:()=>Response.json({statusCode:'403',code:'AccessDenied',error:'Unauthorized',message:'Invalid Compact JWS'}, {status:400})});
+  await assert.rejects(h.retry(),/HTTP 400; AccessDenied: Invalid Compact JWS/);assert.equal(h.reads.length,0);
 });
 test('PATCH recebido com resposta perdida usa HEAD durável, sem repetir bytes ou criar outra parte',async()=>{
   const h=harness({bytes:17,losePatch:true});await assert.rejects(h.retry(),/patch-response-lost/);await h.retry();

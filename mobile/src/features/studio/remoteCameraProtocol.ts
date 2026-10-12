@@ -28,7 +28,7 @@ export type StudioRemoteSession = {
   controllerSeenAt: string | null; deviceSeenAt: string | null; closedAt: string | null;
 };
 export type StudioRemoteCommand = {
-  id: string; sequence: number; type: 'configure' | 'start' | 'stop';
+  id: string; sequence: number; type: 'configure' | 'start' | 'stop' | 'resume_upload';
   payload: Record<string, unknown>; status: 'pending' | 'applied' | 'failed';
   createdAt: string; acknowledgedAt: string | null; result: Record<string, unknown> | null;
 };

@@ -89,6 +89,8 @@ export default function StudioRemoteCameraScreen(){
     else void leave(data.action);
   });
   const error=failure||state.error||orientationError;
+  const uploadPercent=state.uploadTotalBytes?Math.min(100,Math.floor((state.uploadProgressBytes||0)/state.uploadTotalBytes*100)):0;
+  const transferLabel=state.uploading?`Enviando original · ${uploadPercent}%`:state.uploadState==='complete'?`Original enviado ao Studio${state.uploadPendingCount?` · ${state.uploadPendingCount} ${state.uploadPendingCount===1?'envio pendente':'envios pendentes'}`:''}`:null;
   return <StudioAccess><AppScreen scroll={false} header={connected?undefined:<NavigationHeader title="Conectar ao computador" back/>}>
     {connected?<View style={s.stage}>
       {NativeCamera&&cameraActive?<NativeCamera ref={nativeRef} active style={s.camera} effectRecipeJSON={JSON.stringify({preset:'natural',intensity:0,exposure:0,contrast:0,saturation:0,temperature:0})}
@@ -99,10 +101,12 @@ export default function StudioRemoteCameraScreen(){
         {!isRecording&&<Pressable accessibilityLabel="Fechar conexão" onPress={()=>void leave()} style={s.close}><X size={22} color={colors.text}/></Pressable>}</View>
       <View style={s.bottom}>{error?<Text accessibilityLiveRegion="polite" style={s.error}>{error}</Text>:null}
         <StudioCaptureAudioMonitor input={audioMonitor.input} channels={audioMonitor.channels} status={audioMonitor.status} message={audioMonitor.message} compact/>
-        <Text style={s.hint}>{state.state?.width}×{state.state?.height} · {state.state?.fps} FPS · {state.takeCount} takes preservados{state.uploading?' · Enviando original…':''}</Text>
+        <Text style={s.hint}>{state.state?.width}×{state.state?.height} · {state.state?.fps} FPS · {state.takeCount} takes preservados</Text>
+        {transferLabel?<Text accessibilityLiveRegion="polite" style={s.hint}>{transferLabel}</Text>:null}
         {isRecording?<StudioButton label="Encerrar e salvar take" icon={<Square size={17} color="#fff"/>} disabled={state.phase==='saving'} onPress={()=>void controller.current?.stopLocal().catch(cause=>setFailure(cause.message))}/>:<View style={s.actions}>
-          <StudioButton label="Retomar envio" disabled={state.uploading} onPress={()=>void controller.current?.retryUploads().catch(cause=>setFailure(cause.message))}/>
-          <StudioButton label="Reconectar prévia" onPress={()=>void controller.current?.reconnectPreview().catch(cause=>setFailure(cause.message))}/>
+          <StudioButton label={state.uploading?'Enviando original…':state.uploadState==='paused'||state.uploadPendingCount?'Retomar envio':state.uploadState==='complete'?'Original enviado':'Enviar original'} loading={state.uploading} disabled={!state.takeCount||state.uploadState==='complete'&&!state.uploadPendingCount}
+            onPress={()=>{setFailure('');void controller.current?.retryUploads().catch(cause=>setFailure(cause.message));}}/>
+          <StudioButton label="Reconectar prévia" secondary onPress={()=>{setFailure('');void controller.current?.reconnectPreview().catch(cause=>setFailure(cause.message));}}/>
         </View>}
       </View>
     </View>:<View style={s.setup}><View style={s.icon}><Camera size={34} color={colors.accent}/></View><Text style={s.title}>Seu iPhone, a câmera do Studio.</Text>

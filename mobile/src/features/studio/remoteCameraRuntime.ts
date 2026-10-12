@@ -73,7 +73,10 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
       try {if(new URL(connection.url).protocol!=='wss:')throw new Error('A prévia precisa de uma conexão privada segura.');
         await withLiveDeadline(()=>owned.connect(connection.url,connection.token,{autoSubscribe:false}),scope.signal,30_000);check();if(room!==owned)throw new Error('A conexão mudou.');
         await owned.localParticipant.publishTrack(track,{source:runtime.client.Track.Source.Camera,videoCodec:'h264',simulcast:false,
-          videoEncoding:{maxBitrate:1_800_000,maxFramerate:30},stopMicTrackOnMute:false});check();
+          // This is a 1080p display proxy; the 4K master stays in MovieFileOutput.
+          // Congestion control can reduce resolution rather than queue old frames.
+          videoEncoding:{maxBitrate:6_000_000,maxFramerate:30,priority:'high'},
+          degradationPreference:'maintain-framerate',stopMicTrackOnMute:false});check();
       }catch {await port.disconnect();throw new Error('Não foi possível conectar a prévia privada. O original permanece no iPhone.');}
     },
     async disconnect(){

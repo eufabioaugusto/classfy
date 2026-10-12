@@ -49,6 +49,10 @@ test('pista remota é fornecida pelo mesmo native view, apenas vídeo; SDK não 
   assert.deepEqual(h.calls.find(call=>call.kind==='register').options,{autoConfigureAudioSession:false});
   assert.equal(h.calls.find(call=>call.kind==='audio-policy').value,null);
   assert.equal(h.calls.filter(call=>call.kind==='publish').length,1);assert.equal(h.calls.find(call=>call.kind==='publish').options.source,'camera');
+  const publish=h.calls.find(call=>call.kind==='publish').options;
+  assert.equal(publish.simulcast,false);assert.equal(publish.videoCodec,'h264');
+  assert.deepEqual(publish.videoEncoding,{maxBitrate:6_000_000,maxFramerate:30,priority:'high'});
+  assert.equal(publish.degradationPreference,'maintain-framerate');
   assert.equal(h.calls.find(call=>call.kind==='configure').config.orientation,'portrait');
   await h.port.port.disconnect();assert.equal(h.calls.filter(call=>call.kind==='STOP').length,0);assert.equal(h.calls.filter(call=>call.kind==='release-stream').length,1);
 });

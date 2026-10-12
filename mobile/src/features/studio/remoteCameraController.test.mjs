@@ -21,7 +21,7 @@ function harness(patch={}){
     masterUri:(_session,id)=>`file:///Documents/classfy-studio-remote/owner/${sessionId}/${id}.mov`,
     inspect:async uri=>{calls.push({action:'inspect',uri});return{bytes:6291457,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4};},
     saveLocal:async(_session,take)=>{calls.push({action:'save-local',take:clone(take)});if(patch.saveFail?.())throw Error('Disco indisponível');return{projectId:'project',localTakeId:'local-take'};},
-    upload:async(_session,take,onProgress)=>{calls.push({action:'upload',take:clone(take)});onProgress?.(5);await patch.upload?.();},
+    upload:async(_session,take,onProgress)=>{calls.push({action:'upload',take:clone(take)});onProgress?.(5);await patch.upload?.(take);},
   };
   const native={configure:async configuration=>{calls.push({action:'configure',configuration});return{width:3840,height:2160,fps:30,recording:false};},
     snapshot:async()=>({width:3840,height:2160,fps:30,recording:actualRecording}),
@@ -113,9 +113,67 @@ test('heartbeat conserva bytes/ID do envio e erro pausado sanitizado, só comple
   assert.equal(status.uploadState,'uploading');assert.equal(status.uploadProgressBytes,5);assert.equal(status.uploadTakeId,takeId);assert.equal(status.uploading,true);
   gate.reject(Error('Envio perdeu conexão file:///private/master.mov'));await tick();await h.controller.poll();
   status=h.calls.filter(call=>call.action==='heartbeat').at(-1).body.state;assert.equal(status.uploadState,'paused');assert.equal(status.uploading,false);assert.ok(!status.uploadError.includes('file:'));
+  assert.equal(h.journal().takes[0].phase,'error');assert.ok(!h.journal().takes[0].error.includes('file:'));assert.equal(status.uploadTotalBytes,32);
   first=false;await h.controller.retryUploads();await h.controller.poll();
   status=h.calls.filter(call=>call.action==='heartbeat').at(-1).body.state;assert.equal(status.uploadState,'complete');assert.equal(status.uploadProgressBytes,32);assert.equal(h.journal().takes[0].phase,'uploaded');
   await h.controller.dispose();
+});
+
+test('Mac retoma envio por comando com ACK fresco e progresso, preservando original sem repetir REC',async()=>{
+  let fails=true;const gate=deferred();const uri=`file:///Documents/classfy-studio-remote/owner/${sessionId}/${takeId}.mov`;
+  const h=harness({upload:()=>fails?Promise.reject(Error('HTTP 403; InvalidSignature')):gate.promise,
+    journal:{takes:[{id:takeId,uri,localTakeId:'local-take',phase:'local_ready',metadata:{bytes:32,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4}}]}});
+  await h.ready();await tick();assert.equal(h.controller.getSnapshot().uploadState,'paused');
+  fails=false;h.queue([h.command('resume_upload','resume',1)]);await h.controller.poll();await tick();
+  const ack=h.calls.find(call=>call.action==='ack'&&call.body.commandId==='resume').body.result;
+  assert.equal(ack.ok,true);assert.equal(ack.takeId,takeId);assert.equal(ack.uploadState,'uploading');assert.equal(ack.uploadError,null);
+  assert.ok(Number.isFinite(ack.uploadResumedAtServerMs));assert.equal(ack.state.uploadResumedAtServerMs,ack.uploadResumedAtServerMs);
+  let status=h.calls.filter(call=>call.action==='heartbeat').at(-1).body.state;
+  assert.equal(status.uploadResumedAtServerMs,ack.uploadResumedAtServerMs);assert.equal(status.uploadError,null);assert.equal(status.uploadTotalBytes,32);
+  assert.equal(h.calls.filter(call=>call.action==='native-start').length,0);assert.equal(h.journal().takes[0].uri,uri);
+  await h.controller.poll();assert.equal(h.calls.filter(call=>call.action==='upload').length,2);
+  gate.resolve();await tick();await h.controller.poll();status=h.calls.filter(call=>call.action==='heartbeat').at(-1).body.state;
+  assert.equal(status.uploadState,'complete');assert.equal(h.journal().takes[0].phase,'uploaded');assert.equal(h.controller.getSnapshot().error,null);
+  await h.controller.dispose();
+});
+test('resume_upload com resposta ACK perdida continua somente após confirmar receipt e não duplica bytes',async()=>{
+  let fails=true;const uri=`file:///Documents/classfy-studio-remote/owner/${sessionId}/${takeId}.mov`;
+  const h=harness({upload:()=>fails?Promise.reject(Error('Falha de preparo')):undefined,
+    journal:{takes:[{id:takeId,uri,localTakeId:'local-take',phase:'local_ready',metadata:{bytes:32,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4}}]}});
+  await h.ready();await tick();fails=false;h.queue([h.command('resume_upload','resume',1)]);h.failAck();await h.controller.poll();
+  assert.equal(h.journal().sequence,0);assert.equal(h.calls.filter(call=>call.action==='upload').length,1);
+  const resumedAt=h.journal().receipts.resume.uploadResumedAtServerMs;
+  await h.controller.poll();await tick();assert.equal(h.journal().sequence,1);assert.equal(h.calls.filter(call=>call.action==='upload').length,2);
+  assert.equal(h.journal().receipts.resume.uploadResumedAtServerMs,resumedAt);assert.equal(h.journal().takes[0].phase,'uploaded');
+  await h.controller.dispose();
+});
+test('retomar envio sem original concluído informa motivo e resume_upload de outro take não faz upload',async()=>{
+  const h=harness();await h.ready();await tick();await assert.rejects(h.controller.retryUploads(),/Nenhum original concluído/);
+  h.queue([h.command('resume_upload','resume',1)]);await h.controller.poll();
+  assert.equal(h.calls.find(call=>call.action==='ack'&&call.body.commandId==='resume').body.result.ok,false);
+  assert.equal(h.calls.filter(call=>call.action==='upload').length,0);await h.controller.dispose();
+});
+test('take concluído durante outro envio entra na mesma fila sem upload concorrente ou ficar pendente',async()=>{
+  const firstId='cccccccc-cccc-4ccc-8ccc-cccccccccccc',gate=deferred();let transfers=0,maxTransfers=0;
+  const firstUri=`file:///Documents/classfy-studio-remote/owner/${sessionId}/${firstId}.mov`;
+  const h=harness({upload:async take=>{transfers++;maxTransfers=Math.max(maxTransfers,transfers);try{if(take.id===firstId)await gate.promise;}finally{transfers--; }},
+    journal:{takes:[{id:firstId,uri:firstUri,localTakeId:'first-local',phase:'local_ready',metadata:{bytes:32,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4}}]}});
+  await h.ready();await tick();assert.equal(h.calls.filter(call=>call.action==='upload').length,1);
+  h.queue([h.command('start','start',1)]);h.started.resolve(10050);await h.controller.poll();
+  h.queue([h.command('stop','stop',2)]);await h.controller.poll();await tick();assert.equal(h.calls.filter(call=>call.action==='upload').length,1);
+  gate.resolve();await tick();await tick();
+  assert.deepEqual(h.calls.filter(call=>call.action==='upload').map(call=>call.take.id),[firstId,takeId]);assert.equal(maxTransfers,1);
+  assert.ok(h.journal().takes.every(take=>take.phase==='uploaded'));await h.controller.dispose();
+});
+test('original antigo recusado não impede novo take nem resume_upload direcionado',async()=>{
+  const oldId='cccccccc-cccc-4ccc-8ccc-cccccccccccc',uri=id=>`file:///Documents/classfy-studio-remote/owner/${sessionId}/${id}.mov`;
+  let failures=0;
+  const h=harness({upload:take=>{if(take.id===oldId){failures++;throw Error('Original antigo: HTTP 403');}},
+    journal:{takes:[oldId,takeId].map(id=>({id,uri:uri(id),localTakeId:`local-${id}`,phase:'local_ready',metadata:{bytes:32,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4}}))}});
+  await h.ready();await tick();assert.equal(h.journal().takes.find(take=>take.id===oldId).phase,'error');
+  assert.equal(h.journal().takes.find(take=>take.id===takeId).phase,'uploaded');assert.equal(failures,1);assert.equal(h.controller.getSnapshot().uploadPendingCount,1);
+  h.queue([h.command('resume_upload','resume',1)]);await h.controller.poll();await tick();
+  assert.equal(failures,1);assert.equal(h.calls.find(call=>call.action==='ack'&&call.body.commandId==='resume').body.result.uploadState,'complete');await h.controller.dispose();
 });
 
 test('Manual→Auto não envia ISO/obturador, WB/gains ou foco manual incompatíveis ao setter',async()=>{
