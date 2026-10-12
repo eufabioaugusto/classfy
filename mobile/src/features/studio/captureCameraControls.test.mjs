@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import { mergeStudioCameraProSettings } from './cameraProSettings.ts';
 const code = ts.transpileModule(readFileSync(new URL('./StudioCaptureCamera.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-7, `${a} != ${b}`);
-function harness({ available = true, native = true } = {}) {
+function harness({ available = true, native = true, proAvailable = true } = {}) {
   const slots = [], calls = [], timers = new Map(); let cursor = 0, effects = [], dirty = true, output, timerId = 0, enabled = true, facing = 'front', tag = 73, manualConfigure = false;
   let device = { deviceId: 'front', position: 'front', quality: '1080p', fps: 30, width: 1920, height: 1080, minZoom: 1, maxZoom: 6, zoom: 1, generation: 1, revision: 1,
     qualities: ['720p', '1080p', '2160p'].map(quality => ({ quality, fps: [24, 30, 60] })), orientation: 'portrait', supportsExposure: true, supportsFocus: true, supportsFocusLock: true, supportsTorch: true, minExposure: -2, maxExposure: 2, exposure: 0 };
@@ -18,15 +19,18 @@ function harness({ available = true, native = true } = {}) {
   const configure = (target, options) => {
     calls.push({ kind: 'configure', target, options });
     const result = { ...device, ...options, generation: device.generation + 1, revision: device.revision + 1, maxZoom: device.maxZoom === device.minZoom ? device.maxZoom : options.quality === '2160p' ? 2 : 6,
-      width: options.quality === '2160p' ? 3840 : options.quality === '720p' ? 1280 : 1920, height: options.quality === '2160p' ? 2160 : options.quality === '720p' ? 720 : 1080 };
+      width: options.quality === '2160p' ? 3840 : options.quality === '1440p' ? 2560 : options.quality === '720p' ? 1280 : 1920, height: options.quality === '2160p' ? 2160 : options.quality === '1440p' ? 1440 : options.quality === '720p' ? 720 : 1080 };
     result.zoom = Math.min(result.maxZoom, result.zoom);
     if (manualConfigure) return new Promise(resolve => { calls.at(-1).resolve = patch => { device = { ...result, ...patch }; resolve({ ...device }); }; });
     device = result; return Promise.resolve({ ...device });
   };
   const zoom = (target, factor) => new Promise((resolve, reject) => calls.push({ kind: 'zoom', target, factor, profile: { ...device }, resolve, reject }));
   const deps = { react: hooks, 'react-native': { findNodeHandle: () => tag }, 'expo-screen-orientation': { getOrientationAsync: async () => 1, Orientation: { LANDSCAPE_LEFT: 3 } },
+    './cameraProSettings': { mergeStudioCameraProSettings },
     './StudioNativeCamera': { isStudioNativeCameraHandle: value => !!value?.studioNative },
     '../../../modules/classfy-studio-media': {
+      isStudioCameraProControlsAvailable: () => proAvailable,
+      setStudioNativeCameraProSettingsAsync: (target, patch) => new Promise((resolve, reject) => calls.push({ kind: 'pro', target, patch, profile: { ...device }, resolve, reject })),
       isStudioCameraControlsAvailable: () => available, isStudioNativeCameraAvailable: () => available,
       getStudioCameraCapabilitiesAsync: capabilities, getStudioNativeCameraCapabilitiesAsync: capabilities,
       configureStudioCameraAsync: configure, configureStudioNativeCameraAsync: configure,
@@ -115,4 +119,56 @@ test('câmera sem zoom ou sem ponte não recebe comando falso', async () => {
   } finally { h.unmount(); }
   const fallback = harness({ available: false, native: false }); try { assert.equal(await fallback.initialize(), true); fallback.zoom(1); await fallback.flush(); assert.equal(fallback.output().state, null); assert.equal(fallback.output().zoomAvailable, false); assert.equal(fallback.calls.length, 0); }
   finally { fallback.unmount(); }
+});
+
+const proState = { version: 1, supportsExposure: true, autoExposure: false, minISO: 32, maxISO: 1600, iso: 100,
+  minShutterSeconds: 1/10000, maxShutterSeconds: 1/30, shutterSeconds: 1/60, supportsWhiteBalance: true,
+  autoWhiteBalance: true, minWhiteBalanceGain: 1, maxWhiteBalanceGain: 4, redGain: 2, greenGain: 1, blueGain: 2,
+  supportsFocus: true, autoFocus: true, lensPosition: .5 };
+test('PRO aguarda ACK, coalesce última intenção e Auto remove alvos manuais pendentes', async () => {
+  const h = harness(); try {
+    h.device({ pro: proState }); await h.initialize(); h.output().setProSettings({ autoExposure: false, iso: 400 }); await h.pump();
+    const receipt = h.output().proConfirmation;
+    assert.equal(h.output().busy, true); assert.equal(h.output().proBusy, true); assert.equal(h.output().state.pro.iso, 100);
+    assert.equal(await h.output().prepareRecording(), false);
+    h.output().setProSettings({ iso: 800 }); h.output().setProSettings({ autoExposure: true });
+    const first = h.calls.find(call => call.kind === 'pro'); assert.equal(first.patch.iso, 400);
+    h.ack(first, { pro: { ...proState, iso: 390 } }); await h.pump();
+    const calls = h.calls.filter(call => call.kind === 'pro'); assert.equal(calls.length, 2); assert.deepEqual(calls[1].patch, { autoExposure: true });
+    assert.equal(h.output().state.pro.iso, 390); h.ack(calls[1], { pro: { ...proState, autoExposure: true } }); await h.pump();
+    assert.equal(h.output().busy, false); assert.equal(h.output().proBusy, false); assert.equal(await h.output().prepareRecording(), true);
+    assert.equal(h.output().proUnconfirmed, false); assert.equal(h.output().proConfirmation, receipt + 1);
+  } finally { h.unmount(); }
+});
+test('PRO erro e ACK de outra câmera não anunciam ajuste nem invadem nova geração', async () => {
+  const h = harness(); try {
+    h.device({ pro: proState }); await h.initialize(); h.output().setProSettings({ iso: 500 }); await h.pump();
+    const first = h.calls.find(call => call.kind === 'pro'); first.reject(new Error('Controle físico indisponível')); await h.pump();
+    assert.equal(h.output().state.pro.iso, 100); assert.equal(h.output().busy, false); assert.match(h.output().error, /indisponível/);
+    assert.equal(h.output().proUnconfirmed, true); assert.equal(h.output().isReady(), false);
+    assert.equal(await h.output().prepareRecording(), false);
+    h.output().setProSettings({ lensPosition: .8 }); await h.pump(); const old = h.calls.filter(call => call.kind === 'pro').at(-1);
+    h.update({ facing: 'back', tag: 99 }); h.device({ deviceId: 'back', position: 'back', pro: { ...proState, iso: 200 } }); await h.pump();
+    const init = h.output().initialize(); h.ack(old, { pro: { ...proState, iso: 900 } }); await init; await h.pump();
+    assert.equal(h.output().state.deviceId, 'back'); assert.equal(h.output().state.pro.iso, 200); assert.equal(h.output().busy, false);
+    assert.equal(h.output().proUnconfirmed, false);
+  } finally { h.unmount(); }
+});
+test('PRO legacy, REC e valores não finitos não despacham comandos', async () => {
+  for (const proAvailable of [true, false]) {
+    const h = harness({ proAvailable }); try {
+      h.device({ pro: proState, isRecording: proAvailable }); await h.initialize();
+      h.output().setProSettings({ iso: 400 }); h.output().setProSettings({ iso: NaN }); await h.pump();
+      assert.equal(h.calls.some(call => call.kind === 'pro'), false);
+    } finally { h.unmount(); }
+  }
+});
+test('720p e 2K confirmados preservam o perfil e não escolhem resolução ausente', async () => {
+  const h = harness(); try {
+    h.device({ qualities: ['720p','1080p','1440p','2160p'].map(quality => ({ quality, fps:[24,30,60] })) });
+    await h.initialize(); await h.output().configure('720p'); await h.pump(); assert.equal(h.output().state.width, 1280);
+    await h.output().configure('1440p', 60); await h.pump(); assert.equal(h.output().state.width, 2560); assert.equal(h.output().state.height, 1440); assert.equal(h.output().state.fps, 60);
+    h.device({ qualities: [{ quality:'1080p', fps:[30] }] }); await h.initialize(); const before = h.calls.length;
+    await h.output().configure('1440p'); assert.equal(h.calls.length, before);
+  } finally { h.unmount(); }
 });

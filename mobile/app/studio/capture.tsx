@@ -25,6 +25,7 @@ import { studioNormalizedZoom, useStudioCaptureCamera } from '@/features/studio/
 import { StudioCaptureFrame, StudioCaptureZoom } from '@/features/studio/StudioCaptureZoom';
 import { StudioCaptureTakes } from '@/features/studio/StudioCaptureTakes';
 import { StudioCaptureAudioMonitor } from '@/features/studio/StudioCaptureAudioMonitor';
+import { StudioCaptureProControls } from '@/features/studio/StudioCaptureProControls';
 import { useStudioCaptureAudioMonitor } from '@/features/studio/StudioCaptureAudio';
 import { StudioCaptureScriptPanel } from '@/features/studio/StudioCaptureScriptPanel';
 import { StudioTeleprompter, type StudioTeleprompterMode } from '@/features/studio/StudioTeleprompter';
@@ -415,6 +416,7 @@ export default function StudioCaptureScreen() {
         setRecovery(null); setFailure(null);
         setNotice(`Take ${saved.takes.findIndex(existing => existing.id === take.id) + 1} salvo. Pronto para o próximo.`);
       }
+      return true;
     } catch (cause) {
       pendingNavigation.current = null;
       if (mounted.current) {
@@ -422,6 +424,7 @@ export default function StudioCaptureScreen() {
         setRecovery(recoverable);
         setFailure(cause instanceof Error ? cause.message : 'Não foi possível salvar o take. Tente novamente.');
       }
+      return false;
     } finally { activeProject.current = null; transition('idle'); }
   }
 
@@ -682,7 +685,10 @@ export default function StudioCaptureScreen() {
     } catch (cause) {
       pendingNavigation.current = null;
       if (!isAudio && cause instanceof StudioNativeRecordingError && cause.recoveryUri) {
-        await saveTake(project, cause.recoveryUri, (Date.now() - startedAt.current) / 1000, { sourceKind: 'standard', sourceStage: 'standard', grade: cause.grade });
+        const saved = await saveTake(project, cause.recoveryUri, (Date.now() - startedAt.current) / 1000, { sourceKind: 'standard', sourceStage: 'standard', grade: cause.grade });
+        if (saved && mounted.current) setNotice(cameraControls.state?.quality === '1440p'
+          ? 'Não foi possível finalizar em 2K. O original 4K foi salvo no projeto.'
+          : 'A gravação foi interrompida. O arquivo original foi recuperado e salvo no projeto.');
         return;
       }
       const recording = ownedRecording;
@@ -731,21 +737,21 @@ export default function StudioCaptureScreen() {
   const captureAvailable = permitted && !loading && !busyProject;
   const toolsDisabled = leaving || !idle || !!recovery || !captureAvailable;
   const recordDisabled = phase === 'saving' || cancelingAudio || idle && (!!recovery || busyProject || !permitted || !Device.isDevice
-    || !permissionGranted || !orientationReady || !isAudio && (!ready || !screenMatches || !sensorMatches || cameraControls.busy || effectBusy
+    || !permissionGranted || !orientationReady || !isAudio && (!ready || !screenMatches || !sensorMatches || cameraControls.busy || cameraControls.proUnconfirmed || effectBusy
       || !!normalizeStudioCaptureGrade(captureGrade) && (!effectSupported || !!effectError) || cameraControls.available && !cameraControls.state));
   const cameraState = cameraControls.state;
-  const qualities: ('720p' | '1080p' | '2160p')[] = cameraState?.qualities.map(item => item.quality) || ['720p', '1080p'];
+  const qualities: ('720p' | '1080p' | '1440p' | '2160p')[] = cameraState?.qualities.map(item => item.quality) || ['720p', '1080p'];
   const confirmedQuality = cameraState?.quality || videoQuality;
   const frameRates = cameraState?.qualities.find(item => item.quality === confirmedQuality)?.fps || [];
-  const qualityLabel = confirmedQuality === '2160p' ? '4K' : confirmedQuality === '1080p' ? 'HD' : '720p';
+  const qualityLabel = confirmedQuality === '2160p' ? '4K' : confirmedQuality === '1440p' ? '2K' : confirmedQuality === '1080p' ? '1080p' : '720p';
   const zoomDisabled = !idle || !!recovery || cameraControls.busy || cameraControls.available && !cameraControls.zoomAvailable;
   const zoomLabel = cameraState && Number.isFinite(cameraState.zoom) ? `${cameraState.zoom.toFixed(1)}×`
     : cameraControls.available ? 'Zoom indisponível' : `Zoom ${Math.round(zoom * 100)}%`;
   const showTorch = !isAudio && Device.isDevice && facing === 'back' && !!cameraState?.supportsTorch;
-  function chooseQuality(quality: '720p' | '1080p' | '2160p') {
+  function chooseQuality(quality: '720p' | '1080p' | '1440p' | '2160p') {
     if (exitOperation.current || phaseRef.current !== 'idle' || recovery || cameraControls.isBusy()) return;
     if (cameraControls.available) { void cameraControls.configure(quality); }
-    else if (quality !== '2160p' && quality !== videoQuality) { setReady(false); setSensorOrientation(null); setVideoQuality(quality); }
+    else if ((quality === '720p' || quality === '1080p') && quality !== videoQuality) { setReady(false); setSensorOrientation(null); setVideoQuality(quality); }
   }
   function cycleQuality() {
     const next = qualities[(qualities.indexOf(confirmedQuality) + 1) % qualities.length];
@@ -1013,8 +1019,9 @@ export default function StudioCaptureScreen() {
         <View style={styles.optionRow}>{qualities.map(quality => <Pressable key={quality} accessibilityRole="button" accessibilityState={{ selected: confirmedQuality === quality }}
           disabled={toolsDisabled || cameraControls.busy} onPress={() => chooseQuality(quality)}
           style={({ pressed }) => [styles.option, confirmedQuality === quality && styles.optionSelected, (toolsDisabled || cameraControls.busy) && styles.disabled, pressed && styles.pressed]}>
-          <Text style={[styles.optionText, confirmedQuality === quality && styles.optionTextSelected]}>{quality === '2160p' ? '4K' : quality === '1080p' ? '1080p' : '720p'}</Text>
+          <Text style={[styles.optionText, confirmedQuality === quality && styles.optionTextSelected]}>{quality === '2160p' ? '4K' : quality === '1440p' ? '2K' : quality === '1080p' ? '1080p' : '720p'}</Text>
         </Pressable>)}</View>
+        {confirmedQuality === '1440p' && <Text style={styles.cameraHint}>2K usa a fonte 4K desta câmera e reduz para 2560 × 1440 ao finalizar o take, preservando os FPS. A finalização pode levar alguns instantes.</Text>}
         {cameraState && <>
           {!!frameRates.length && <><Text style={styles.settingLabel}>Quadros por segundo</Text><View style={styles.optionRow}>{frameRates.map(rate => <Pressable key={rate}
             accessibilityRole="button" accessibilityLabel={`${rate} quadros por segundo`} accessibilityState={{ selected: Math.abs((cameraState.fps || 0) - rate) < 0.5 }}
@@ -1034,6 +1041,10 @@ export default function StudioCaptureScreen() {
             <View style={{ alignItems: 'flex-end', gap: 3 }}><Text style={styles.cameraValue}>f/{cameraState.aperture.toFixed(1)}</Text><Text style={styles.cameraHint}>Fixa nesta câmera</Text></View>
           </View>}
           {cameraState.supportsFocus && <Text style={styles.cameraHint}>{cameraState.supportsFocusLock ? 'Toque na imagem para focar. Segure para bloquear o foco.' : 'Toque na imagem para escolher o foco.'}</Text>}
+          {cameraState.pro?.version === 1 && cameraControls.native && <StudioCaptureProControls state={cameraState.pro}
+            pending={cameraControls.proBusy} confirmation={cameraControls.proConfirmation}
+            disabled={toolsDisabled || cameraControls.busy && !cameraControls.proBusy}
+            onChange={cameraControls.setProSettings} />}
         </>}
       </>}
       {panel === 'script' && !!project && <>

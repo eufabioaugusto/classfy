@@ -122,7 +122,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const outputLabel = editing.output.profile === 'legacy-source' ? 'Original' : studioOutputLabel(editing).split(' · ')[0];
   // An older project has a fixed profile, not an implicit new Original choice.
   const outputSelection: StudioOutputSelection = editing.output.selection || {
-    resolution: editing.output.profile === 'legacy-source' ? 'original' : Math.min(effectiveOutput.width, effectiveOutput.height) === 2160 ? '4k' : Math.min(effectiveOutput.width, effectiveOutput.height) === 1440 ? '2k' : 'hd',
+    resolution: editing.output.profile === 'legacy-source' ? 'original' : Math.min(effectiveOutput.width, effectiveOutput.height) === 2160 ? '4k' : Math.min(effectiveOutput.width, effectiveOutput.height) === 1440 ? '2k' : Math.min(effectiveOutput.width, effectiveOutput.height) === 720 ? '720p' : 'hd',
     frameRate: editing.output.profile === 'legacy-source' ? 'original' : effectiveOutput.frameRateNumerator / effectiveOutput.frameRateDenominator === 24 ? 24 : effectiveOutput.frameRateNumerator / effectiveOutput.frameRateDenominator === 60 ? 60 : 30,
   };
   const visibleEditing = editingPreview || editing;
@@ -1010,11 +1010,11 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
               <Pressable accessibilityRole="button" accessibilityLabel="Gerar legendas" onPress={() => { setPanel(null); void generateCaptions(); }} style={styles.sheetPrimary}><Text style={styles.sheetPrimaryText}>Gerar legendas</Text></Pressable>
             </> : panel === 'output' ? <>
               <View style={styles.outputGroup}><Text style={styles.optionLabel}>Resolução</Text><View style={styles.outputChoices}>
-                {(['original', 'hd', '2k', '4k'] as const).map(resolution => {
+                {(['original', '720p', 'hd', '2k', '4k'] as const).map(resolution => {
                   const selection = { ...outputSelection, resolution };
                   const supported = !!outputCapabilities && studioOutputSupported(studioEffectiveOutput(withStudioOutputSelection(editing, selection)), outputCapabilities);
                   const selected = resolution === outputSelection.resolution;
-                  const label = resolution === 'original' ? 'Original' : resolution === 'hd' ? 'HD' : resolution === '2k' ? '2K' : '4K';
+                  const label = resolution === 'original' ? 'Original' : resolution === '720p' ? '720p' : resolution === 'hd' ? 'HD' : resolution === '2k' ? '2K' : '4K';
                   return <Pressable key={resolution} accessibilityRole="button" accessibilityLabel={`Exportar em ${label}`} accessibilityState={{ selected, disabled: !supported || busy || locked }}
                     disabled={!supported || busy || locked} onPress={() => { void chooseOutput(selection); }} style={[styles.outputChoice, selected && styles.outputChoiceSelected, !supported && styles.disabled]}><Text style={[styles.outputChoiceText, selected && styles.outputChoiceTextSelected]}>{label}</Text></Pressable>;
                 })}

@@ -15,12 +15,21 @@ export type StudioMediaInfo = {
   yCbCrMatrix?: string;
 };
 
-export type StudioCameraQuality = '720p' | '1080p' | '2160p';
+export type StudioCameraQuality = '720p' | '1080p' | '1440p' | '2160p';
+export type StudioCameraProSettings = Partial<{ autoExposure: boolean; iso: number; shutterSeconds: number; autoWhiteBalance: boolean; redGain: number; greenGain: number; blueGain: number; temperatureKelvin: number; whiteBalanceTint: number; autoFocus: boolean; lensPosition: number }>;
+export type StudioCameraProState = {
+  version: 1; supportsExposure: boolean; autoExposure: boolean; minISO: number; maxISO: number; iso: number;
+  minShutterSeconds: number; maxShutterSeconds: number; shutterSeconds: number;
+  supportsWhiteBalance: boolean; autoWhiteBalance: boolean; minWhiteBalanceGain: number; maxWhiteBalanceGain: number;
+  redGain: number; greenGain: number; blueGain: number;
+  supportsTemperatureAndTint?: boolean; temperatureKelvin?: number; whiteBalanceTint?: number;
+  supportsFocus: boolean; autoFocus: boolean; lensPosition: number;
+};
 export type StudioCameraFPS = 24 | 30 | 60;
 export type StudioCameraState = {
   deviceId: string;
   position: 'front' | 'back' | 'unspecified';
-  qualities: { quality: StudioCameraQuality; width: number; height: number; fps: StudioCameraFPS[] }[];
+  qualities: { quality: StudioCameraQuality; width: number; height: number; fps: StudioCameraFPS[]; sourceWidth?: number; sourceHeight?: number; downsampled?: boolean }[];
   quality: StudioCameraQuality | null;
   fps: number | null;
   width: number;
@@ -41,6 +50,7 @@ export type StudioCameraState = {
   exposureLocked: boolean;
   torchEnabled: boolean;
   isRecording: boolean;
+  pro?: StudioCameraProState; proConfirmed?: boolean; sourceWidth?: number; sourceHeight?: number; downsampled?: boolean;
   generation?: number; revision?: number; phase?: string;
   supportsCinematicCapture?: boolean; cinematic?: boolean; cinematicUnavailableReason?: string; previewProcessed?: boolean;
 };
@@ -56,7 +66,7 @@ export type StudioExportCapabilities = {
   version: number; available: boolean; colorSpace: 'rec709'; minimumDimension: number;
   maximumDimension: number; maximumShortDimension: number; maximumPixels: number;
   arbitraryEvenDimensions: boolean; supportsHEVC: boolean;
-  resolutions: readonly { id: 'hd' | '2k' | '4k'; width: number; height: number; codec: 'h264' | 'hevc' }[];
+  resolutions: readonly { id: '720p' | 'hd' | '2k' | '4k'; width: number; height: number; codec: 'h264' | 'hevc' }[];
   frameRates: readonly { numerator: number; denominator: number }[];
 };
 type StudioMediaEvents = { onExportProgress: (event: { requestId: string; progress: number }) => void; onTranscriptionProgress: (event: { requestId: string; stage: string; progress: number }) => void };
@@ -80,6 +90,7 @@ declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
   stopStudioNativeCameraRecordingAsync(tag: number, operationId: string): Promise<StudioCameraState>;
   setStudioNativeCameraZoomAsync(tag: number, factor: number): Promise<StudioCameraState>;
   setStudioNativeCameraExposureAsync(tag: number, bias: number): Promise<StudioCameraState>;
+  setStudioNativeCameraProSettingsAsync?(tag: number, settings: StudioCameraProSettings): Promise<StudioCameraState>;
   setStudioNativeCameraFocusAsync(tag: number, options: { x: number; y: number; locked: boolean }): Promise<StudioCameraState>;
   setStudioNativeCameraTorchAsync(tag: number, enabled: boolean): Promise<StudioCameraState>;
   setStudioNativeCameraEffectAsync(tag: number, recipeJSON: string): Promise<StudioNativeCameraEffectAck>;
@@ -99,6 +110,11 @@ declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
 const native = requireOptionalNativeModule<StudioMediaModule>('ClassfyStudioMedia');
 
 export function isStudioMediaAvailable() { return !!native; }
+export function isStudioCameraProControlsAvailable() { return typeof native?.setStudioNativeCameraProSettingsAsync === 'function'; }
+export function setStudioNativeCameraProSettingsAsync(tag: number, settings: StudioCameraProSettings) {
+  if (!native?.setStudioNativeCameraProSettingsAsync) throw new Error('Os controles PRO precisam de uma versão nativa atualizada do Classfy.');
+  return native.setStudioNativeCameraProSettingsAsync(tag, settings);
+}
 export async function performStudioSelectionFeedbackAsync(): Promise<boolean> {
   if (typeof native?.performStudioSelectionFeedbackAsync !== 'function') return false;
   return (await native.performStudioSelectionFeedbackAsync()) === true;
@@ -174,7 +190,7 @@ export async function getStudioExportCapabilitiesAsync(): Promise<StudioExportCa
       || typeof value.arbitraryEvenDimensions !== 'boolean' || typeof value.supportsHEVC !== 'boolean'
       || !Array.isArray(value.resolutions) || !Array.isArray(value.frameRates)) return fallback;
     const rates = new Set(['24/1', '25/1', '30/1', '50/1', '60/1', '24000/1001', '30000/1001', '60000/1001']);
-    if (value.resolutions.some(item => !['hd', '2k', '4k'].includes(item.id)
+    if (value.resolutions.some(item => !['720p', 'hd', '2k', '4k'].includes(item.id)
       || !Number.isSafeInteger(item.width) || !Number.isSafeInteger(item.height)
       || item.width < 64 || item.height < 64 || item.width > value.maximumDimension || item.height > value.maximumShortDimension
       || !['h264', 'hevc'].includes(item.codec))

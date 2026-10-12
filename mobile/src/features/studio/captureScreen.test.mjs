@@ -7,6 +7,7 @@ import * as model from './model.ts';
 import * as timeline from './timeline.ts';
 import * as speechTracking from './StudioTeleprompterTracking.ts';
 import * as prompterLayout from './StudioTeleprompterLayout.ts';
+import { mergeStudioCameraProSettings } from './cameraProSettings.ts';
 
 function load(file, dependencies, globals = {}) {
   const source = readFileSync(new URL(file, import.meta.url), 'utf8');
@@ -113,6 +114,7 @@ async function harness(options = {}) {
     deviceId: 'qa-camera', position: 'front', qualities: [
       { quality: '720p', width: 1280, height: 720, fps: [24, 30] },
       { quality: '1080p', width: 1920, height: 1080, fps: [24, 30, 60] },
+      ...(options.twoK ? [{ quality: '1440p', width: 2560, height: 1440, fps: [24, 30] }] : []),
       { quality: '2160p', width: 3840, height: 2160, fps: [24, 30] },
     ], quality: '1080p', fps: 30, width: 1920, height: 1080, minZoom: 1, maxZoom: 4, zoom: 1,
     minExposure: -2, maxExposure: 2, exposure: 0, aperture: 1.8,
@@ -120,7 +122,7 @@ async function harness(options = {}) {
     supportsTorch: false, focusLocked: false, exposureLocked: false, torchEnabled: false, isRecording: false,
     generation: 1, revision: 1, orientation: 'landscapeLeft', previewProcessed: false,
   };
-  const capturedUri = runtime.fixture('captured.mov', { duration: 3.2 });
+  const capturedUri = runtime.fixture('captured.mov', { duration: 3.2, ...(options.downsampleFailure ? { width:3840, height:2160 } : {}) });
   const snapshot = () => ({ ...state, qualities: state.qualities.map(value => ({ ...value, fps: [...value.fps] })) });
   const capabilities = async () => { calls.push({ kind: 'capabilities' }); return snapshot(); };
   const configure = async (_, request) => {
@@ -145,7 +147,13 @@ async function harness(options = {}) {
   const stop = async (_, operationId) => {
     calls.push({ kind: 'stop', operationId }); state.isRecording = false;
     if (nativeRecord?.operationId === operationId) {
-      nativeRecord.resolve({ uri: capturedUri, duration: 3.2, operationId, frameRate: 30, sourceKind: 'standard', sourceStage: 'standard' });
+      if (options.downsampleFailure) {
+        find(node => node.type === 'native-camera-view').props.onRecordingState({ nativeEvent: {
+          operationId, phase:'finished', generation:state.generation, revision:state.revision, recoveryUri:capturedUri,
+          error:'Não foi possível finalizar o take em 2K. O original 4K continua disponível.',
+        } });
+        nativeRecord.reject(Error('Não foi possível finalizar o take em 2K. O original 4K continua disponível.'));
+      } else nativeRecord.resolve({ uri: capturedUri, duration: 3.2, operationId, frameRate: 30, sourceKind: 'standard', sourceStage: 'standard' });
       nativeRecord = undefined;
     }
     return snapshot();
@@ -186,7 +194,7 @@ async function harness(options = {}) {
   });
   const controls = load('./StudioCaptureCamera.ts', {
     react: hooks, 'react-native': native, 'expo-screen-orientation': orientation,
-    '../../../modules/classfy-studio-media': bridge, './StudioNativeCamera': cameraModule,
+    '../../../modules/classfy-studio-media': bridge, './StudioNativeCamera': cameraModule, './cameraProSettings': { mergeStudioCameraProSettings },
   }, globals);
   const audioMonitor = load('./StudioCaptureAudio.ts', { react: hooks }, globals);
   const teleprompter = load('./StudioTeleprompter.tsx', {
@@ -250,6 +258,7 @@ async function harness(options = {}) {
     '@/features/studio/StudioCaptureTakes': takes,
     '@/features/studio/StudioCaptureAudio': audioMonitor,
     '@/features/studio/StudioCaptureAudioMonitor': { StudioCaptureAudioMonitor: 'audio-monitor' },
+    '@/features/studio/StudioCaptureProControls': { StudioCaptureProControls: 'pro-controls' },
     '@/features/studio/StudioCaptureScriptPanel': scriptPanel,
     '@/features/studio/StudioTeleprompter': teleprompter,
     '@/features/studio/StudioTeleprompterLayout': prompterLayout,
@@ -563,6 +572,32 @@ test('flash fica ausente na frontal/sem torch e confirma estado real na traseira
     await unsupported.ready(); unsupported.button('Alternar câmera').onPress(); await unsupported.ready();
     assert.equal(unsupported.nodes(node => /Ligar luz|Desligar luz/.test(node.props?.accessibilityLabel ?? '')).length, 0);
   } finally { await unsupported.dispose(); }
+});
+
+for (const metadataFailure of [false, true]) test(`falha da finalização 2K conserva original 4K e journal${metadataFailure ? ' para retry' : ' até salvar'}`, async () => {
+  const h = await harness({ twoK:true, downsampleFailure:true });
+  try {
+    await h.ready(); h.button('Qualidade 1080p. Toque para alternar, segure para os ajustes').onPress(); await h.pump();
+    assert.equal(h.button('Qualidade 2K. Toque para alternar, segure para os ajustes').disabled, false);
+    h.button('Começar gravação').onPress(); await h.advance(3000);
+    if (metadataFailure) h.runtime.failMetadata();
+    h.button('Encerrar e salvar take').onPress(); await h.pump();
+    if (metadataFailure) {
+      assert.equal(h.current().takes.length, 0);
+      assert.equal(h.current().pendingTakes.length, 1);
+      assert.ok(h.runtime.disk.has(h.current().pendingTakes[0].uri), 'Copied original remains journaled before inspection succeeds');
+      assert.equal(h.button('Começar gravação').disabled, true, 'A failed save cannot be replaced by a new REC');
+      const retry = h.find(node => node.type === 'button' && node.props.children?.[0]?.props?.children === 'Salvar este take');
+      assert.ok(retry); retry.props.onPress(); await h.pump();
+    } else {
+      assert.ok(h.nodes(node => node.type === 'text' && node.props.children === 'Não foi possível finalizar em 2K. O original 4K foi salvo no projeto.').length);
+    }
+    assert.equal(h.current().takes.length, 1); assert.equal(h.current().pendingTakes?.length ?? 0, 0);
+    const take = h.current().takes[0];
+    assert.equal(take.width, 3840); assert.equal(take.height, 2160); assert.equal(take.frameRate, 30);
+    assert.ok(h.runtime.disk.has(take.uri)); assert.ok(h.runtime.disk.has('file:///fixtures/captured.mov'));
+    assert.equal(h.button('Começar gravação').disabled, false);
+  } finally { await h.dispose(); }
 });
 
 test('zoom da rota mostra confirmação, conserva valor após erro e respeita limite confirmado', async () => {

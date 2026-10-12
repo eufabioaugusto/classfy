@@ -139,7 +139,7 @@ enum StudioRecipeOutputSupport {
   }
 
   static func capabilities() -> [String: Any] {
-    let tiers: [(String, Int, Int)] = [("hd", 1920, 1080), ("2k", 2560, 1440), ("4k", 3840, 2160)]
+    let tiers: [(String, Int, Int)] = [("720p", 1280, 720), ("hd", 1920, 1080), ("2k", 2560, 1440), ("4k", 3840, 2160)]
     let available = tiers.filter { _, width, height in
       [(width, height), (height, width), (height, height)].allSatisfy {
         encoderSupported(width: $0.0, height: $0.1, rate: 30, hevc: false)

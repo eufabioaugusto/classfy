@@ -11,7 +11,7 @@ const editing = (sources = [take('main')], kind = 'aula') => reconcileStudioTake
 const project = value => withStudioTakes({ id: 'project', ownerId: 'owner', version: 2, kind: 'aula', editing: value });
 const capabilities = (patch = {}) => ({ version: 2, available: true, colorSpace: 'rec709', minimumDimension: 64, maximumDimension: 3840,
   maximumShortDimension: 2160, maximumPixels: 8294400, arbitraryEvenDimensions: true, supportsHEVC: true,
-  resolutions: [{ id: 'hd', width: 1920, height: 1080, codec: 'h264' }, { id: '2k', width: 2560, height: 1440, codec: 'hevc' }, { id: '4k', width: 3840, height: 2160, codec: 'hevc' }],
+  resolutions: [{ id: '720p', width: 1280, height: 720, codec: 'h264' }, { id: 'hd', width: 1920, height: 1080, codec: 'h264' }, { id: '2k', width: 2560, height: 1440, codec: 'hevc' }, { id: '4k', width: 3840, height: 2160, codec: 'hevc' }],
   frameRates: [24,25,30,50,60].map(numerator => ({ numerator, denominator: 1 })).concat([24000,30000,60000].map(numerator => ({ numerator, denominator: 1001 }))), ...patch });
 
 test('novos projetos preservam fontes 320p/720p/2K/4K e FPS real sem aumentar qualidade fictícia', () => {
@@ -22,8 +22,8 @@ test('novos projetos preservam fontes 320p/720p/2K/4K e FPS real sem aumentar qu
     assert.deepEqual(studioOutputWarnings(value), []);
   }
 });
-test('escolhas explícitas HD/2K/4K × 24/30/60 mantêm canvas e originais imutáveis', () => {
-  for (const [resolution, width, height] of [['hd',1920,1080],['2k',2560,1440],['4k',3840,2160]]) for (const frameRate of [24,30,60]) for (const aspectRatio of ['landscape','portrait','square']) {
+test('escolhas explícitas 720p/HD/2K/4K × 24/30/60 mantêm canvas e originais imutáveis', () => {
+  for (const [resolution, width, height] of [['720p',1280,720],['hd',1920,1080],['2k',2560,1440],['4k',3840,2160]]) for (const frameRate of [24,30,60]) for (const aspectRatio of ['landscape','portrait','square']) {
     const initial = editing(), originals = structuredClone(initial.assets);
     const value = withStudioOutputSelection({ ...initial, canvas: { ...initial.canvas, aspectRatio } }, { resolution, frameRate });
     const output = studioEffectiveOutput(value);

@@ -9,11 +9,13 @@ import {
   isStudioNativeCameraAvailable, getStudioNativeCameraCapabilitiesAsync, configureStudioNativeCameraAsync,
   setStudioNativeCameraZoomAsync, setStudioNativeCameraExposureAsync, setStudioNativeCameraFocusAsync,
   setStudioNativeCameraTorchAsync,
-  type StudioCameraState, type StudioCameraFPS,
+  setStudioNativeCameraProSettingsAsync, isStudioCameraProControlsAvailable,
+  type StudioCameraState, type StudioCameraFPS, type StudioCameraProSettings,
 } from '../../../modules/classfy-studio-media';
 import { isStudioNativeCameraHandle, type StudioCaptureCameraHandle } from './StudioNativeCamera';
+import { mergeStudioCameraProSettings } from './cameraProSettings';
 
-type Quality = '720p' | '1080p' | '2160p';
+type Quality = '720p' | '1080p' | '1440p' | '2160p';
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 export function studioZoomFactor(normalized: number, state: Pick<StudioCameraState, 'minZoom' | 'maxZoom'>) {
   const min = Number.isFinite(state.minZoom) && state.minZoom > 0 ? state.minZoom : 1;
@@ -59,10 +61,20 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
   const zoomSequence = useRef(0);
   const zoomFlight = useRef<Promise<boolean> | null>(null);
   const exposurePump = useRef(false);
+  const proOperation = useRef<{ token: number; targetTag: number; profile: StudioCameraState } | null>(null);
+  const pendingPro = useRef<StudioCameraProSettings | null>(null);
+  const [proBusy, setProBusy] = useState(false);
+  const [proConfirmation, setProConfirmation] = useState(0);
+  const proReceipt = useRef(0);
+  const proUnconfirmedRef = useRef(false);
+  const [proUnconfirmed, setProUnconfirmed] = useState(false);
 
   useEffect(() => {
     generation.current++; tag.current = null; stateRef.current = null;
     pendingZoom.current = null; pendingExposure.current = null;
+    proOperation.current = null; pendingPro.current = null; setProBusy(false);
+    setProConfirmation(++proReceipt.current);
+    proUnconfirmedRef.current = false; setProUnconfirmed(false);
     zoomFlight.current = null;
     zoomSequence.current++; if (zoomTimer.current) clearTimeout(zoomTimer.current); zoomTimer.current = null;
     settleZoom();
@@ -71,6 +83,7 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
   useEffect(() => { mounted.current = true; return () => {
     mounted.current = false; generation.current++;
     pendingZoom.current = null; pendingExposure.current = null;
+    proOperation.current = null; pendingPro.current = null;
     zoomFlight.current = null;
     if (zoomTimer.current) clearTimeout(zoomTimer.current);
   }; }, []);
@@ -87,6 +100,7 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
     const previous = stateRef.current;
     if (previous?.generation !== undefined && next.generation !== undefined && (next.generation < previous.generation || next.generation === previous.generation && next.revision !== undefined && previous.revision !== undefined && next.revision < previous.revision)) return;
     stateRef.current = next; setState(next); setError(null);
+    proUnconfirmedRef.current = next.proConfirmed === false; setProUnconfirmed(proUnconfirmedRef.current);
   }
   function fail(cause: unknown, token: number, targetTag: number | null) {
     if (!current(token, targetTag)) return;
@@ -222,7 +236,7 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
     if (!enabledRef.current) return false;
     if (!available) return true;
     const targetTag = tag.current; const token = generation.current; const snapshot = stateRef.current;
-    if (!targetTag || !snapshot?.quality || busyRef.current) return false;
+    if (!targetTag || !snapshot?.quality || busyRef.current || proUnconfirmedRef.current) return false;
     busyRef.current = true; setBusy(true);
     try {
       // Finish the last wheel target before REC hides the controls. A queued
@@ -242,6 +256,36 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
     } catch (cause) { fail(cause, token, targetTag); return false; }
     finally { if (current(token, targetTag)) { busyRef.current = false; setBusy(false); } }
   }
+  async function drainPro(owned: NonNullable<typeof proOperation.current>) {
+    try {
+      while (proOperation.current === owned && current(owned.token, owned.targetTag) && pendingPro.current) {
+        const patch = pendingPro.current; pendingPro.current = null;
+        proUnconfirmedRef.current = true; setProUnconfirmed(true);
+        const next = await enqueue(owned.token, owned.targetTag, () => setStudioNativeCameraProSettingsAsync(owned.targetTag, patch));
+        if (proOperation.current !== owned || !current(owned.token, owned.targetTag)) return;
+        if (!next || !sameProfile(next, owned.profile) || !next.pro || next.pro.version !== 1) throw new Error('A câmera mudou antes de confirmar os ajustes PRO. Tente novamente.');
+        apply(next, owned.token, owned.targetTag);
+      }
+    } catch (cause) { if (proOperation.current === owned) { pendingPro.current = null; fail(cause, owned.token, owned.targetTag); } }
+    finally {
+      if (proOperation.current === owned) {
+        proOperation.current = null;
+        if (current(owned.token, owned.targetTag)) { busyRef.current = false; setBusy(false); setProBusy(false); setProConfirmation(++proReceipt.current); }
+      }
+    }
+  }
+  function setProSettings(patch: StudioCameraProSettings) {
+    const snapshot = stateRef.current, targetTag = tag.current, token = generation.current;
+    if (!native || typeof isStudioCameraProControlsAvailable !== 'function' || !isStudioCameraProControlsAvailable()
+      || !snapshot?.pro || !targetTag || !current(token, targetTag) || snapshot.isRecording || busyRef.current && !proOperation.current) return;
+    if (Object.values(patch).some(value => typeof value === 'number' && !Number.isFinite(value))) return;
+    pendingPro.current = mergeStudioCameraProSettings(pendingPro.current, patch);
+    if (proOperation.current) return;
+    const owned = { token, targetTag, profile: snapshot }; proOperation.current = owned;
+    busyRef.current = true; setBusy(true); setProBusy(true); setError(null);
+    proUnconfirmedRef.current = true; setProUnconfirmed(true);
+    void drainPro(owned);
+  }
   function recordingProbe() {
     const targetTag = tag.current; const token = generation.current;
     if (!available || !targetTag) return undefined;
@@ -253,9 +297,9 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
       return current(token, targetTag) ? snapshot.isRecording : undefined;
     };
   }
-  return { available, native, state, busy, error, zoomAvailable: hasZoom(state), zoomPending, zoomConfirmation, initialize, configure, setZoom, setExposure, focus, setTorch, prepareRecording,
+  return { available, native, state, busy, proBusy, proUnconfirmed, proConfirmation, error, zoomAvailable: hasZoom(state), zoomPending, zoomConfirmation, initialize, configure, setZoom, setExposure, focus, setTorch, setProSettings, prepareRecording,
     isBusy: () => busyRef.current,
-    isReady: () => enabledRef.current && (!available || !!tag.current && !!stateRef.current && !busyRef.current),
+    isReady: () => enabledRef.current && (!available || !!tag.current && !!stateRef.current && !busyRef.current && !proUnconfirmedRef.current),
     recordingProbe,
   };
 }

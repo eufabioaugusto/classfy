@@ -49,6 +49,8 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   private var active = false
   private var disposed = false
   private var configured = false
+  private var proControlPending = false
+  private var proUnconfirmed = false
   private var generation = 0
   private var revision = 0
   private var previewProcessed = false
@@ -204,7 +206,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     queue.async {
       do {
         guard self.active, !self.disposed else { throw StudioCaptureError.unavailable("Abra a câmera para escolher a qualidade.") }
-        guard self.operation == nil else { throw StudioCaptureError.busy }
+        guard self.operation == nil, !self.proControlPending else { throw StudioCaptureError.busy }
         try self.requirePermissions()
         try self.applyConfiguration(request)
         if !self.session.isRunning { self.session.startRunning() }
@@ -229,7 +231,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     switch quality {
     case "720p": return (1280, 720)
     case "1080p": return (1920, 1080)
-    case "2160p": return (3840, 2160)
+    case "1440p", "2160p": return (3840, 2160)
     default: throw StudioCaptureError.invalid("Escolha uma resolução disponível nesta câmera.")
     }
   }
@@ -276,6 +278,20 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       throw StudioCaptureError.invalid("Escolha um FPS disponível nesta câmera.")
     }
     let orientation = try captureOrientation(request.orientation)
+    // Orientation-only changes preserve manual settings, input/microphone and
+    // Speech. Recreating the entire session here would reset ISO before REC.
+    if configured, configuration.position == request.position, configuration.quality == request.quality,
+      configuration.fps == request.fps, configuration.cinematic == request.cinematic {
+      for connection in [movie.connection(with: .video), frames.connection(with: .video)] {
+        if connection?.isVideoOrientationSupported == true { connection?.videoOrientation = orientation }
+        if connection?.isVideoMirroringSupported == true {
+          connection?.automaticallyAdjustsVideoMirroring = false; connection?.isVideoMirrored = request.mirrored
+        }
+      }
+      configuration = request; revision += 1
+      onConfiguration?(request, previewProcessed, generation)
+      return
+    }
     if request.cinematic && !Self.cinematicPipelineReady {
       throw StudioCaptureError.unavailable("Edição e exportação Cinema ainda não estão disponíveis. Use os ajustes de imagem do Studio.")
     }
@@ -319,6 +335,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       device.activeVideoMaxFrameDuration = device.activeVideoMinFrameDuration
       if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
       if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+      if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { device.whiteBalanceMode = .continuousAutoWhiteBalance }
       let minimum = max(1, device.minAvailableVideoZoomFactor)
       device.cancelVideoZoomRamp()
       device.videoZoomFactor = min(device.maxAvailableVideoZoomFactor, max(minimum, device.videoZoomFactor))
@@ -366,6 +383,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       }
       session.commitConfiguration()
       videoInput = input; configuration = request; configured = true
+      proUnconfirmed = false
       previewProcessed = useProcessed; cinematicFocusLocked = false
       generation += 1; revision += 1
       frameLock.lock(); frameGeneration = generation; frameIsCinematic = request.cinematic; frameEnabled = active && useProcessed; frameLock.unlock()
@@ -403,6 +421,23 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   private func snapshot() throws -> [String: Any] {
     var state = try controls.snapshot(session)
+    state["proConfirmed"] = !proUnconfirmed && !proControlPending
+    if let device = videoInput?.device {
+      let source = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+      state["sourceWidth"] = Int(source.width); state["sourceHeight"] = Int(source.height)
+      var choices = state["qualities"] as? [[String: Any]] ?? []
+      if let fourK = choices.first(where: { $0["quality"] as? String == "2160p" }) {
+        choices.removeAll { $0["quality"] as? String == "1440p" }
+        let twoK: [String: Any] = ["quality": "1440p", "width": 2560, "height": 1440, "fps": fourK["fps"] ?? [],
+          "sourceWidth": 3840, "sourceHeight": 2160, "downsampled": true]
+        let index = choices.firstIndex(where: { $0["quality"] as? String == "2160p" }) ?? choices.count
+        choices.insert(twoK, at: index)
+      }
+      state["qualities"] = choices
+      if configuration.quality == "1440p" {
+        state["quality"] = "1440p"; state["width"] = 2560; state["height"] = 1440; state["downsampled"] = true
+      }
+    }
     state["generation"] = generation; state["revision"] = revision
     state["phase"] = operation?.phase.rawValue ?? (active && session.isRunning ? "idle" : "inactive")
     state["operationId"] = operation?.id as Any? ?? NSNull()
@@ -435,7 +470,8 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         guard self.active, !self.disposed, self.session.isRunning, !self.session.isInterrupted else {
           throw StudioCaptureError.unavailable("A câmera foi interrompida. Abra o Studio novamente para gravar.")
         }
-        guard self.operation == nil else { throw StudioCaptureError.busy }
+        guard self.operation == nil, !self.proControlPending else { throw StudioCaptureError.busy }
+        guard !self.proUnconfirmed else { throw StudioCaptureError.unavailable("Confirme os ajustes PRO ou retorne ao automático antes de gravar.") }
         guard !operationId.isEmpty, operationId.count <= 128 else { throw StudioCaptureError.invalid("A identificação do take é inválida.") }
         try self.requirePermissions()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("classfy-studio-capture", isDirectory: true)
@@ -503,9 +539,12 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       // Even an unsuccessful capture delegate can leave a usable partial MOV
       // after interruption. Inspect the original before rejecting: a valid
       // file must reach the JS journal, including after the view unmounted.
+      let requestedQuality = self.configuration.quality, requestedFPS = self.configuration.fps
       Task {
         do {
-          let asset = AVURLAsset(url: fileURL)
+          let encodedURL = requestedQuality == "1440p" ? try await StudioCaptureDownsample.twoK(fileURL, fps: requestedFPS) : fileURL
+          let encodedSize = (try FileManager.default.attributesOfItem(atPath: encodedURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+          let asset = AVURLAsset(url: encodedURL)
           let duration = try await asset.load(.duration)
           guard duration.isNumeric, duration.seconds > 0, let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw StudioCaptureError.unavailable("O take não contém vídeo reproduzível.")
@@ -516,14 +555,15 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
           let descriptions = try await track.load(.formatDescriptions)
           let extensions = descriptions.first.flatMap { CMFormatDescriptionGetExtensions($0) as NSDictionary? }
           let display = CGRect(origin: .zero, size: dimensions).applying(transform)
-          let result: [String: Any] = ["uri": fileURL.absoluteString, "operationId": operation.id,
+          let result: [String: Any] = ["uri": encodedURL.absoluteString, "operationId": operation.id,
             "sourceKind": operation.sourceKind, "duration": duration.seconds,
             "width": Int(abs(display.width).rounded()), "height": Int(abs(display.height).rounded()),
-            "frameRate": Double(rate), "fileSize": size, "generation": operation.generation,
+            "frameRate": Double(rate), "fileSize": encodedSize, "generation": operation.generation,
             "sourceStage": operation.sourceKind == "cinematic" ? "cinematicRaw" : "standard",
             "colorPrimaries": extensions?[kCMFormatDescriptionExtension_ColorPrimaries] as? String ?? "unknown",
             "transferFunction": extensions?[kCMFormatDescriptionExtension_TransferFunction] as? String ?? "unknown",
             "yCbCrMatrix": extensions?[kCMFormatDescriptionExtension_YCbCrMatrix] as? String ?? "unknown"]
+          if encodedURL != fileURL { try? FileManager.default.removeItem(at: fileURL) }
           self.queue.async { self.settle(operation, .success(result)) }
         } catch { self.queue.async { self.settle(operation, .failure(error)) } }
       }
@@ -564,6 +604,24 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       do { try self.controls.exposure(self.session, queue: self.queue, bias: bias, validate: self.validationForGeneration()) {
         self.confirmControl($0, completion: completion)
       } } catch { completion(.failure(error)) }
+    }
+  }
+
+  func proSettings(_ settings: StudioCameraProSettings, completion: @escaping Completion) {
+    queue.async {
+      do {
+        guard self.active, !self.disposed, self.operation == nil, !self.proControlPending else { throw StudioCaptureError.busy }
+        let device = try self.controls.device(in: self.session)
+        self.proControlPending = true
+        self.proUnconfirmed = true
+        try StudioCameraProControls.apply(device, settings: settings, queue: self.queue, validate: self.validationForGeneration()) { result in
+          self.proControlPending = false
+          switch result {
+          case .failure(let error): self.emitState(); completion(.failure(error))
+          case .success: self.proUnconfirmed = false; self.confirmControl(.success([:]), completion: completion)
+          }
+        }
+      } catch { self.proControlPending = false; completion(.failure(error)) }
     }
   }
 

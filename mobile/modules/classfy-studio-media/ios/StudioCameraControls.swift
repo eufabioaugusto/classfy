@@ -27,7 +27,7 @@ final class StudioCameraControls {
   private var focusRequests: [String: UUID] = [:]
   private var zoomRequests: [String: UUID] = [:]
   private let choices: [(quality: String, width: Int32, height: Int32)] = [
-    ("720p", 1280, 720), ("1080p", 1920, 1080), ("2160p", 3840, 2160)
+    ("720p", 1280, 720), ("1080p", 1920, 1080), ("1440p", 2560, 1440), ("2160p", 3840, 2160)
   ]
   private let frameRates = [24, 30, 60]
 
@@ -88,7 +88,7 @@ final class StudioCameraControls {
     let zoom = zoomRange(device)
     let focus = device.isFocusPointOfInterestSupported &&
       (device.isFocusModeSupported(.autoFocus) || device.isFocusModeSupported(.continuousAutoFocus))
-    let exposure = (device.isExposureModeSupported(.autoExpose) || device.isExposureModeSupported(.continuousAutoExposure)) &&
+    let exposure = device.exposureMode != .custom && (device.isExposureModeSupported(.autoExpose) || device.isExposureModeSupported(.continuousAutoExposure)) &&
       device.minExposureTargetBias.isFinite && device.maxExposureTargetBias.isFinite &&
       device.maxExposureTargetBias > device.minExposureTargetBias
     return [
@@ -107,7 +107,8 @@ final class StudioCameraControls {
       "focusLocked": focus && device.focusMode == .locked,
       "exposureLocked": device.exposureMode == .locked,
       "torchEnabled": device.isTorchActive,
-      "isRecording": session.outputs.compactMap { $0 as? AVCaptureMovieFileOutput }.contains { $0.isRecording }
+      "isRecording": session.outputs.compactMap { $0 as? AVCaptureMovieFileOutput }.contains { $0.isRecording },
+      "pro": StudioCameraProControls.snapshot(device)
     ]
   }
 
@@ -214,7 +215,7 @@ final class StudioCameraControls {
       device.isExposureModeSupported(.continuousAutoExposure) || device.isExposureModeSupported(.autoExpose) else {
       throw StudioCameraControlError.unsupported("O ajuste de exposição não está disponível nesta câmera.")
     }
-    guard device.exposureMode != .locked else {
+    guard device.exposureMode != .locked && device.exposureMode != .custom else {
       throw StudioCameraControlError.unsupported("Destrave a exposição antes de ajustar a luz.")
     }
     let target = min(device.maxExposureTargetBias, max(device.minExposureTargetBias, Float(bias)))
@@ -245,7 +246,7 @@ final class StudioCameraControls {
     let device = try device(in: session)
     let focus = device.isFocusPointOfInterestSupported &&
       (device.isFocusModeSupported(.autoFocus) || device.isFocusModeSupported(.continuousAutoFocus))
-    let exposure = device.isExposurePointOfInterestSupported &&
+    let exposure = device.exposureMode != .custom && device.isExposurePointOfInterestSupported &&
       (device.isExposureModeSupported(.autoExpose) || device.isExposureModeSupported(.continuousAutoExposure))
     guard focus || exposure else { throw StudioCameraControlError.unsupported("Esta câmera não oferece foco ou exposição por toque.") }
     if locked && !(focus && device.isFocusModeSupported(.locked) || exposure && device.isExposureModeSupported(.locked)) {

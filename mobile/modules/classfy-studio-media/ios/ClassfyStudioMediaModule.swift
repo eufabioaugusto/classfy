@@ -28,6 +28,25 @@ struct StudioCameraFocusRecord: Record {
   @Field var y: Double = 0.5
   @Field var locked: Bool = false
 }
+struct StudioCameraProRecord: Record {
+  @Field var autoExposure: Bool?
+  @Field var iso: Double?
+  @Field var shutterSeconds: Double?
+  @Field var autoWhiteBalance: Bool?
+  @Field var redGain: Double?
+  @Field var greenGain: Double?
+  @Field var blueGain: Double?
+  @Field var temperatureKelvin: Double?
+  @Field var whiteBalanceTint: Double?
+  @Field var autoFocus: Bool?
+  @Field var lensPosition: Double?
+  var settings: StudioCameraProSettings {
+    StudioCameraProSettings(autoExposure: autoExposure, iso: iso, shutterSeconds: shutterSeconds,
+      autoWhiteBalance: autoWhiteBalance, redGain: redGain, greenGain: greenGain, blueGain: blueGain,
+      temperatureKelvin: temperatureKelvin, whiteBalanceTint: whiteBalanceTint,
+      autoFocus: autoFocus, lensPosition: lensPosition)
+  }
+}
 
 struct StudioRecipeExportRecord: Record {
   @Field var requestId: String = ""
@@ -170,6 +189,9 @@ public final class ClassfyStudioMediaModule: Module {
     }.runOnQueue(.main)
     AsyncFunction("setStudioNativeCameraExposureAsync") { (tag: Int, bias: Double, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.exposure(bias) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("setStudioNativeCameraProSettingsAsync") { (tag: Int, settings: StudioCameraProRecord, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.proSettings(settings.settings) { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)
     AsyncFunction("setStudioNativeCameraTorchAsync") { (tag: Int, enabled: Bool, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.torch(enabled) { self.settleCamera($0, promise: promise) } }

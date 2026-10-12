@@ -221,6 +221,7 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   }
   func zoom(_ factor: Double, completion: @escaping StudioCaptureSession.Completion) { capture.zoom(factor, completion: completion) }
   func exposure(_ bias: Double, completion: @escaping StudioCaptureSession.Completion) { capture.exposure(bias, completion: completion) }
+  func proSettings(_ settings: StudioCameraProSettings, completion: @escaping StudioCaptureSession.Completion) { capture.proSettings(settings, completion: completion) }
   func torch(_ enabled: Bool, completion: @escaping StudioCaptureSession.Completion) { capture.torch(enabled, completion: completion) }
 
   /// Uses the same aspect-fit geometry, rotation and mirroring as the Metal
