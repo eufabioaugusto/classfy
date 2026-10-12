@@ -13,6 +13,7 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   let onInterruption = EventDispatcher()
   let onError = EventDispatcher()
   let onAudioMonitor = EventDispatcher()
+  let onSpeech = EventDispatcher()
   let capture = StudioCaptureSession()
   private let previewLayer = AVCaptureVideoPreviewLayer()
   private var metalView: MTKView?
@@ -27,6 +28,9 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   private var pendingEffect: (request: StudioCaptureEffectConfirmation, completion: StudioCaptureSession.Completion)?
   private var effectTimeout: DispatchWorkItem?
   private var requestedActive = false
+  private var speechEnabled = false
+  private var speechSessionId = ""
+  private var speechLocale = "pt-BR"
   private var inBackground = false
   private var currentGeneration = 0
   private var queuedFrame: (buffer: CVPixelBuffer, generation: Int, cinematic: Bool)?
@@ -123,6 +127,13 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   func setActive(_ active: Bool) {
     requestedActive = active
     applyActivity()
+  }
+
+  func setSpeechEnabled(_ enabled: Bool) { speechEnabled = enabled; applySpeech() }
+  func setSpeechSessionId(_ id: String) { speechSessionId = id; applySpeech() }
+  func setSpeechLocale(_ locale: String) { speechLocale = locale; applySpeech() }
+  private func applySpeech() {
+    capture.setSpeech(enabled: speechEnabled, sessionId: speechSessionId, locale: speechLocale)
   }
 
   private func applyActivity() {
@@ -251,6 +262,7 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
     case "onRecordingState": onRecordingState(value)
     case "onInterruption": onInterruption(value)
     case "onAudioMonitor": onAudioMonitor(value)
+    case "onSpeech": onSpeech(value)
     default: onError(value)
     }
   }

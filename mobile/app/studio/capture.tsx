@@ -6,9 +6,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useIsFocused, usePreventRemove, type NavigationAction } from '@react-navigation/native';
-import { Camera, Check, ChevronRight, FileText, Mic, Minus, Palette, Pause, Play, Plus, SlidersHorizontal, Square, SwitchCamera, Timer, X, Zap, ZapOff } from 'lucide-react-native';
+import { Camera, Check, ChevronRight, FileText, Mic, Minus, Palette, Plus, SlidersHorizontal, Square, SwitchCamera, Timer, X, Zap, ZapOff } from 'lucide-react-native';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, AppState, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Keyboard, Linking, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StudioCaptureSheet } from '@/features/studio/StudioCaptureSheet';
 import { usePrimaryAction } from '@/contexts/PrimaryActionContext';
@@ -27,6 +27,9 @@ import { StudioCaptureTakes } from '@/features/studio/StudioCaptureTakes';
 import { StudioCaptureAudioMonitor } from '@/features/studio/StudioCaptureAudioMonitor';
 import { useStudioCaptureAudioMonitor } from '@/features/studio/StudioCaptureAudio';
 import { StudioCaptureScriptPanel } from '@/features/studio/StudioCaptureScriptPanel';
+import { StudioTeleprompter, type StudioTeleprompterMode } from '@/features/studio/StudioTeleprompter';
+import { studioTeleprompterFrame } from '@/features/studio/StudioTeleprompterLayout';
+import { useStudioTeleprompterSpeech } from '@/features/studio/useStudioTeleprompterSpeech';
 import { createStudioVideoStopOperation } from '@/features/studio/StudioCaptureRecording';
 import { StudioNativeCamera, StudioNativeRecordingError, isStudioNativeCameraHandle, type StudioCaptureCameraHandle, type StudioCaptureRecording, type StudioNativeCameraHandle } from '@/features/studio/StudioNativeCamera';
 import { isStudioNativeCameraAvailable, isStudioNativeCameraEffectsAvailable, isStudioNativeCameraAudioMonitorAvailable } from '../../modules/classfy-studio-media';
@@ -76,7 +79,10 @@ export default function StudioCaptureScreen() {
   const [audioMonitorHeight, setAudioMonitorHeight] = useState(78);
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [showScript, setShowScript] = useState(true);
-  const [followScript, setFollowScript] = useState(true);
+  const [followScript, setFollowScript] = useState(false);
+  const [scriptMode, setScriptMode] = useState<StudioTeleprompterMode>('voice');
+  const [scriptResetKey, setScriptResetKey] = useState(0);
+  const [prompterHeight, setPrompterHeight] = useState(184);
   const [scriptSpeed, setScriptSpeed] = useState(28);
   const [notice, setNotice] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -94,9 +100,6 @@ export default function StudioCaptureScreen() {
   const exitIntent = useRef<{ operation: symbol; epoch: number; perform: () => void; handoff: boolean } | null>(null);
   const audio = useRef<Audio.Recording | null>(null);
   const videoOperation = useRef<ReturnType<typeof createStudioVideoStopOperation> | null>(null);
-  const scriptScroll = useRef<ScrollView>(null);
-  const scriptOffset = useRef(0);
-  const scriptSize = useRef({ content: 0, viewport: 0 });
   const startedAt = useRef(0);
   const phaseRef = useRef<Phase>('idle');
   const mounted = useRef(true);
@@ -129,6 +132,30 @@ export default function StudioCaptureScreen() {
   const audioMonitorAvailable = nativeCamera && isStudioNativeCameraAudioMonitorAvailable();
   const audioMonitor = useStudioCaptureAudioMonitor({ active: cameraMounted, available: audioMonitorAvailable,
     scopeKey: `${user?.id}:${id}:${facing}`, generation: cameraControls.state?.generation });
+  const scriptActive = permitted && !!project?.script.trim() && showScript && followScript && !panel && !leaving && !recovery
+    && (phase === 'idle' || phase === 'recording') && focused && foreground;
+  const speech = useStudioTeleprompterSpeech({ ownerId: user?.id, projectId: id, script: project?.script.trim() || '',
+    active: scriptActive && scriptMode === 'voice' && cameraMounted && ready && nativeCamera,
+    isFocused: focused, foreground, resetKey: scriptResetKey, generation: cameraControls.state?.generation });
+  const voiceAvailable = !isAudio && nativeCamera && speech.available;
+  async function toggleScriptReading() {
+    const target = project;
+    if (!target || !captureScopeCurrent(target) || phaseRef.current !== 'idle' && phaseRef.current !== 'recording') return;
+    if (followScript) { setFollowScript(false); return; }
+    if (scriptMode === 'automatic') { setFollowScript(true); return; }
+    if (speech.permission === 'denied') { setPanel('script'); return; }
+    if (!voiceAvailable || phaseRef.current !== 'idle' && speech.permission !== 'granted') return;
+    // Request permission only for an explicit rehearsal gesture, before REC.
+    const granted = speech.permission === 'granted' || await speech.requestPermission();
+    const context = captureContext.current, account = session.current;
+    // iOS can resolve its permission sheet while still "inactive". The speech
+    // hook rejects real background/identity changes; the next active render
+    // enables audio, so don't discard a valid rehearsal during that transition.
+    if (granted && mounted.current && !exitOperation.current && context.focused && context.id === target.id
+      && account.owner === target.ownerId && account.canPublish && !account.roleLoading
+      && (phaseRef.current === 'idle' || speech.permission === 'granted' && phaseRef.current === 'recording')) setFollowScript(true);
+  }
+  useEffect(() => { setFollowScript(false); setScriptMode('voice'); }, [id, user?.id]);
   const captureReadiness = useRef({ sensorMatches, screenMatches, ready, orientationReady });
   captureReadiness.current = { sensorMatches, screenMatches, ready, orientationReady };
 
@@ -264,7 +291,10 @@ export default function StudioCaptureScreen() {
 
   function transition(next: Phase) {
     phaseRef.current = next;
-    if (mounted.current) setPhase(next);
+    if (mounted.current) {
+      setPhase(next);
+      if (next === 'saving') setFollowScript(false);
+    }
   }
   function assertSession(target: StudioProject) {
     const current = session.current;
@@ -510,15 +540,6 @@ export default function StudioCaptureScreen() {
     return () => clearInterval(timer);
   }, [phase]);
   useEffect(() => {
-    if (phase !== 'recording' || !showScript || !followScript) return;
-    const timer = setInterval(() => {
-      const limit = Math.max(0, scriptSize.current.content - scriptSize.current.viewport);
-      scriptOffset.current = Math.min(limit, scriptOffset.current + scriptSpeed / 20);
-      scriptScroll.current?.scrollTo({ y: scriptOffset.current, animated: false });
-    }, 50);
-    return () => clearInterval(timer);
-  }, [phase, showScript, followScript, scriptSpeed]);
-  useEffect(() => {
     const listener = AppState.addEventListener('change', state => {
       if (captureContext.current.foreground !== (state === 'active')) exitEpoch.current++;
       captureContext.current.foreground = state === 'active';
@@ -602,8 +623,7 @@ export default function StudioCaptureScreen() {
       if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') return;
       assertCaptureSession(project);
       setCountdown(0);
-      scriptOffset.current = 0;
-      scriptScroll.current?.scrollTo({ y: 0, animated: false });
+      setScriptResetKey(previous => previous + 1);
       if (isAudio) {
         audioPreparation.current = token;
         await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
@@ -747,10 +767,22 @@ export default function StudioCaptureScreen() {
   const safeRight = Math.max(insets.right, 18);
   const audioMonitorWidth = Math.max(0, Math.min(250, dimensions.width - safeLeft - safeRight - 184));
   const landscapeZoomBottom = Math.max(insets.bottom, 16) + (project?.takes.length ? 85 : 15);
-  const landscapeZoomLeft = cameraMounted && safeTop + 70 + audioMonitorHeight + 12 > dimensions.height - landscapeZoomBottom - 62
+  const scriptPresent = !!project?.script.trim();
+  const prompterVisible = scriptPresent && showScript;
+  const prompterFrame = studioTeleprompterFrame({ width: dimensions.width, height: dimensions.height,
+    top: safeTop, left: safeLeft, right: safeRight, landscape, immersive });
+  const monitorBottom = (prompterVisible ? prompterFrame.top + prompterHeight + 10 : safeTop + 70) + audioMonitorHeight;
+  const landscapeZoomLeft = cameraMounted && monitorBottom + 12 > dimensions.height - landscapeZoomBottom - 62
     ? Math.max(safeLeft + 64, Math.min((dimensions.width - 210) / 2, dimensions.width - safeRight - 116 - audioMonitorWidth - 222))
     : (dimensions.width - 210) / 2;
-  const scriptPresent = !!project?.script.trim();
+  const prompterStatus = scriptMode === 'automatic' ? followScript ? 'Velocidade fixa · não acompanha a voz' : 'Velocidade fixa · toque para ensaiar'
+    : !voiceAvailable ? isAudio ? 'Leitura por voz disponível na câmera' : 'Atualize o app para acompanhar sua voz'
+    : speech.status === 'denied' ? 'Reconhecimento de voz não autorizado'
+    : speech.status === 'unavailable' || speech.status === 'error' ? 'Leitura por voz indisponível'
+    : speech.status === 'connecting' ? 'Preparando leitura por voz…'
+    : followScript ? 'Fale para avançar · o silêncio pausa' : 'Toque para ensaiar com sua voz';
+  const scriptPlayDisabled = phase === 'countdown' || phase === 'saving' || scriptMode === 'voice' && (!voiceAvailable || speech.permission === 'requesting'
+    || immersive && speech.permission !== 'granted');
   const panelTitle = panel === 'timer' ? 'Temporizador' : panel === 'quality' ? cameraState ? 'Câmera Pro' : 'Qualidade do vídeo' : panel === 'treatment' ? 'Tratamento' : 'Teleprompter';
   const readyHint = isAudio ? 'Uma conversa. Uma ideia por take.' : project?.kind === 'aula' ? 'Seu conhecimento em uma aula.' : 'Uma ideia que merece ser compartilhada.';
   const stateHint = phase === 'saving' ? removingTake ? 'Excluindo take…' : importing ? 'Importando seus originais…' : 'Salvando seu take…'
@@ -808,6 +840,7 @@ export default function StudioCaptureScreen() {
       onFocus={cameraState?.supportsFocus ? point => { void cameraControls.focus(point); } : undefined} canLockFocus={cameraState?.supportsFocusLock}>
       {nativeCamera ? <StudioNativeCamera ref={camera as React.Ref<StudioNativeCameraHandle>} style={StyleSheet.absoluteFill}
         onAudioMonitor={audioMonitorAvailable ? audioMonitor.onAudioMonitor : undefined}
+        speechEnabled={voiceAvailable && speech.speechEnabled} speechSessionId={speech.speechSessionId} speechLocale="pt-BR" onSpeech={speech.onSpeech}
         onCameraReady={() => { void cameraControls.initialize().then(result => { if (result !== undefined && mounted.current) setReady(result); }); }}
         onRecordingState={event => { if (event.phase === 'recording' && phaseRef.current === 'recording') startedAt.current = Date.now(); }}
         onInterruption={event => { if (mounted.current) {
@@ -833,8 +866,8 @@ export default function StudioCaptureScreen() {
     {cameraMounted && (audioMonitorAvailable || !immersive) && <View pointerEvents="none"
       onLayout={event => { const height = Math.ceil(event.nativeEvent.layout.height); if (height > 0 && mounted.current) setAudioMonitorHeight(height); }}
       style={[styles.audioMonitor, landscape
-      ? { top: safeTop + 70, right: safeRight + 116, maxWidth: audioMonitorWidth }
-      : { top: safeTop + 84, left: safeLeft, maxWidth: dimensions.width - safeLeft - safeRight - 64 }]}>
+      ? { top: prompterVisible ? prompterFrame.top + prompterHeight + 10 : safeTop + 70, right: safeRight + 116, maxWidth: audioMonitorWidth }
+      : { top: prompterVisible ? prompterFrame.top + prompterHeight + 12 : safeTop + 84, left: safeLeft, maxWidth: dimensions.width - safeLeft - safeRight - 64 }]}>
       <StudioCaptureAudioMonitor input={audioMonitor.input} channels={audioMonitor.channels}
         status={audioMonitor.status} message={audioMonitor.message} compact />
     </View>}
@@ -872,7 +905,7 @@ export default function StudioCaptureScreen() {
 
     {captureAvailable && !immersive && <View style={[styles.tools, landscape
       ? { top: safeTop + 76, left: safeLeft }
-      : { top: safeTop + 95, right: safeRight }]}>
+      : { top: prompterVisible ? prompterFrame.top + prompterHeight + 12 : safeTop + 95, right: safeRight }]}>
       {showTorch && <CaptureTool label={torch ? 'Desligar luz' : 'Ligar luz'}
         disabled={toolsDisabled}
         selected={torch} onPress={() => { if (nativeCamera) void cameraControls.setTorch(!torch); else setTorch(previous => !previous); }}>
@@ -894,24 +927,13 @@ export default function StudioCaptureScreen() {
       </CaptureTool>
     </View>}
 
-    {!gate && scriptPresent && showScript && <View style={[styles.prompter, landscape
-      ? { top: safeTop + 78, left: safeLeft + 66, right: safeRight + (cameraMounted ? 384 : 114) }
-      : { top: safeTop + (cameraMounted ? 84 + audioMonitorHeight + 12 : 102), left: safeLeft, right: safeRight + 60 }]}>
-      <View style={styles.prompterHeader}>
-        <View style={styles.prompterIdentity}><FileText color={colors.textSecondary} size={13} strokeWidth={1.5} /><Text style={styles.prompterLabel}>ROTEIRO</Text></View>
-        <Pressable accessibilityRole="button" accessibilityLabel={followScript ? 'Pausar rolagem do roteiro' : 'Ativar rolagem do roteiro'}
-          onPress={() => setFollowScript(previous => !previous)} hitSlop={10} style={styles.prompterAction}>
-          {followScript ? <Pause color={colors.text} size={15} /> : <Play color={colors.text} size={15} />}
-        </Pressable>
-      </View>
-      <ScrollView ref={scriptScroll} style={[styles.scriptScroll, { maxHeight: landscape ? Math.max(58, Math.min(110, dimensions.height * 0.25)) : 122 }]} showsVerticalScrollIndicator={false}
-        onLayout={event => { scriptSize.current.viewport = event.nativeEvent.layout.height; }}
-        onContentSizeChange={(_, height) => { scriptSize.current.content = height; }}
-        onScroll={event => { scriptOffset.current = event.nativeEvent.contentOffset.y; }} scrollEventThrottle={16}
-        onScrollBeginDrag={() => setFollowScript(false)}>
-        <Text style={[styles.scriptText, landscape && { fontSize: 20, lineHeight: 28 }]}>{project!.script.trim()}</Text>
-      </ScrollView>
-    </View>}
+    {!gate && prompterVisible && <StudioTeleprompter script={project!.script.trim()} words={speech.words}
+      readWordCount={speech.readWordCount} mode={scriptMode} playing={followScript} active={scriptActive}
+      resetKey={scriptResetKey} speed={scriptSpeed} landscape={landscape} maxTextHeight={prompterFrame.maxTextHeight}
+      style={{ top: prompterFrame.top, left: prompterFrame.left, width: prompterFrame.width }}
+      status={prompterStatus} statusDetail={speech.message} playDisabled={scriptPlayDisabled}
+      onPlayPause={() => { void toggleScriptReading(); }} onManualScroll={() => setFollowScript(false)}
+      onHeight={height => { if (height > 0) setPrompterHeight(Math.ceil(height)); }} />}
 
     {!immersive && !isAudio && captureAvailable && !gate && (!cameraControls.available || cameraControls.zoomAvailable) && <View pointerEvents="box-none" style={[styles.zoomAnchor, landscape
       ? { bottom: landscapeZoomBottom, left: landscapeZoomLeft }
@@ -1019,21 +1041,38 @@ export default function StudioCaptureScreen() {
       </>}
       {panel === 'script' && !!project && <>
         <StudioCaptureScriptPanel project={project} disabled={!idle || !permitted} onApplied={saved => {
-          setShowScript(!!saved.script.trim()); scriptOffset.current = 0;
-          scriptScroll.current?.scrollTo({ y: 0, animated: false }); setPanel(null);
+          setShowScript(!!saved.script.trim()); setFollowScript(false); setScriptResetKey(previous => previous + 1); setPanel(null);
         }} />
         {scriptPresent && <>
           <Pressable accessibilityRole="switch" accessibilityState={{ checked: showScript }} onPress={() => setShowScript(previous => !previous)} style={styles.settingRow}>
             <Text style={styles.settingLabel}>Mostrar roteiro</Text><View style={[styles.toggle, showScript && styles.toggleActive]}><View style={[styles.toggleThumb, showScript && { alignSelf: 'flex-end' }]} /></View>
           </Pressable>
-          <Pressable accessibilityRole="switch" accessibilityState={{ checked: followScript }} onPress={() => setFollowScript(previous => !previous)} style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Rolagem automática</Text><View style={[styles.toggle, followScript && styles.toggleActive]}><View style={[styles.toggleThumb, followScript && { alignSelf: 'flex-end' }]} /></View>
-          </Pressable>
-          <View style={styles.settingRow}><Text style={styles.settingLabel}>Ritmo de leitura</Text><View style={styles.speedControl}>
+          <Text style={styles.settingLabel}>Como acompanhar o roteiro</Text>
+          <View style={styles.optionRow}>{([{ id: 'voice', label: 'Minha voz' }, { id: 'automatic', label: 'Velocidade fixa' }] as const).map(mode =>
+            <Pressable key={mode.id} accessibilityRole="button" accessibilityLabel={mode.id === 'voice' ? 'Acompanhar minha voz' : 'Usar velocidade fixa'}
+              accessibilityState={{ selected: scriptMode === mode.id }} onPress={() => { setScriptMode(mode.id); setFollowScript(false); }}
+              style={[styles.option, scriptMode === mode.id && styles.optionSelected]}>
+              <Text style={[styles.optionText, scriptMode === mode.id && styles.optionTextSelected]}>{mode.label}</Text>
+            </Pressable>)}</View>
+          <Text style={styles.cameraHint}>{scriptMode === 'voice'
+            ? voiceAvailable ? 'Ensaie antes de gravar. O texto avança quando você fala e as palavras lidas ficam vermelhas. Se você parar, ele espera.'
+              : isAudio ? 'A leitura por voz usa o microfone da câmera. Neste podcast, escolha velocidade fixa se quiser rolagem.' : 'Instale o Classfy atualizado para acompanhar sua voz. A velocidade fixa é uma opção manual e não identifica palavras faladas.'
+            : 'O roteiro rola no ritmo escolhido, mesmo em silêncio. Não marca as palavras como faladas.'}</Text>
+          {scriptMode === 'voice' && <>
+            <Text accessibilityLiveRegion="polite" style={styles.cameraHint}>{speech.message}</Text>
+            {speech.permission === 'denied' ? <Pressable accessibilityRole="button" accessibilityLabel="Abrir Ajustes de reconhecimento de voz"
+              onPress={() => { void Linking.openSettings(); }} style={styles.secondaryButton}>
+              <Text style={styles.buttonText}>Abrir Ajustes</Text>
+            </Pressable> : <Pressable accessibilityRole="button" accessibilityLabel="Ativar ensaio por voz" disabled={!voiceAvailable || speech.permission === 'requesting'}
+              onPress={() => { setPanel(null); void toggleScriptReading(); }} style={[styles.secondaryButton, (!voiceAvailable || speech.permission === 'requesting') && styles.disabled]}>
+              <Text style={styles.buttonText}>{speech.permission === 'requesting' ? 'Aguardando permissão…' : 'Ensaiar com minha voz'}</Text>
+            </Pressable>}
+          </>}
+          {scriptMode === 'automatic' && <View style={styles.settingRow}><Text style={styles.settingLabel}>Ritmo de leitura</Text><View style={styles.speedControl}>
             <Pressable accessibilityRole="button" accessibilityLabel="Ler mais devagar" onPress={() => setScriptSpeed(previous => Math.max(12, previous - 8))} disabled={scriptSpeed <= 12} style={styles.speedButton}><Minus size={18} color={colors.text} /></Pressable>
             <Text style={styles.speedLabel}>{scriptSpeed < 28 ? 'Calmo' : scriptSpeed <= 44 ? 'Natural' : 'Rápido'}</Text>
             <Pressable accessibilityRole="button" accessibilityLabel="Ler mais rápido" onPress={() => setScriptSpeed(previous => Math.min(76, previous + 8))} disabled={scriptSpeed >= 76} style={styles.speedButton}><Plus size={18} color={colors.text} /></Pressable>
-          </View></View>
+          </View></View>}
         </>}
       </>}
     </StudioCaptureSheet>
@@ -1087,13 +1126,6 @@ const styles = StyleSheet.create({
   tool: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(0,0,0,0.38)', alignItems: 'center', justifyContent: 'center' },
   toolSelected: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(0,0,0,0.58)' },
   toolValue: { position: 'absolute', bottom: 5, right: 6, fontSize: 8, color: colors.text, fontWeight: '700', backgroundColor: '#333333', borderRadius: 4, minWidth: 11, textAlign: 'center' },
-  prompter: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.52)', borderRadius: 14, paddingHorizontal: 16, paddingTop: 9, paddingBottom: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-  prompterHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 },
-  prompterIdentity: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  prompterLabel: { color: '#D9D3DC', fontSize: 8, letterSpacing: 1.7, fontWeight: '600' },
-  prompterAction: { width: 28, height: 26, justifyContent: 'center', alignItems: 'center' },
-  scriptScroll: { flexShrink: 1 },
-  scriptText: { color: '#FFFFFF', fontSize: 22, lineHeight: 32, fontWeight: '500', paddingBottom: 32 },
   zoomAnchor: { position: 'absolute', width: 210, alignItems: 'center', justifyContent: 'flex-end' },
   countdownOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.26)' },
   countdownNumber: { color: '#FFFFFF', fontSize: 110, fontWeight: '300', fontVariant: ['tabular-nums'] },

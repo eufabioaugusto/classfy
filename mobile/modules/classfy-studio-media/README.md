@@ -25,6 +25,18 @@ Os métodos compatíveis com iOS 15.1 continuam usando as APIs de composição c
 
 Mudanças de câmera, fechamento da view e callbacks atrasados são revalidados antes de alterar a sessão. `isStudioCameraControlsAvailable()` permite fallback explícito em binários antigos; os controles PRO só aparecem quando a ponte e as capacidades reais estão disponíveis.
 
+## Teleprompter por voz na câmera nativa
+
+`StudioCaptureSpeech` envia ao `SFSpeechRecognizer` local os mesmos buffers PCM de `AVCaptureAudioDataOutput` usados pelo monitor. Não cria microfone, `AVAudioEngine`, outro gravador nem altera `AVAudioSession`/REC. `requiresOnDeviceRecognition` é obrigatório e o idioma precisa confirmar `supportsOnDeviceRecognition`; indisponibilidade não aciona fallback de áudio na nuvem.
+
+- `isStudioNativeCameraSpeechAvailable()` detecta a bridge no binário. A disponibilidade do idioma/modelo é confirmada por eventos nativos.
+- `requestStudioCaptureSpeechPermissionAsync()` retorna `{granted, canAskAgain}`. É a única operação que pede autorização, chamada por gesto explícito; montar a câmera ou começar REC não mostra o prompt.
+- A view recebe `speechEnabled`, `speechSessionId` e `speechLocale` (`pt-BR`). `onSpeech` informa resultado parcial/final ou estado `listening`, `paused`, `unavailable`, `denied`, `error`.
+- Cada evento contém `sessionId`, geração da câmera, sequência e `segmentId` numérico. A sequência e os segmentos reiniciam ao mudar sessão/geração. Cancelar, trocar câmera/rota, fechar ou entrar em background invalida a tarefa; callbacks antigos não podem assumir a identidade nova.
+- Tarefas são renovadas após resultado final ou a cada 50 s. Silêncio prolongado termina em `paused/awaiting_speech`: buffers novos com atividade retomam a escuta sem consumir tentativas ou criar loop de reconhecimento. RMS apenas desperta uma tarefa; somente transcrição alinhada ao roteiro avança/pinta palavras no app. Falhas com atividade são repetidas duas vezes, com backoff, e depois informadas como erro.
+
+`tests/verify-capture-speech.sh` verifica tokens, renovação, pausa longa, limite de retries e o encaminhamento do mesmo `CMSampleBuffer` PCM. `StudioCaptureSpeechBridge.test.mjs` cobre binário antigo, autorização e entrega dos eventos da view sem iniciar REC. Esses fixtures e a compilação não comprovam qualidade de reconhecimento nem captura simultânea no iPhone; essas verificações exigem teste físico e um binário atualizado.
+
 ## Verificação local
 
 Exige Xcode e FFmpeg no Mac; não usa servidor, conta ou publicação:

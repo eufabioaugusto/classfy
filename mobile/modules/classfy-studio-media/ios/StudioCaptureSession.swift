@@ -35,6 +35,10 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   private let movie = AVCaptureMovieFileOutput()
   private let audioFrames = AVCaptureAudioDataOutput()
   private let audioMonitor = StudioCaptureAudioMonitor()
+  private lazy var speech = StudioCaptureSpeech(queue: audioQueue)
+  private var speechEnabled = false
+  private var speechSessionId = ""
+  private var speechLocale = "pt-BR"
   private var audioTimer: DispatchSourceTimer?
   private var audioMonitoringAvailable = false
   private let frames = AVCaptureVideoDataOutput()
@@ -72,6 +76,15 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   override init() {
     super.init()
+    speech.onEvent = { [weak self] payload in
+      self?.queue.async { [weak self] in
+        guard let self, !self.disposed, payload["generation"] as? Int == self.generation,
+          payload["sessionId"] as? String == self.speechSessionId else { return }
+        // Keep the speech task's captured generation; emit() stamps the
+        // current camera generation and must not relabel stale results.
+        self.onEvent?("onSpeech", payload)
+      }
+    }
     observeSession()
   }
 
@@ -119,6 +132,27 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         } else if self.session.isRunning { self.session.stopRunning() }
         self.emitState()
       }
+    }
+  }
+
+  func setSpeech(enabled: Bool, sessionId: String, locale: String) {
+    queue.async {
+      guard !self.disposed else { return }
+      self.speechEnabled = enabled
+      self.speechSessionId = sessionId
+      self.speechLocale = locale
+      self.refreshSpeech()
+    }
+  }
+
+  private func refreshSpeech(forceInactive: Bool = false) {
+    let enabled = speechEnabled && !disposed
+    let sessionId = speechSessionId, locale = speechLocale, generation = generation
+    let running = !forceInactive && active && !disposed && session.isRunning && !session.isInterrupted
+    let audioAvailable = audioMonitoringAvailable
+    audioQueue.async { [weak self] in
+      self?.speech.configure(enabled: enabled, sessionId: sessionId, locale: locale,
+        generation: generation, running: running, audioAvailable: audioAvailable)
     }
   }
 
@@ -581,8 +615,12 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                      from connection: AVCaptureConnection) {
     if output === audioFrames {
+      // Decode only once; auxiliary Speech uses RMS solely to wake an ended
+      // task after silence, while actual transcripts determine reader progress.
+      let measurement = StudioCaptureAudioPCM.measure(sampleBuffer)
+      speech.append(sampleBuffer, measurement: measurement)
       guard let ticket = audioMonitor.ticket() else { return }
-      guard let measurement = StudioCaptureAudioPCM.measure(sampleBuffer) else { audioMonitor.unsupported(ticket); return }
+      guard let measurement else { audioMonitor.unsupported(ticket); return }
       let presentation = CMSyncConvertTime(CMSampleBufferGetPresentationTimeStamp(sampleBuffer), from: ticket.clock, to: CMClockGetHostTimeClock())
       audioMonitor.receive(measurement, ticket: ticket, hostPTS: CMTimeGetSeconds(presentation))
       return
@@ -618,7 +656,11 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         guard let self, self.active, !self.disposed else { return }
         let currentInputID = AVAudioSession.sharedInstance().currentRoute.inputs.first?.uid
         let lost = reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue && previousInputID != nil && previousInputID != currentInputID
+        // A new microphone route must get a fresh recognizer segment, using
+        // only the shared capture output after it has resumed.
+        self.refreshSpeech(forceInactive: true)
         self.refreshAudioMonitor(reason: lost ? "inputLost" : "routeChanged")
+        self.refreshSpeech()
         // Audio samples can arrive between reset and snapshot. The route-loss
         // notice must still be delivered even if the new input is already live.
         self.emitAudioMonitor(reason: lost ? "inputLost" : "routeChanged")
@@ -670,6 +712,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   private func startAudioMonitor() {
     guard active, !disposed, session.isRunning else { return }
     refreshAudioMonitor(reason: "preparing")
+    refreshSpeech()
     emitAudioMonitor()
     guard audioTimer == nil, audioMonitoringAvailable else { return }
     let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -682,6 +725,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   }
 
   private func stopAudioMonitor(reason: String) {
+    refreshSpeech(forceInactive: true)
     audioTimer?.cancel(); audioTimer = nil
     audioMonitor.reset(generation: generation, revision: revision, input: nil, enabled: false, clock: nil, reason: reason)
     emitAudioMonitor()

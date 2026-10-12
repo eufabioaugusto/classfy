@@ -28,6 +28,7 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withFmtCompilerCompatibility.cjs",
       "expo-iap",
       "expo-font",
       "expo-asset",
@@ -46,7 +47,7 @@
         "expo-speech-recognition",
         {
           "microphonePermission": "Permitir uso do microfone para ditar mensagens.",
-          "speechRecognitionPermission": "Permitir reconhecimento de voz para transcrever ditados."
+          "speechRecognitionPermission": "A Classfy reconhece sua fala para acompanhar o roteiro no teleprompter e transcrever ditados."
         }
       ],
       "expo-video",

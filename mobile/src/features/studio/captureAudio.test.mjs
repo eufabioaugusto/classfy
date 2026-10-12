@@ -59,6 +59,7 @@ function harness(initial = {}) {
   const bridge = {
     isStudioNativeCameraAvailable: () => true,
     isStudioNativeCameraEffectsAvailable: () => false,
+    isStudioNativeCameraSpeechAvailable: () => false,
     isStudioNativeCameraAudioMonitorAvailable: () => options.available,
     startStudioNativeCameraRecordingAsync: async (...args) => { commands.push({ kind: 'record', args }); throw Error('Audio-monitor tests cannot start REC'); },
     stopStudioNativeCameraRecordingAsync: async (...args) => { commands.push({ kind: 'stop', args }); },

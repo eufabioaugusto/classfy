@@ -61,6 +61,8 @@ export type StudioExportCapabilities = {
 };
 type StudioMediaEvents = { onExportProgress: (event: { requestId: string; progress: number }) => void; onTranscriptionProgress: (event: { requestId: string; stage: string; progress: number }) => void };
 declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
+  getStudioNativeCameraSpeechVersionAsync?(): Promise<{ version: number; available: boolean; onDeviceOnly: boolean }>;
+  requestStudioCaptureSpeechPermissionAsync?(): Promise<{ granted: boolean; canAskAgain: boolean }>;
   getStudioNativeCameraAudioMonitorVersionAsync?(): Promise<{ version: number; available: boolean }>;
   getStudioEditorCapabilitiesAsync?(): Promise<{ version: number; available: boolean }>;
   renderStudioRecipeThumbnailAsync?(recipeJSON: string, outputUri: string, seconds: number): Promise<{ uri: string; width: number; height: number; seconds: number }>;
@@ -197,6 +199,21 @@ export function isStudioNativeCameraEffectsAvailable() {
 export function isStudioNativeCameraAudioMonitorAvailable() {
   return isStudioNativeCameraAvailable() && typeof native?.getStudioNativeCameraAudioMonitorVersionAsync === 'function';
 }
+export function isStudioNativeCameraSpeechAvailable() {
+  return isStudioNativeCameraAvailable() && typeof native?.getStudioNativeCameraSpeechVersionAsync === 'function'
+    && typeof native?.requestStudioCaptureSpeechPermissionAsync === 'function';
+}
+/** Invoke only from an explicit reader action; native capture never prompts. */
+export async function requestStudioCaptureSpeechPermissionAsync(): Promise<{ granted: boolean; canAskAgain: boolean }> {
+  if (!isStudioNativeCameraSpeechAvailable()) return { granted: false, canAskAgain: false };
+  const value = await native!.requestStudioCaptureSpeechPermissionAsync!();
+  return { granted: value.granted === true, canAskAgain: value.canAskAgain === true };
+}
+export type StudioCaptureSpeechEvent = {
+  sessionId: string; generation: number; sequence: number; segmentId: number;
+  type: 'result' | 'status'; transcript?: string; isFinal?: boolean;
+  status?: 'listening' | 'paused' | 'unavailable' | 'denied' | 'error'; code?: string;
+};
 export type StudioCaptureAudioEvent = {
   version: 1; generation: number; revision: number; sequence: number; timestampMs: number; active: boolean;
   input: { id: string; name: string; type: string } | null;

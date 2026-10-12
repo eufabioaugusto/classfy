@@ -126,8 +126,11 @@ public final class ClassfyStudioMediaModule: Module {
         progress: { [weak self] value in self?.sendEvent("onExportProgress", ["requestId": options.requestId, "progress": value]) }) }
     }
     View(StudioCaptureView.self) {
-      Events("onReady", "onState", "onRecordingState", "onInterruption", "onError", "onAudioMonitor")
+      Events("onReady", "onState", "onRecordingState", "onInterruption", "onError", "onAudioMonitor", "onSpeech")
       Prop("active") { (view: StudioCaptureView, active: Bool) in view.setActive(active) }
+      Prop("speechEnabled") { (view: StudioCaptureView, enabled: Bool) in view.setSpeechEnabled(enabled) }
+      Prop("speechSessionId") { (view: StudioCaptureView, id: String) in view.setSpeechSessionId(id) }
+      Prop("speechLocale") { (view: StudioCaptureView, locale: String) in view.setSpeechLocale(locale) }
       Prop("effectRecipeJSON") { (view: StudioCaptureView, recipe: String) in view.applyEffectRecipeJSON(recipe) }
     }
     View(StudioCompositionView.self) {
@@ -147,6 +150,12 @@ public final class ClassfyStudioMediaModule: Module {
       if #available(iOS 16.0, *) { return ["version": 1, "available": true] }
       return ["version": 1, "available": false]
     }
+    AsyncFunction("getStudioNativeCameraSpeechVersionAsync") { () -> [String: Any] in
+      ["version": 1, "available": true, "onDeviceOnly": true]
+    }
+    AsyncFunction("requestStudioCaptureSpeechPermissionAsync") { (promise: Promise) in
+      StudioCaptureSpeech.requestPermission { promise.resolve($0) }
+    }.runOnQueue(.main)
     AsyncFunction("configureStudioNativeCameraAsync") { (tag: Int, options: StudioNativeCaptureConfigurationRecord, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.configure(options.native) { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)

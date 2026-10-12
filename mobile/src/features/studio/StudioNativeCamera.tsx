@@ -6,7 +6,8 @@ import type { CameraView } from 'expo-camera';
 import {
   isStudioNativeCameraAvailable, startStudioNativeCameraRecordingAsync, stopStudioNativeCameraRecordingAsync,
   isStudioNativeCameraEffectsAvailable, setStudioNativeCameraEffectAsync,
-  type StudioCameraState, type StudioNativeRecording, type StudioNativeCameraEffectAck, type StudioCaptureAudioEvent,
+  isStudioNativeCameraSpeechAvailable,
+  type StudioCameraState, type StudioNativeRecording, type StudioNativeCameraEffectAck, type StudioCaptureAudioEvent, type StudioCaptureSpeechEvent,
 } from '../../../modules/classfy-studio-media';
 import { normalizeStudioCaptureGrade, type StudioGrade } from './model';
 
@@ -32,6 +33,8 @@ export class StudioNativeRecordingError extends Error {
 
 type Props = {
   style?: StyleProp<ViewStyle>; active?: boolean; effectRecipeJSON?: string;
+  speechEnabled?: boolean; speechSessionId?: string; speechLocale?: string;
+  onSpeech?: (event: StudioCaptureSpeechEvent) => void;
   onCameraReady?: () => void; onMountError?: (event: { message: string }) => void;
   onRecordingState?: (event: StudioNativeRecordingState) => void;
   onAudioMonitor?: (event: StudioCaptureAudioEvent) => void;
@@ -39,6 +42,8 @@ type Props = {
 };
 type NativeProps = {
   ref?: React.Ref<unknown>; style?: StyleProp<ViewStyle>; active: boolean; effectRecipeJSON: string;
+  speechEnabled?: boolean; speechSessionId?: string; speechLocale?: string;
+  onSpeech?: (event: { nativeEvent: StudioCaptureSpeechEvent }) => void;
   onReady: (event: { nativeEvent: StudioCameraState }) => void;
   onState: (event: { nativeEvent: StudioCameraState }) => void;
   onError: (event: { nativeEvent: { message: string; generation?: number; revision?: number } }) => void;
@@ -135,6 +140,18 @@ export const StudioNativeCamera = forwardRef<StudioNativeCameraHandle, Props>(fu
   }), []);
   if (!NativeCanvas) return null;
   return <NativeCanvas ref={canvas} style={props.style} active={props.active !== false} effectRecipeJSON={props.effectRecipeJSON || identityRecipe}
+    {...(isStudioNativeCameraSpeechAvailable() ? {
+      speechEnabled: props.speechEnabled === true, speechSessionId: props.speechSessionId || '', speechLocale: props.speechLocale || 'pt-BR',
+      onSpeech: (event: { nativeEvent: StudioCaptureSpeechEvent }) => {
+        const value = event.nativeEvent, current = live.current;
+        if (!mounted.current || current.active === false || !current.speechEnabled || !current.speechSessionId
+          || value.sessionId !== current.speechSessionId || nativeGeneration.current === undefined
+          || value.generation !== nativeGeneration.current || !Number.isSafeInteger(value.sequence) || value.sequence < 1
+          || !Number.isSafeInteger(value.segmentId) || value.segmentId < 0
+          || value.type !== 'result' && value.type !== 'status') return;
+        current.onSpeech?.(value);
+      },
+    } : {})}
     onReady={event => {
       observeState(event.nativeEvent);
       if (lastReadyGeneration.current === event.nativeEvent.generation) return;

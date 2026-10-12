@@ -33,6 +33,7 @@ function harness({ effectsAvailable = true, nativeAvailable = true } = {}) {
     '../../../modules/classfy-studio-media': {
       isStudioNativeCameraAvailable: () => nativeAvailable,
       isStudioNativeCameraEffectsAvailable: () => effectsAvailable,
+      isStudioNativeCameraSpeechAvailable: () => false,
       setStudioNativeCameraEffectAsync: (...args) => command('effect', args),
       startStudioNativeCameraRecordingAsync: (...args) => command('record', args),
       stopStudioNativeCameraRecordingAsync: (...args) => { calls.push({ kind: 'stop', args }); return Promise.resolve({}); },

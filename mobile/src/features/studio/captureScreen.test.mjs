@@ -5,6 +5,8 @@ import ts from 'typescript';
 import { createJourneyRuntime } from './editorJourneyHarness.mjs';
 import * as model from './model.ts';
 import * as timeline from './timeline.ts';
+import * as speechTracking from './StudioTeleprompterTracking.ts';
+import * as prompterLayout from './StudioTeleprompterLayout.ts';
 
 function load(file, dependencies, globals = {}) {
   const source = readFileSync(new URL(file, import.meta.url), 'utf8');
@@ -87,6 +89,7 @@ async function harness(options = {}) {
       return snapshot();
     },
     forwardRef: callback => props => callback(props, props.ref),
+    memo: callback => callback,
   };
   const jsx = (type, props, key) => ({ type, props: props || {}, key });
   const schedule = (callback, delay, interval) => { const token = ++timerId; timers.set(token, { callback, at: now + delay, interval }); return token; };
@@ -151,6 +154,10 @@ async function harness(options = {}) {
     isStudioNativeCameraAvailable: () => options.native !== false,
     isStudioNativeCameraEffectsAvailable: () => false,
     isStudioNativeCameraAudioMonitorAvailable: () => options.audioMonitor === true,
+    isStudioNativeCameraSpeechAvailable: () => options.speech === true,
+    requestStudioCaptureSpeechPermissionAsync: async () => {
+      calls.push({ kind: 'speech-permission' }); return { granted: options.speechDenied !== true, canAskAgain: true };
+    },
     isStudioCameraControlsAvailable: () => options.controls !== false,
     getStudioNativeCameraCapabilitiesAsync: capabilities, getStudioCameraCapabilitiesAsync: capabilities,
     configureStudioNativeCameraAsync: configure,
@@ -182,6 +189,14 @@ async function harness(options = {}) {
     '../../../modules/classfy-studio-media': bridge, './StudioNativeCamera': cameraModule,
   }, globals);
   const audioMonitor = load('./StudioCaptureAudio.ts', { react: hooks }, globals);
+  const teleprompter = load('./StudioTeleprompter.tsx', {
+    react: hooks, 'react/jsx-runtime': jsxRuntime, 'react-native': native, 'lucide-react-native': icons,
+    './StudioTeleprompterLayout': prompterLayout,
+  }, globals);
+  const teleprompterSpeech = load('./useStudioTeleprompterSpeech.ts', {
+    react: hooks, 'react-native': native, '../../../modules/classfy-studio-media': bridge,
+    './StudioTeleprompterTracking': speechTracking,
+  }, globals);
   const takes = load('./StudioCaptureTakes.tsx', {
     react: hooks, 'react/jsx-runtime': jsxRuntime, 'react-native': native, 'lucide-react-native': icons,
     '@/components/LoadingImage': { LoadingImage: 'image' }, '@/theme/colors': theme, './model': model,
@@ -236,6 +251,9 @@ async function harness(options = {}) {
     '@/features/studio/StudioCaptureAudio': audioMonitor,
     '@/features/studio/StudioCaptureAudioMonitor': { StudioCaptureAudioMonitor: 'audio-monitor' },
     '@/features/studio/StudioCaptureScriptPanel': scriptPanel,
+    '@/features/studio/StudioTeleprompter': teleprompter,
+    '@/features/studio/StudioTeleprompterLayout': prompterLayout,
+    '@/features/studio/useStudioTeleprompterSpeech': teleprompterSpeech,
     '@/features/studio/StudioCaptureRecording': videoStop, '@/features/studio/StudioNativeCamera': cameraModule,
     '@/features/studio/timeline': timeline,
     '@/theme/colors': theme, '@/theme/controls': { controls: {} },
@@ -339,6 +357,12 @@ async function harness(options = {}) {
         channels: [{ averageDb: -24, peakDb: -8 }], sampleRate: 48000, channelCount: 1, ageMs: 0, ...patch } });
       await pump();
     },
+    async speechEvent(transcript, patch = {}) {
+      const host = find(node => node.type === 'native-camera-view');
+      host.props.onSpeech?.({ nativeEvent: { sessionId: host.props.speechSessionId, generation: state.generation,
+        sequence: calls.filter(value => value.kind === 'speech-event').length + 1, segmentId: 1, type: 'result', transcript, isFinal: false, ...patch } });
+      calls.push({ kind: 'speech-event' }); await pump();
+    },
     async confirmZoom(patch = {}) { assert.ok(zoomRequest); state = { ...state, ...patch }; const request = zoomRequest; zoomRequest = undefined; request.resolve(snapshot()); await pump(); },
     async rejectZoom() { assert.ok(zoomRequest); const request = zoomRequest; zoomRequest = undefined; request.reject(Error('A câmera interrompeu o zoom.')); await pump(); },
     async dispose() { for (const context of contexts.values()) for (const value of context.slots) value?.cleanup?.(); contexts.clear(); timers.clear(); await new Promise(resolve => setImmediate(resolve)); },
@@ -371,40 +395,111 @@ test('REC → STOP salva original/journal antes de restaurar miniatura e Avança
   } finally { await h.dispose(); }
 });
 
-test('teleprompter ativo permanece em REC, rola, pausa/retoma e volta com os controles após STOP em Aula e Short', async () => {
+test('teleprompter de voz ensaia, acompanha palavras, espera no silêncio e pausa sem parar REC em Aula e Short', async () => {
   for (const projectKind of ['aula', 'short']) {
-    const h = await harness({ projectKind });
+    const h = await harness({ projectKind, speech: true });
     try {
-      await h.runtime.store.updateStudioProject('owner', h.current().id, { script: 'Abertura\nExplicação\nDemonstração\nConclusão' });
+      const script = 'A espiritualidade começa com uma conexão interior. A meditação ajuda a encontrar a paz.';
+      await h.runtime.store.updateStudioProject('owner', h.current().id, { script });
       await h.ready();
       const scroll = () => h.find(node => node.type === 'scroll' && node.props.onScrollBeginDrag).props;
+      const props = () => h.find(node => node.type?.name === 'StudioTeleprompter').props;
       const ref = scroll().ref;
+      const block = () => h.find(node => node.type === 'text' && node.props.onTextLayout).props;
+      const position = h.find(node => node.type === 'view' && node.props.testID === 'studio-teleprompter').props.style[1];
+      if (projectKind === 'short') {
+        assert.equal(position.left + position.width / 2, 393 / 2, 'Portrait reading is centered on the camera axis despite unequal safe insets');
+        assert.equal(position.top, 90, 'The monitor no longer pushes the script down');
+      }
       scroll().onLayout({ nativeEvent: { layout: { height: 100 } } });
-      scroll().onContentSizeChange(300, 700);
-      h.button('Começar gravação').onPress(); await h.advance(3000);
-      assert.equal(scroll().ref, ref, 'REC must preserve the reading surface and its measurements');
-      assert.deepEqual(h.nodes(node => node.type === 'button' && node.props.accessibilityRole === 'button').map(node => node.props.accessibilityLabel), ['Pausar rolagem do roteiro', 'Encerrar e salvar take']);
-      await h.advance(1000);
+      scroll().onContentSizeChange(300, 400);
+      h.find(node => node.type === 'view' && node.props.onLayout && node.props.children?.props?.onTextLayout).props.onLayout({ nativeEvent: { layout: { y: 0 } } });
+      block().onTextLayout({ nativeEvent: { lines: [
+        { text: 'A espiritualidade começa com uma', y: 0, height: 32 },
+        { text: 'conexão interior. A meditação ajuda', y: 32, height: 32 },
+        { text: 'a encontrar a paz.', y: 64, height: 32 },
+      ] } });
+      assert.equal(props().mode, 'voice'); assert.equal(props().playing, false);
+      await h.advance(1000); assert.equal(props().readWordCount, 0);
+      h.button('Ensaiar roteiro com minha voz').onPress(); await h.pump();
+      assert.equal(h.calls.filter(value => value.kind === 'speech-permission').length, 1);
+      assert.equal(h.find(node => node.type === 'native-camera-view').props.speechEnabled, true);
+      await h.speechEvent('A espiritualidade começa com uma');
+      assert.equal(props().readWordCount, 5);
+      const red = h.find(node => node.type === 'text' && node.props.style?.color === '#FB5672');
+      assert.equal(red.props.children, 'A espiritualidade começa com uma');
       const offset = h.scrolls.at(-1).y;
-      assert.ok(offset > 20 && offset < 40, 'Text must advance at the configured speed while REC runs');
-      h.button('Pausar rolagem do roteiro').onPress(); await h.pump();
-      await h.advance(1000);
-      assert.equal(h.scrolls.at(-1).y, offset, 'Pausing reading does not reset its position');
-      assert.equal(h.calls.filter(value => value.kind === 'stop').length, 0, 'Reading controls must not stop the take');
-      h.button('Ativar rolagem do roteiro').onPress(); await h.pump(); await h.advance(1000);
-      assert.ok(h.scrolls.at(-1).y > offset);
-      h.button('Encerrar e salvar take').onPress(); await h.pump();
-      assert.equal(h.current().takes.length, 1);
-      assert.equal(scroll().ref, ref);
-      assert.equal(h.button('Abrir teleprompter').disabled, false);
-      assert.equal(h.button('Começar gravação').disabled, false);
-      const stoppedOffset = h.scrolls.at(-1).y;
-      await h.advance(1000); assert.equal(h.scrolls.at(-1).y, stoppedOffset, 'STOP ends automatic reading');
+      await h.advance(2000); assert.equal(props().readWordCount, 5); assert.equal(h.scrolls.at(-1).y, offset, 'Silence does not advance the voice reader');
       h.button('Começar gravação').onPress(); await h.advance(3000);
-      assert.equal(h.scrolls.at(-1).y, 0, 'A new take starts reading from the beginning');
+      assert.equal(scroll().ref, ref); assert.equal(props().readWordCount, 0, 'A fresh take clears the rehearsal highlighting');
+      assert.equal(h.calls.filter(value => value.kind === 'speech-permission').length, 1, 'REC never opens a permission dialog');
+      assert.deepEqual(h.nodes(node => node.type === 'button' && node.props.accessibilityRole === 'button').map(node => node.props.accessibilityLabel), ['Pausar leitura do roteiro', 'Encerrar e salvar take']);
+      await h.speechEvent('A espiritualidade começa com uma conexão interior');
+      assert.equal(props().readWordCount, 7);
+      h.button('Pausar leitura do roteiro').onPress(); await h.pump();
+      await h.speechEvent('A meditação ajuda a encontrar a paz', { segmentId: 2 });
+      assert.equal(props().readWordCount, 7, 'Paused speech events cannot mark words');
+      assert.equal(h.calls.filter(value => value.kind === 'stop').length, 0);
+      h.button('Ensaiar roteiro com minha voz').onPress(); await h.pump();
+      await h.speechEvent('A meditação ajuda a encontrar a paz', { segmentId: 2 });
+      assert.equal(props().readWordCount, 14);
       h.button('Encerrar e salvar take').onPress(); await h.pump();
+      assert.equal(h.current().takes.length, 1); assert.equal(props().playing, false);
+      assert.equal(h.button('Abrir teleprompter').disabled, false);
     } finally { await h.dispose(); }
   }
+});
+
+test('build antigo e autorização negada não usam avanço por tempo; velocidade fixa exige escolha explícita', async () => {
+  for (const options of [{ speech: false }, { speech: true, speechDenied: true }]) {
+    const h = await harness(options);
+    try {
+      await h.runtime.store.updateStudioProject('owner', h.current().id, { script: 'Um roteiro sobre a nossa conexão interior.' });
+      await h.ready();
+      const props = () => h.find(node => node.type?.name === 'StudioTeleprompter').props;
+      if (options.speech) { h.button('Ensaiar roteiro com minha voz').onPress(); await h.pump(); }
+      else assert.equal(h.button('Ensaiar roteiro com minha voz').disabled, true);
+      h.button('Começar gravação').onPress(); await h.advance(4000);
+      assert.equal(props().readWordCount, 0); assert.equal(props().playing, false);
+      assert.equal(h.calls.filter(value => value.kind === 'speech-permission').length, options.speech ? 1 : 0);
+      h.button('Encerrar e salvar take').onPress(); await h.pump();
+      h.button('Abrir teleprompter').onPress(); await h.pump();
+      h.button('Usar velocidade fixa').onPress(); await h.pump();
+      h.find(node => node.type === 'sheet-close').props.onPress(); await h.pump();
+      assert.equal(props().mode, 'automatic'); assert.equal(props().playing, false);
+      const scroll = h.find(node => node.type === 'scroll' && node.props.onScrollBeginDrag).props;
+      scroll.onLayout({ nativeEvent: { layout: { height: 100 } } }); scroll.onContentSizeChange(300, 600);
+      h.button('Ativar leitura em velocidade fixa').onPress(); await h.pump(); await h.advance(1000);
+      assert.ok(h.scrolls.at(-1).y > 20 && h.scrolls.at(-1).y < 40);
+      assert.equal(props().readWordCount, 0, 'Timer mode does not pretend words were spoken');
+    } finally { await h.dispose(); }
+  }
+});
+
+test('eventos de layout do roteiro anterior não movem a nova leitura; arrastar pausa a voz sem parar a câmera', async () => {
+  const h = await harness({ speech: true, projectKind: 'short' });
+  try {
+    await h.runtime.store.updateStudioProject('owner', h.current().id, { script: 'Uma conexão interior aparece durante a meditação.' });
+    await h.ready(); h.button('Ensaiar roteiro com minha voz').onPress(); await h.pump();
+    const oldText = h.find(node => node.type === 'text' && node.props.onTextLayout).props;
+    const oldBlock = h.find(node => node.type === 'view' && node.props.onLayout && node.props.children?.props?.onTextLayout).props;
+    await h.runtime.store.updateStudioProject('owner', h.current().id, { script: 'A gratidão transforma nossa conexão interior todos os dias.' });
+    await h.pump();
+    const scroll = () => h.find(node => node.type === 'scroll' && node.props.onScrollBeginDrag).props;
+    scroll().onLayout({ nativeEvent: { layout: { height: 100 } } }); scroll().onContentSizeChange(300, 800);
+    oldBlock.onLayout({ nativeEvent: { layout: { y: 600 } } });
+    oldText.onTextLayout({ nativeEvent: { lines: [{ text: 'Uma conexão interior aparece durante a meditação.', y: 0, height: 32 }] } });
+    await h.speechEvent('A gratidão transforma nossa');
+    assert.equal(h.scrolls.at(-1).y, 0, 'Old block-key0 events cannot supply measurements for a new script');
+    const block = h.find(node => node.type === 'view' && node.props.onLayout && node.props.children?.props?.onTextLayout).props;
+    block.onLayout({ nativeEvent: { layout: { y: 0 } } });
+    const text = h.find(node => node.type === 'text' && node.props.onTextLayout).props;
+    text.onTextLayout({ nativeEvent: { lines: [{ text: 'A gratidão transforma nossa', y: 0, height: 32 }, { text: 'conexão interior todos os dias.', y: 32, height: 32 }] } });
+    assert.equal(h.scrolls.at(-1).y, 32);
+    scroll().onScrollBeginDrag(); await h.pump();
+    assert.equal(h.find(node => node.type === 'native-camera-view').props.speechEnabled, false);
+    assert.equal(h.calls.filter(value => value.kind === 'stop').length, 0);
+  } finally { await h.dispose(); }
 });
 
 test('roteiro ocultado pelo usuário continua oculto durante REC', async () => {

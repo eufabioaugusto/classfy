@@ -13,3 +13,4 @@ xcrun swiftc -swift-version 6 -parse-as-library \
   -o "$studio_capture_directory/verify-capture"
 "$studio_capture_directory/verify-capture"
 bash "$studio_capture_root/tests/verify-capture-audio.sh"
+bash "$studio_capture_root/tests/verify-capture-speech.sh"
