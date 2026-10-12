@@ -1,8 +1,10 @@
 import { inspectStudioMedia } from './media';
 import { studioGrade, type StudioGrade } from '../../../../shared/studio/model';
-import { createStudioCaptureVideoProcessor, studioCaptureGrade, studioCaptureIdentityGrade, studioCaptureVideoControls, type StudioCaptureVideoControls, type StudioCaptureVideoPatch, type StudioCaptureVideoProcessor } from './captureVideo';
+import { createStudioCaptureVideoProcessor, studioCaptureGrade, studioCaptureIdentityGrade, studioCaptureSourceDimensions, studioCaptureVideoControls, type StudioCaptureVideoControls, type StudioCaptureVideoPatch, type StudioCaptureVideoProcessor } from './captureVideo';
 import { createStudioSceneCapture } from './sceneCapture';
 import type { StudioCaptureScene, StudioCaptureScenes, StudioSceneConfigurationPatch } from './sceneTypes';
+import { applyStudioCameraHardware, cloneStudioCameraHardware, StudioCameraHardwareRestoreError } from './cameraHardware';
+import { resumeStudioCaptureAudio } from './audioPreparation';
 export { studioScenesSupport } from './sceneTypes';
 export { getStudioSceneCapabilities } from './sceneCapture';
 export type { StudioCaptureVideoControls, StudioCaptureVideoPatch } from './captureVideo';
@@ -17,6 +19,8 @@ export type StudioCaptureState = {
   microphoneEnabled: boolean; levels: { averageDb: number; peakDb: number }[];
   width?: number; height?: number; frameRate?: number;
   videoControls?: StudioCaptureVideoControls | null;
+  /** Composed output profiles are independent from the physical input. */
+  outputVideo?: { resolutions: { width: number; height: number; label: string }[]; frameRates: number[]; sourceWidth?: number; sourceHeight?: number; sourceFrameRate?: number; scaled?: boolean } | null;
   scenes?: StudioCaptureScenes;
   /** Video-only view of the already authorized camera. Consumers never own or stop its tracks. */
   cameraPreviewStream?: MediaStream | null;
@@ -42,7 +46,7 @@ export function studioAudioLevels(channels: readonly Float32Array[]) {
   });
 }
 export function studioCaptureMime(mode: StudioCaptureMode): string {
-  const candidates = mode === 'audio' ? ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'] : ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  const candidates = mode === 'audio' ? ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'] : ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
   return candidates.find(type => MediaRecorder.isTypeSupported(type)) ?? '';
 }
 type Pipeline = { stream: MediaStream; camera: MediaStreamTrack | null; microphone: MediaStreamTrack | null; display: MediaStream | null; context: AudioContext | null; analyser: AnalyserNode | null; processor: StudioCaptureVideoProcessor | null };
@@ -57,7 +61,8 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId,
   let stopReject: ((reason: unknown) => void) | null = null, candidate: File | null = null;
   let grade: StudioGrade = studioGrade(), digitalZoom = 1;
   let requestedProfile = { width: 1920, height: 1080, frameRate: 30 };
-  const snapshot = () => ({ ...state, videoControls: state.videoControls ? { ...state.videoControls, grade: { ...state.videoControls.grade }, zoom: { ...state.videoControls.zoom }, resolutions: state.videoControls.resolutions.map(value => ({ ...value })), frameRates: [...state.videoControls.frameRates] } : null, levels: state.levels.map(value => ({ ...value })), devices: { cameras: state.devices.cameras.map(value => ({ ...value })), microphones: state.devices.microphones.map(value => ({ ...value })) } });
+  let requestedOutput: { width: number; height: number; frameRate: number; fit: 'cover' | 'contain' } | undefined = mode !== 'audio' && aspectRatio === '9:16' ? { width: 1080, height: 1920, frameRate: 30, fit: mode === 'screen' ? 'contain' : 'cover' } : undefined;
+  const snapshot = () => ({ ...state, outputVideo: state.outputVideo ? { ...state.outputVideo, resolutions: state.outputVideo.resolutions.map(value => ({ ...value })), frameRates: [...state.outputVideo.frameRates] } : null, videoControls: state.videoControls ? { ...state.videoControls, ...(state.videoControls.hardware ? { hardware: cloneStudioCameraHardware(state.videoControls.hardware) } : {}), grade: { ...state.videoControls.grade }, zoom: { ...state.videoControls.zoom }, resolutions: state.videoControls.resolutions.map(value => ({ ...value })), frameRates: [...state.videoControls.frameRates] } : null, levels: state.levels.map(value => ({ ...value })), devices: { cameras: state.devices.cameras.map(value => ({ ...value })), microphones: state.devices.microphones.map(value => ({ ...value })) } });
   const publish = (patch: Partial<StudioCaptureState>) => { if (closed) return; state = { ...state, ...patch }; listeners.forEach(listener => listener(snapshot())); };
   const assert = (expected: number) => { if (closed || expected !== generation) throw new DOMException('Captura cancelada.', 'AbortError'); };
   const closeContext = (context: AudioContext) => { if (!contexts.delete(context)) return; void context.close().catch(() => undefined); };
@@ -66,7 +71,7 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId,
   const stopMeter = () => { if (meterTimer) clearInterval(meterTimer); meterTimer = null; };
   const stopDevices = () => {
     stopMeter(); [...processors].forEach(closeProcessor); [...tracks].forEach(releaseTrack); [...contexts].forEach(closeContext); pipeline = null;
-    publish({ stream: null, input: null, camera: null, levels: [], width: undefined, height: undefined, frameRate: undefined, videoControls: null });
+    publish({ stream: null, input: null, camera: null, levels: [], width: undefined, height: undefined, frameRate: undefined, videoControls: null, outputVideo: null });
   };
   const own = (stream: MediaStream, expected: number) => {
     if (closed || generation !== expected) { new Set(stream.getTracks()).forEach(track => track.stop()); assert(expected); }
@@ -93,13 +98,13 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId,
   };
   const videoConstraints = (id: string | undefined): MediaTrackConstraints => ({ ...(id ? { deviceId: { exact: id } } : { facingMode: { ideal: facing } }), width: { ideal: requestedProfile.width }, height: { ideal: requestedProfile.height }, frameRate: { ideal: requestedProfile.frameRate } });
   const audioConstraints = (id: string | undefined): true | MediaTrackConstraints => id ? { deviceId: { exact: id }, echoCancellation: true } : true;
-  const prepareProcessor = async (camera: MediaStreamTrack, expected: number, nextGrade = grade, nextZoom = digitalZoom) => {
+  const prepareProcessor = async (camera: MediaStreamTrack, expected: number, nextGrade = grade, nextZoom = digitalZoom, output = requestedOutput) => {
     const hardware = studioCaptureVideoControls(camera, null).zoom.mode === 'hardware';
     const processor = createStudioCaptureVideoProcessor(camera, nextGrade, hardware ? 1 : nextZoom, error => {
       if (pipeline?.processor !== processor || closed) return;
       notice = error.message; if (state.phase === 'recording') void controller.stop().catch(() => undefined);
       else { generation++; enumeration++; stopDevices(); publish({ phase: 'error', error: error.message }); }
-    });
+    }, output);
     if (processor) { processors.add(processor); own(processor.stream, expected); await processor.prepare(); assert(expected); }
     else if (!studioCaptureIdentityGrade(nextGrade)) throw new Error('Este navegador não oferece processamento de cor na câmera.');
     return processor;
@@ -108,18 +113,19 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId,
     if (microphone) microphone.enabled = state.microphoneEnabled;
     let context: AudioContext | null = null, analyser: AnalyserNode | null = null;
     if (microphone || display?.getAudioTracks().length) {
-      context = new AudioContext(); contexts.add(context); await context.resume(); assert(expected);
+      context = new AudioContext(); contexts.add(context); await resumeStudioCaptureAudio(context, () => assert(expected)); assert(expected);
       // Meter the named physical mic before mixing display audio. Disabling its
       // track yields silence; display audio can continue without false mic peaks.
       if (microphone) { analyser = context.createAnalyser(); analyser.fftSize = 2048; context.createMediaStreamSource(new MediaStream([microphone])).connect(analyser); }
     }
-    const processor = camera ? pipeline?.camera === camera ? pipeline.processor : await prepareProcessor(camera, expected, grade, nextZoom) : null;
+    const processor = camera ? pipeline?.camera === camera ? pipeline.processor : await prepareProcessor(camera, expected, grade, nextZoom)
+      : display && requestedOutput ? pipeline?.display === display ? pipeline.processor : await prepareProcessor(display.getVideoTracks()[0], expected, studioGrade(), 1) : null;
     let stream: MediaStream;
     if (display) {
       const destination = context!.createMediaStreamDestination();
       if (display.getAudioTracks().length) context!.createMediaStreamSource(display).connect(destination);
       if (microphone) context!.createMediaStreamSource(new MediaStream([microphone])).connect(destination);
-      stream = own(new MediaStream([...display.getVideoTracks(), ...destination.stream.getAudioTracks()]), expected);
+      stream = own(new MediaStream([...(processor ? processor.stream.getVideoTracks() : display.getVideoTracks()), ...destination.stream.getAudioTracks()]), expected);
     } else stream = own(new MediaStream([...(processor ? processor.stream.getVideoTracks() : camera ? [camera] : []), ...(microphone ? [microphone] : [])]), expected);
     assert(expected); return { stream, camera, microphone, display, context, analyser, processor };
   };
@@ -144,9 +150,16 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId,
       track.onmute = () => { if (!tracks.has(track)) return; if (track.readyState === 'ended') interrupt(); else if (track === pipeline?.microphone) meter(); };
       track.onunmute = () => { if (tracks.has(track) && track === pipeline?.microphone) meter(); };
     });
-    const settings = next.camera?.getSettings() ?? next.display?.getVideoTracks()[0]?.getSettings();
-    next.processor?.setVisible(document.visibilityState !== 'hidden');
-    publish({ phase: 'ready', stream: next.stream, input: inputIdentity(next.microphone, 'Microfone autorizado'), camera: inputIdentity(next.camera, 'Câmera autorizada'), width: settings?.width, height: settings?.height, frameRate: settings?.frameRate, videoControls: next.camera ? studioCaptureVideoControls(next.camera, next.processor, grade, digitalZoom) : null, levels: [], error: null });
+    const settings = next.camera?.getSettings() ?? next.display?.getVideoTracks()[0]?.getSettings(), output = next.processor?.profile ?? settings;
+    next.processor?.setVisible(mode === 'screen' || document.visibilityState !== 'hidden');
+    const sourceWidth = settings?.width, sourceHeight = settings?.height, sourceFrameRate = settings?.frameRate;
+    const controls = next.camera ? studioCaptureVideoControls(next.camera, next.processor, grade, digitalZoom) : null;
+    const outputVideo = typeof HTMLCanvasElement !== 'undefined' && HTMLCanvasElement.prototype.captureStream && (next.camera || next.display) ? {
+      resolutions: [720,1080,1440,2160].map(short => ({ width: aspectRatio === '9:16' ? short : short * 16 / 9, height: aspectRatio === '9:16' ? short * 16 / 9 : short, label: short === 1440 ? '2K' : short === 2160 ? '4K' : `${short}p` })),
+      frameRates: controls?.frameRates ?? (sourceFrameRate ? [sourceFrameRate] : []), sourceWidth, sourceHeight, sourceFrameRate,
+      scaled: !!(output?.width && output.height && sourceWidth && sourceHeight && (mode === 'screen' ? Math.min(output.width / sourceWidth, output.height / sourceHeight) : Math.max(output.width / sourceWidth, output.height / sourceHeight) * (controls?.zoom.mode === 'digital' ? digitalZoom : 1)) > 1.001),
+    } : null;
+    publish({ phase: 'ready', stream: next.stream, input: inputIdentity(next.microphone, 'Microfone autorizado'), camera: inputIdentity(next.camera, 'Câmera autorizada'), width: output?.width, height: output?.height, frameRate: output?.frameRate, videoControls: controls, outputVideo, levels: [], error: null });
     meterTimer = setInterval(() => { if (!closed && expected === generation) meter(); }, 100);
     authorized = true; void refreshDevices();
   };
@@ -202,8 +215,61 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId,
     },
     async configureVideo(patch) {
       assertCanSelect();
+      if (patch.output) {
+        if (state.phase !== 'ready' || !pipeline || mode === 'audio' || Object.keys(patch).some(key => key !== 'output')) throw new Error('Escolha a resolução antes de gravar, separadamente dos controles de imagem.');
+        const { width, height } = patch.output, original = pipeline, source = original.camera ?? original.display?.getVideoTracks()[0];
+        if (!source || !state.outputVideo?.resolutions.some(value => value.width === width && value.height === height)) throw new Error('Escolha 720p, 1080p, 2K ou 4K no formato da gravação.');
+        const settings = source.getSettings(), frameRate = patch.output.frameRate ?? settings.frameRate ?? 30;
+        if (![24,30,60].includes(frameRate) && frameRate !== settings.frameRate) throw new Error('Escolha uma cadência disponível para a fonte.');
+        const expected = ++generation, constraints = source.getConstraints?.() ?? {}, originalTracks = new Set(tracks), originalProcessors = new Set(processors);
+        enumeration++; stopMeter(); publish({ phase: 'preparing', error: null });
+        let changedSource = false;
+        const restoreSource = async () => {
+          if (!changedSource) return;
+          assert(expected);
+          await source.applyConstraints({ ...constraints, ...(settings.width ? { width: { exact: settings.width } } : {}), ...(settings.height ? { height: { exact: settings.height } } : {}), ...(settings.frameRate ? { frameRate: { exact: settings.frameRate } } : {}) }); assert(expected);
+          const restored = source.getSettings();
+          if (restored.width !== settings.width || restored.height !== settings.height || Math.abs((restored.frameRate ?? 0) - (settings.frameRate ?? 0)) > .1) throw new Error('A entrada não recuperou o perfil anterior.');
+          changedSource = false;
+        };
+        try {
+          // Screen size is controlled by its owner. Camera negotiation is optional;
+          // a larger composed file remains visibly marked as scaled when denied.
+          if (original.camera && source.applyConstraints) {
+            const target = studioCaptureSourceDimensions(settings, width, height), targetWidth = target.width, targetHeight = target.height;
+            try {
+              changedSource = true;
+              await source.applyConstraints({ ...constraints, width: { exact: targetWidth }, height: { exact: targetHeight }, frameRate: { exact: frameRate } }); assert(expected);
+              const ack = source.getSettings();
+              if (ack.width !== targetWidth || ack.height !== targetHeight || Math.abs((ack.frameRate ?? 0) - frameRate) > .1) throw new Error('A câmera não confirmou o formato de entrada.');
+            } catch (error) { assert(expected); await restoreSource(); if (frameRate > (settings.frameRate ?? 0) + .1) throw error; }
+          }
+          const output = { width, height, frameRate, fit: mode === 'screen' ? 'contain' as const : 'cover' as const };
+          const processor = await prepareProcessor(source, expected, original.camera ? grade : studioGrade(), original.camera && state.videoControls?.zoom.mode === 'digital' ? digitalZoom : 1, output);
+          if (!processor) throw new Error('Este navegador não oferece composição nessa resolução.');
+          const stream = own(new MediaStream([...processor.stream.getVideoTracks(), ...original.stream.getAudioTracks()]), expected); assert(expected);
+          requestedOutput = output;
+          if (original.camera && changedSource) { const confirmed = source.getSettings(); requestedProfile = { width: confirmed.width!, height: confirmed.height!, frameRate: confirmed.frameRate! }; }
+          install({ ...original, stream, processor }, expected);
+        } catch (error) {
+          if (!closed && expected === generation) {
+            [...processors].forEach(value => { if (!originalProcessors.has(value)) closeProcessor(value); }); [...tracks].forEach(value => { if (!originalTracks.has(value)) releaseTrack(value); });
+            try { await restoreSource(); assert(expected); install(original, expected); publish({ error: captureError(error) }); }
+            catch (restoreError) { if (!closed && expected === generation) { stopDevices(); publish({ phase: 'error', error: `Ative a captura novamente. ${captureError(restoreError)}` }); } }
+          }
+          throw friendlyError(error);
+        }
+        return;
+      }
       if (mode !== 'camera' || state.phase !== 'ready' || !pipeline?.camera || !state.videoControls) throw new Error('Ative a câmera antes de ajustar a imagem.');
       const original = pipeline, camera = original.camera!, controls = state.videoControls;
+      if (patch.hardware) {
+        if (Object.keys(patch).some(key => key !== 'hardware')) throw new Error('Ajuste os controles da câmera separadamente da resolução e dos filtros.');
+        const expected = ++generation; enumeration++; stopMeter(); publish({ phase: 'preparing', error: null, videoControls: { ...controls, busy: true } });
+        try { await applyStudioCameraHardware(camera, patch.hardware, () => assert(expected)); assert(expected); install(original, expected); }
+        catch (error) { if (!closed && expected === generation) { if (error instanceof StudioCameraHardwareRestoreError) { stopDevices(); publish({ phase: 'error', error: captureError(error) }); } else { install(original, expected); publish({ error: captureError(error) }); } } throw friendlyError(error); }
+        return;
+      }
       const nextGrade = studioCaptureGrade(grade, patch.grade), zoom = patch.zoom ?? controls.zoom.value;
       if (!Number.isFinite(zoom) || zoom < controls.zoom.min || zoom > controls.zoom.max) throw new Error('O zoom está fora dos limites desta câmera.');
       if (!controls.effects && !studioCaptureIdentityGrade(nextGrade)) throw new Error('Este navegador não oferece processamento de cor na câmera.');
@@ -216,7 +282,7 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId,
       if (!resize && !hardwareZoom) {
         original.processor?.configure(nextGrade, controls.zoom.mode === 'digital' ? zoom : 1);
         grade = nextGrade; if (controls.zoom.mode === 'digital') digitalZoom = zoom;
-        publish({ videoControls: studioCaptureVideoControls(camera, original.processor, grade, digitalZoom), error: null }); return;
+        install(original, generation); return;
       }
       if (!camera.applyConstraints) throw new Error('Este navegador não permite ajustar o perfil da câmera.');
       const expected = ++generation, originalConstraints = camera.getConstraints?.() ?? {}, originalTracks = new Set(tracks), originalProcessors = new Set(processors);

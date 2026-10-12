@@ -88,6 +88,13 @@
 .se-recording-stage.podcast { background: radial-gradient(ellipse at 50% 45%, #252030, #111116 56%, #08090b); }
 .se-recording-stage-header { position: absolute; z-index: 2; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px 18px 30px; background: linear-gradient(#050608bd, #05060865 68%, transparent); pointer-events: none; }
 .se-recording-stage-header button { pointer-events: auto; }
+.se-recording-quality { display: flex; align-items: center; gap: 5px; flex: none; }
+.se-recording-quality button { display: grid; justify-items: center; align-content: center; gap: 3px; min-width: 58px; min-height: 44px; padding: 7px 10px; border: 1px solid #ffffff24; border-radius: 10px; color: #f3f3f6; background: #121318b8; font-variant-numeric: tabular-nums; }
+.se-recording-quality strong { font-size: 13px; font-weight: 600; line-height: 1; }
+.se-recording-quality small { color: #b5b3bd; font-size: 6px; letter-spacing: .1em; }
+.se-recording-quality button:hover:not(:disabled) { background: #3a2632e6; border-color: #ed6c86; }
+.se-recording-quality button:focus-visible { outline: 2px solid #ed6c86; outline-offset: 3px; }
+.se-recording-quality button:disabled { opacity: .75; cursor: default; }
 .se-recording-stage-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .se-recording-stage-brand img { width: 18px; height: 23px; }
 .se-recording-stage-brand > div { min-width: 0; }
@@ -246,6 +253,13 @@
   .is-recording .se-recording-controls { min-height: 86px; }
   .is-recording .se-recording-record-control { justify-content: center; }
 }
+.se-recorder { --sr-ink: #f6f5f7; --sr-muted: #92939e; --sr-line: #28292f; --sr-accent: #ec3659; color-scheme: dark; }
+.se-recorder button { color: inherit; font: inherit; cursor: pointer; }
+.se-recorder button:disabled { cursor: default; opacity: .5; }
+.se-recorder-header, .se-recorder-header-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.se-recorder-header { flex-wrap: wrap; }
+.se-recorder-header-actions { margin-left: auto; }
+.se-recorder .se-recording-tools { top: 12px; bottom: 12px; right: 12px; }
 @media (max-height: 540px) and (min-width: 701px) {
   .se-recording-controls { min-height: 74px; padding-block: 8px; }
   .se-recording-permission, .se-recording-recovery { max-height: calc(100% - 82px); padding-block: 8px; }
@@ -281,6 +295,11 @@
 .se-recording-filters i.studio { filter: contrast(1.15) saturate(1.05) brightness(1.12); }
 .se-recording-filters i.cinematic { filter: contrast(1.3) saturate(.8); }
 .se-recording-tools-note { color: #979ba8; font-size: 10px; line-height: 1.6; margin: 0; }
+.se-recording-hardware { display: grid; gap: 20px; padding: 15px 13px; border: 1px solid #4d48523b; border-radius: 11px; background: #2020264d; }
+.se-recording-hardware > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.se-recording-hardware h3, .se-recording-image-heading h3 { margin: 0; color: #f0e9ef; font-size: 12px; font-weight: 550; }
+.se-recording-hardware header small { color: #e7adc5; font-size: 7px; letter-spacing: .13em; }
+.se-recording-image-heading p { margin: 6px 0 0; color: #979ba8; font-size: 10px; line-height: 1.5; }
 .se-recording-tool-select { display: grid; gap: 10px; font-size: 11px; }
 .se-recording-tool-select > span, .se-recording-tool-toggle > span { display: flex; align-items: center; gap: 8px; }
 .se-recording-tool-select select { background: #202129; border: 1px solid #363841; border-radius: 9px; color: #eeeef3; padding: 11px 12px; width: 100%; font: inherit; }
@@ -324,3 +343,11 @@
 .se-recording-quick-tools span { position: absolute; right: -8px; bottom: -3px; padding: 2px 4px; border: 1px solid #ffffff24; border-radius: 5px; background: #14161ce8; font-size: 9px; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .se-recording-quick-tools button:hover:not(:disabled) { background: #333541d9; }
 @media (max-width: 700px) { .se-recording-quick-tools { left: 10px; gap: 10px; } .se-recording-quick-tools button { width: 42px; height: 42px; min-width: 42px; min-height: 42px; flex-basis: 42px; padding: 0; } }
+@media (max-width: 700px) {
+  .se-recording-stage-header:has(.se-recording-quality) { gap: 8px; }
+  .se-recording-stage-header:has(.se-recording-quality) .se-recording-stage-brand { flex: 1; }
+  .se-recording-stage-header:has(.se-recording-quality) .se-recording-stage-actions { margin-left: auto; }
+  .se-recording-stage-header:has(.se-recording-quality) .se-recording-save-state { display: none; }
+  .se-recording-quality button { min-width: 48px; padding-inline: 8px; }
+  .se-recording-quality strong { font-size: 12px; }
+}

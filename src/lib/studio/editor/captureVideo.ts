@@ -1,16 +1,23 @@
 import { studioGrade, validateStudioGrade, type StudioGrade } from '../../../../shared/studio/model';
+import { studioCameraHardwareControls, type StudioCameraHardwareControls, type StudioCameraHardwarePatch } from './cameraHardware';
 
 export type StudioCaptureVideoControls = {
   busy: boolean; processed: boolean; effects: boolean; grade: StudioGrade;
   zoom: { mode: 'hardware' | 'digital' | 'none'; min: number; max: number; step: number; value: number };
   resolutions: { width: number; height: number; label: string }[]; frameRates: number[];
+  hardware?: StudioCameraHardwareControls;
 };
-export type StudioCaptureVideoPatch = { zoom?: number; grade?: Partial<StudioGrade>; width?: number; height?: number; frameRate?: number };
+export type StudioCaptureVideoPatch = { zoom?: number; grade?: Partial<StudioGrade>; width?: number; height?: number; frameRate?: number; hardware?: StudioCameraHardwarePatch; output?: { width: number; height: number; frameRate?: number } };
 type ZoomCapabilities = MediaTrackCapabilities & { zoom?: { min: number; max: number; step?: number } };
 export function studioCaptureGrade(previous: StudioGrade, patch?: Partial<StudioGrade>): StudioGrade {
   const next = { ...previous, ...patch }; if (validateStudioGrade(next).length) throw new Error('Os ajustes de imagem estão fora dos limites.'); return next;
 }
 export function studioCaptureIdentityGrade(grade: StudioGrade) { return grade.intensity === 0 || grade.preset === 'natural' && grade.exposure === 0 && grade.contrast === 0 && grade.saturation === 0 && grade.temperature === 0; }
+/** Source orientation is a device property, independent of the recording canvas orientation. */
+export function studioCaptureSourceDimensions(settings: Pick<MediaTrackSettings, 'width' | 'height'>, width: number, height: number) {
+  const short = Math.min(width, height), long = Math.max(width, height);
+  return settings.width && settings.height && settings.width < settings.height ? { width: short, height: long } : { width: long, height: short };
+}
 export function studioCaptureVideoControls(track: MediaStreamTrack, processor: StudioCaptureVideoProcessor | null, grade = studioGrade(), digitalZoom = 1): StudioCaptureVideoControls {
   const settings = track.getSettings() as MediaTrackSettings & { zoom?: number }; let caps: ZoomCapabilities = {};
   try { caps = track.getCapabilities?.() ?? {}; } catch { /* Only expose the confirmed current profile when capabilities are unavailable. */ }
@@ -20,7 +27,7 @@ export function studioCaptureVideoControls(track: MediaStreamTrack, processor: S
   const frameRates = [24, 30, 60].filter(value => inRange(value, caps.frameRate));
   if (settings.frameRate && !frameRates.some(value => Math.abs(value - settings.frameRate!) < .01)) frameRates.unshift(settings.frameRate);
   const hardware = caps.zoom && Number.isFinite(settings.zoom) && Number.isFinite(caps.zoom.min) && Number.isFinite(caps.zoom.max) && caps.zoom.min > 0 && caps.zoom.max > caps.zoom.min;
-  return { busy: false, processed: !!processor, effects: !!processor?.effects, grade: { ...grade }, resolutions, frameRates,
+  return { busy: false, processed: !!processor, effects: !!processor?.effects, grade: { ...grade }, resolutions, frameRates, hardware: studioCameraHardwareControls(track),
     zoom: hardware ? { mode: 'hardware', min: caps.zoom!.min, max: caps.zoom!.max, step: caps.zoom!.step || .01, value: settings.zoom! }
       : processor ? { mode: 'digital', min: 1, max: 4, step: .01, value: digitalZoom } : { mode: 'none', min: 1, max: 1, step: 1, value: 1 } };
 }
@@ -30,14 +37,16 @@ export function studioCaptureCrop(width: number, height: number, zoom: number) {
 }
 export type StudioCaptureVideoProcessor = {
   readonly stream: MediaStream; readonly effects: boolean;
+  readonly profile?: { width: number; height: number; frameRate: number };
   prepare(): Promise<void>; configure(grade: StudioGrade, zoom: number): void;
   setVisible(visible: boolean): void; dispose(): void;
 };
 /** A private video feeds one bounded GPU surface; the exact output track is used by both preview and MediaRecorder. */
-export function createStudioCaptureVideoProcessor(track: MediaStreamTrack, grade: StudioGrade, zoom: number, onError: (error: Error) => void): StudioCaptureVideoProcessor | null {
+export function createStudioCaptureVideoProcessor(track: MediaStreamTrack, grade: StudioGrade, zoom: number, onError: (error: Error) => void, output?: { width: number; height: number; frameRate: number; fit?: 'cover' | 'contain' }): StudioCaptureVideoProcessor | null {
   if (typeof HTMLCanvasElement === 'undefined' || !HTMLCanvasElement.prototype.captureStream) return null;
   const settings = track.getSettings(), canvas = document.createElement('canvas');
-  canvas.width = settings.width || 1920; canvas.height = settings.height || 1080;
+  canvas.width = output?.width ?? settings.width ?? 1920; canvas.height = output?.height ?? settings.height ?? 1080;
+  const frameRate = output?.frameRate ?? settings.frameRate ?? 30;
   const video = document.createElement('video'); video.muted = true; video.playsInline = true; video.autoplay = true;
   video.setAttribute('aria-hidden', 'true'); video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:0;top:0';
   video.srcObject = new MediaStream([track]); document.body.appendChild(video);
@@ -49,11 +58,11 @@ export function createStudioCaptureVideoProcessor(track: MediaStreamTrack, grade
       const compile = (type: number, source: string) => { const shader = gl!.createShader(type); if (!shader) throw new Error('GPU indisponível.'); shaders.push(shader); gl!.shaderSource(shader, source); gl!.compileShader(shader); if (!gl!.getShaderParameter(shader, gl!.COMPILE_STATUS)) throw new Error('O navegador não compilou o tratamento de imagem.'); return shader; };
       program = gl.createProgram(); if (!program) throw new Error('GPU indisponível.');
       gl.attachShader(program, compile(gl.VERTEX_SHADER, 'attribute vec2 p; varying vec2 uv; void main(){uv=vec2((p.x+1.)*.5,(1.-p.y)*.5);gl_Position=vec4(p,0.,1.);}'));
-      gl.attachShader(program, compile(gl.FRAGMENT_SHADER, `precision highp float; varying vec2 uv; uniform sampler2D image; uniform float zoom,intensity,exposure,contrast,saturation,temperature,preset;
+      gl.attachShader(program, compile(gl.FRAGMENT_SHADER, `precision highp float; varying vec2 uv; uniform sampler2D image; uniform float zoom,intensity,exposure,contrast,saturation,temperature,preset,sourceAspect,outputAspect,contain;
         float tone(float v){float t=clamp(v,0.,1.)*4.;float i=floor(min(3.,t));vec4 a=vec4(0.,.25,.5,.75);vec4 b=vec4(.25,.5,.75,1.);
         if(preset>1.5){a=vec4(.012,.235,.495,.745);b=vec4(.235,.495,.745,.985);}else if(preset>.5){a=vec4(0.,.235,.505,.765);b=vec4(.235,.505,.765,1.);}
         float lo=i<.5?a.x:i<1.5?a.y:i<2.5?a.z:a.w;float hi=i<.5?b.x:i<1.5?b.y:i<2.5?b.z:b.w;return mix(lo,hi,t-i);}
-        void main(){vec4 c=texture2D(image,(uv-.5)/zoom+.5);vec3 e=c.rgb*pow(2.,exposure)*vec3(1.+temperature*.08,1.,1.-temperature*.08);e=vec3(tone(e.r),tone(e.g),tone(e.b));float l=dot(e,vec3(.2126,.7152,.0722));e=vec3(l)+(e-vec3(l))*((preset>1.5?.96:1.)+saturation*.4);e=(e-.5)*(1.+contrast*.25)+.5;gl_FragColor=vec4(clamp(mix(c.rgb,e,intensity),0.,1.),1.);}`));
+        void main(){vec2 pos=uv;if(contain>.5){if(sourceAspect>outputAspect){pos.y=(uv.y-.5)*sourceAspect/outputAspect+.5;}else{pos.x=(uv.x-.5)*outputAspect/sourceAspect+.5;}if(pos.x<0.||pos.x>1.||pos.y<0.||pos.y>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}}else{if(sourceAspect>outputAspect){pos.x=(uv.x-.5)*outputAspect/sourceAspect+.5;}else{pos.y=(uv.y-.5)*sourceAspect/outputAspect+.5;}}vec4 c=texture2D(image,(pos-.5)/zoom+.5);vec3 e=c.rgb*pow(2.,exposure)*vec3(1.+temperature*.08,1.,1.-temperature*.08);e=vec3(tone(e.r),tone(e.g),tone(e.b));float l=dot(e,vec3(.2126,.7152,.0722));e=vec3(l)+(e-vec3(l))*((preset>1.5?.96:1.)+saturation*.4);e=(e-.5)*(1.+contrast*.25)+.5;gl_FragColor=vec4(clamp(mix(c.rgb,e,intensity),0.,1.),1.);}`));
       gl.linkProgram(program); if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error('GPU indisponível.'); gl.useProgram(program);
       vertices = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vertices); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
       const p = gl.getAttribLocation(program, 'p'); gl.enableVertexAttribArray(p); gl.vertexAttribPointer(p, 2, gl.FLOAT, false, 0, 0);
@@ -69,7 +78,7 @@ export function createStudioCaptureVideoProcessor(track: MediaStreamTrack, grade
   const context = gl ? null : surface.getContext('2d');
   if (!gl && !context) { video.srcObject = null; video.remove(); return null; }
   let stream: MediaStream;
-  try { stream = surface.captureStream(Math.max(1, Math.min(60, settings.frameRate || 30))); }
+  try { stream = surface.captureStream(Math.max(1, Math.min(60, frameRate))); }
   catch (error) { video.srcObject = null; video.remove(); gl?.getExtension('WEBGL_lose_context')?.loseContext(); throw error; }
   let disposed = false, visible = document.visibilityState !== 'hidden', raf: number | null = null, videoFrame: number | null = null, lastFrame = -Infinity, failure = false;
   let currentGrade = { ...grade }, currentZoom = zoom, firstResolve: (() => void) | null = null, firstReject: ((error: Error) => void) | null = null;
@@ -85,10 +94,18 @@ export function createStudioCaptureVideoProcessor(track: MediaStreamTrack, grade
     if (disposed || video.readyState < 2) return false;
     if (gl && program) {
       gl.viewport(0, 0, surface.width, surface.height); gl.useProgram(program); gl.bindTexture(gl.TEXTURE_2D, texture); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
-      for (const [name, value] of Object.entries({ zoom: currentZoom, intensity: currentGrade.intensity, exposure: currentGrade.exposure, contrast: currentGrade.contrast, saturation: currentGrade.saturation, temperature: currentGrade.temperature, preset: currentGrade.preset === 'cinematic' ? 2 : currentGrade.preset === 'studio' ? 1 : 0 })) gl.uniform1f(gl.getUniformLocation(program, name), value);
+      for (const [name, value] of Object.entries({ zoom: currentZoom, intensity: currentGrade.intensity, exposure: currentGrade.exposure, contrast: currentGrade.contrast, saturation: currentGrade.saturation, temperature: currentGrade.temperature, preset: currentGrade.preset === 'cinematic' ? 2 : currentGrade.preset === 'studio' ? 1 : 0, sourceAspect: (video.videoWidth || settings.width || 1920) / (video.videoHeight || settings.height || 1080), outputAspect: surface.width / surface.height, contain: output?.fit === 'contain' ? 1 : 0 })) gl.uniform1f(gl.getUniformLocation(program, name), value);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); if (gl.isContextLost()) throw new Error('O processamento da câmera foi interrompido. O trecho capturado será preservado.');
     } else {
-      const crop = studioCaptureCrop(video.videoWidth || surface.width, video.videoHeight || surface.height, currentZoom); context!.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, surface.width, surface.height);
+      const sourceWidth = video.videoWidth || surface.width, sourceHeight = video.videoHeight || surface.height;
+      if (output?.fit === 'contain') {
+        const scale = Math.min(surface.width / sourceWidth, surface.height / sourceHeight), width = sourceWidth * scale, height = sourceHeight * scale;
+        context!.fillStyle = '#000000'; context!.fillRect(0, 0, surface.width, surface.height); context!.drawImage(video, 0, 0, sourceWidth, sourceHeight, (surface.width - width) / 2, (surface.height - height) / 2, width, height);
+      } else {
+        const sourceAspect = sourceWidth / sourceHeight, outputAspect = surface.width / surface.height;
+        const width = sourceAspect > outputAspect ? sourceHeight * outputAspect : sourceWidth, height = sourceAspect > outputAspect ? sourceHeight : sourceWidth / outputAspect;
+        const crop = studioCaptureCrop(width, height, currentZoom); context!.drawImage(video, (sourceWidth - width) / 2 + crop.x, (sourceHeight - height) / 2 + crop.y, crop.width, crop.height, 0, 0, surface.width, surface.height);
+      }
     }
     (stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined)?.requestFrame?.();
     firstResolve?.(); firstResolve = null; firstReject = null; if (timeout) clearTimeout(timeout); timeout = null; return true;
@@ -97,7 +114,7 @@ export function createStudioCaptureVideoProcessor(track: MediaStreamTrack, grade
     if (disposed || failure || !visible) return;
     const tick = (now: number) => {
       raf = null; videoFrame = null; if (disposed || !visible) return;
-      try { if (now - lastFrame >= 1000 / Math.min(60, settings.frameRate || 30) - 1 && draw()) lastFrame = now; }
+      try { if (now - lastFrame >= 1000 / Math.min(60, frameRate) - 1 && draw()) lastFrame = now; }
       catch (error) { failure = true; const value = error instanceof Error ? error : new Error('O processamento da câmera falhou.'); firstReject?.(value); firstResolve = null; firstReject = null; onError(value); return; }
       schedule();
     };
@@ -105,7 +122,7 @@ export function createStudioCaptureVideoProcessor(track: MediaStreamTrack, grade
   };
   const unschedule = () => { if (raf !== null) cancelAnimationFrame(raf); if (videoFrame !== null) video.cancelVideoFrameCallback?.(videoFrame); raf = null; videoFrame = null; };
   return {
-    stream, effects,
+    stream, effects, ...(output ? { profile: { width: output.width, height: output.height, frameRate } } : {}),
     async prepare() {
       assertGrade(currentGrade); if (disposed) throw new DOMException('Captura cancelada.', 'AbortError');
       await video.play(); if (disposed) throw new DOMException('Captura cancelada.', 'AbortError');
