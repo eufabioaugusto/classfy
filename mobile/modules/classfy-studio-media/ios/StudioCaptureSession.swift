@@ -70,6 +70,11 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   var onEvent: ((String, [String: Any]) -> Void)?
   private var frameCallback: ((CVPixelBuffer, Int, Bool) -> Void)?
+  private var remoteFrameCallback: ((CVPixelBuffer, CMTime) -> Void)?
+  var onRemoteFrame: ((CVPixelBuffer, CMTime) -> Void)? {
+    get { frameLock.lock(); defer { frameLock.unlock() }; return remoteFrameCallback }
+    set { frameLock.lock(); remoteFrameCallback = newValue; frameLock.unlock() }
+  }
   var onFrame: ((CVPixelBuffer, Int, Bool) -> Void)? {
     get { frameLock.lock(); defer { frameLock.unlock() }; return frameCallback }
     set { frameLock.lock(); frameCallback = newValue; frameLock.unlock() }
@@ -464,7 +469,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   private func emitState() { if let state = try? snapshot() { emit("onState", state) } }
 
-  func startRecording(_ operationId: String, completion: @escaping Completion) {
+  func startRecording(_ operationId: String, durableOwner: String? = nil, durableSession: String? = nil, completion: @escaping Completion) {
     queue.async {
       do {
         guard self.active, !self.disposed, self.session.isRunning, !self.session.isInterrupted else {
@@ -474,11 +479,19 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         guard !self.proUnconfirmed else { throw StudioCaptureError.unavailable("Confirme os ajustes PRO ou retorne ao automático antes de gravar.") }
         guard !operationId.isEmpty, operationId.count <= 128 else { throw StudioCaptureError.invalid("A identificação do take é inválida.") }
         try self.requirePermissions()
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("classfy-studio-capture", isDirectory: true)
+        let durable = durableOwner != nil || durableSession != nil
+        var directory = FileManager.default.temporaryDirectory.appendingPathComponent("classfy-studio-capture", isDirectory: true)
+        if durable {
+          guard let owner = durableOwner, let session = durableSession, UUID(uuidString: owner) != nil,
+            UUID(uuidString: session) != nil, UUID(uuidString: operationId) != nil else { throw StudioCaptureError.invalid("A identificação da câmera remota não é válida.") }
+          directory = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("classfy-studio-remote", isDirectory: true).appendingPathComponent(owner, isDirectory: true).appendingPathComponent(session, isDirectory: true)
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appendingPathComponent("\(UUID().uuidString).mov")
+        let file = directory.appendingPathComponent("\(durable ? operationId : UUID().uuidString).mov")
+        guard !FileManager.default.fileExists(atPath: file.path) else { throw StudioCaptureError.invalid("Este take já possui um original. Recupere o arquivo antes de gravar novamente.") }
         let operation = StudioCaptureOperation(id: operationId, fileURL: file, generation: self.generation,
-          sourceKind: self.configuration.cinematic ? "cinematic" : "standard", completion: completion)
+          sourceKind: self.configuration.cinematic ? "cinematic" : "standard", durableSource: durable, completion: completion)
         self.operation = operation; self.recordingRetention = self
         self.emit("onRecordingState", ["phase": "preparing", "operationId": operation.id])
         self.movie.startRecording(to: file, recordingDelegate: self)
@@ -522,10 +535,11 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL,
                   from connections: [AVCaptureConnection]) {
+    let startedAtEpochMs = Date().timeIntervalSince1970 * 1000
     queue.async {
       guard let operation = self.operation, operation.fileURL == fileURL, !operation.settled else { return }
       let stop = operation.didStart()
-      self.emit("onRecordingState", ["phase": operation.phase.rawValue, "operationId": operation.id])
+      self.emit("onRecordingState", ["phase": operation.phase.rawValue, "operationId": operation.id, "startedAtEpochMs": startedAtEpochMs])
       if stop || !self.active || self.disposed { self.stopOwned(operation) }
     }
   }
@@ -563,7 +577,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
             "colorPrimaries": extensions?[kCMFormatDescriptionExtension_ColorPrimaries] as? String ?? "unknown",
             "transferFunction": extensions?[kCMFormatDescriptionExtension_TransferFunction] as? String ?? "unknown",
             "yCbCrMatrix": extensions?[kCMFormatDescriptionExtension_YCbCrMatrix] as? String ?? "unknown"]
-          if encodedURL != fileURL { try? FileManager.default.removeItem(at: fileURL) }
+          if encodedURL != fileURL && !operation.durableSource { try? FileManager.default.removeItem(at: fileURL) }
           self.queue.async { self.settle(operation, .success(result)) }
         } catch { self.queue.async { self.settle(operation, .failure(error)) } }
       }
@@ -687,7 +701,9 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     frameLock.lock()
     let token = frameGeneration; let cinematic = frameIsCinematic
     let callback = frameEnabled ? frameCallback : nil
+    let remote = frameEnabled ? remoteFrameCallback : nil
     frameLock.unlock()
+    remote?(buffer, CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
     callback?(buffer, token, cinematic)
   }
 

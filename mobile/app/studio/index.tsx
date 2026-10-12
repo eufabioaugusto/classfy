@@ -321,6 +321,10 @@ export default function StudioScreen() {
       {searchVisible ? <View style={styles.search}><Search size={17} color={colors.muted} strokeWidth={1.6} /><TextInput autoFocus accessibilityLabel="Buscar projetos" value={query} onChangeText={setQuery} placeholder="Buscar projetos" placeholderTextColor={colors.mutedDim} style={styles.searchInput} returnKeyType="search" autoCorrect={false} onSubmitEditing={Keyboard.dismiss} />{!!query && <Pressable accessibilityRole="button" accessibilityLabel="Limpar busca de projetos" onPress={() => setQuery('')} style={styles.clearSearch}><X size={17} color={colors.muted} /></Pressable>}</View> : null}
       <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 108 }}>
         <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Conectar iPhone ao computador" disabled={busy} onPress={()=>{if(canInteract())router.push('/studio/remote-camera');}}
+            style={{minHeight:54,borderRadius:16,padding:14,marginBottom:12,backgroundColor:'#24121A',flexDirection:'row',alignItems:'center',gap:10}}>
+            <Camera size={20} color={colors.accent}/><View style={{flex:1}}><Text style={{color:colors.text,fontWeight:'600'}}>Conectar ao computador</Text><Text style={{color:colors.muted,fontSize:12,marginTop:3}}>Câmera iPhone · Premium</Text></View><ChevronRight size={18} color={colors.muted}/>
+          </Pressable>
           <StudioIdeasCard key={user?.id} active={isFocused && canPublish && !loading && !!user?.id}
             disabled={recovering || !!workspaceAction || loading || !!error || launching && !ideaHandoff.current}
             onUseScript={useIdeaScript} onSheetDismiss={() => { void launchPending(); }} onBusyChange={setIdeasBusyState} />

@@ -64,6 +64,14 @@ function harness(options = {}) {
   return { media, store, model, nativeCalls, imageCalls, copies, disk, data, repair: () => { repair = true; }, nativeExports: () => nativeExports,
     sessionCheck: fn => { sessionCheck = fn; }, copyCheck: fn => { copyCheck = fn; }, writeCheck: fn => { writeCheck = fn; }, owner: id => { sessionOwner = id; }, cancelPicker: () => { pickerCanceled = true; } };
 }
+test('ID de original remoto durável impede duplicação depois append confirmado e receipt externo perdido', async () => {
+  const h=harness(),project=await h.store.createStudioProject('owner','aula');
+  const id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',source={id,uri:'file:///phone-original.mov',name:'Master.mov'};
+  const take=await h.media.persistStudioTake(project,source);
+  await h.store.mutateStudioProject('owner',project.id,latest=>({takes:[...latest.takes,take]}));
+  const retried=await h.media.persistStudioTake(h.store.getStudioProject('owner',project.id),source);
+  assert.equal(retried.id,id);assert.equal(h.copies.length,1);assert.equal(h.store.getStudioProject('owner',project.id).takes.length,1);
+});
 test('lote parcialmente ilegível preserva take pronto e journal do arquivo pendente', async () => {
   const h = harness(); const p = await h.store.createStudioProject('owner', 'aula');
   const imported = await h.media.importStudioMedia(p);

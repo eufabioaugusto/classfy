@@ -47,6 +47,12 @@ let registrationFailure = false;
 // One camera/audio owner across controllers; a stale cleanup cannot deactivate
 // the audio session started by a newer controller.
 let captureOwner: symbol | null = null;
+/** Reserves the existing camera/audio owner without opening hardware. */
+export function reserveNativeCaptureForStudioCamera() {
+  if(captureOwner) throw new Error('Encerre a outra câmera ou live antes de conectar ao computador.');
+  const token=Symbol('studio-remote-camera');captureOwner=token;
+  return {current:()=>captureOwner===token,release:()=>{if(captureOwner===token){captureOwner=null;}}};
+}
 
 export function getNativeLiveAvailability(): NativeLiveAvailability {
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') return { available: false, reason: 'A transmissão nativa está disponível no aplicativo para celular.' };

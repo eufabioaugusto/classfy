@@ -10,6 +10,7 @@ final class StudioCaptureOperation: @unchecked Sendable {
   let fileURL: URL
   let generation: Int
   let sourceKind: String
+  let durableSource: Bool
   private(set) var phase: Phase = .preparing
   private(set) var stopRequested = false
   private(set) var settled = false
@@ -17,9 +18,10 @@ final class StudioCaptureOperation: @unchecked Sendable {
   var startupWatchdog: DispatchWorkItem?
 
   init(id: String, fileURL: URL, generation: Int, sourceKind: String,
-       completion: @escaping (Result<[String: Any], Error>) -> Void) {
+       durableSource: Bool = false, completion: @escaping (Result<[String: Any], Error>) -> Void) {
     self.id = id; self.fileURL = fileURL; self.generation = generation
     self.sourceKind = sourceKind; self.completion = completion
+    self.durableSource = durableSource
   }
 
   @discardableResult func requestStop() -> Bool {

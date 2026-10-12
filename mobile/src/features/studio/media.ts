@@ -19,16 +19,19 @@ export async function studioProjectDirectory(project: StudioProject) {
   await FileSystem.makeDirectoryAsync(uri, { intermediates: true });
   return uri;
 }
-export async function persistStudioTake(project: StudioProject, source: { uri: string; name?: string; duration?: number; sourceKind?: StudioTake['sourceKind']; sourceStage?: StudioTake['sourceStage']; frameRate?: number; colorSpace?: string; grade?: StudioTake['grade'] }): Promise<StudioTake> {
+export async function persistStudioTake(project: StudioProject, source: { uri: string; id?: string; name?: string; duration?: number; sourceKind?: StudioTake['sourceKind']; sourceStage?: StudioTake['sourceStage']; frameRate?: number; colorSpace?: string; grade?: StudioTake['grade'] }): Promise<StudioTake> {
   const grade = normalizeStudioCaptureGrade(source.grade);
   await assertStudioOwner(project);
   if (!isStudioMediaAvailable()) throw new Error('Atualize o aplicativo para habilitar o editor nativo neste aparelho.');
   const release = retainStudioProjectMedia(project.ownerId, project.id);
   try {
     const directory = await studioProjectDirectory(project);
+    if (source.id && !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(source.id)) throw new Error('O identificador deste original não é válido.');
+    const existing = source.id && getStudioProject(project.ownerId, project.id)?.takes.find(take => take.id === source.id);
+    if (existing) return existing;
     const recoverable = getStudioProject(project.ownerId, project.id)?.pendingTakes?.find(take => take.sourceUri === source.uri);
     if (recoverable) return await readStudioTake(project, recoverable, directory);
-    const id = randomUUID();
+    const id = source.id || randomUUID();
     const nameExtension = source.name?.split('.').pop()?.toLowerCase();
     const extension = nameExtension && /^[a-z0-9]{2,5}$/.test(nameExtension) ? nameExtension : source.uri.split('?')[0].split('.').pop()?.toLowerCase();
     const safeExtension = extension && /^[a-z0-9]{2,5}$/.test(extension) ? extension : project.kind === 'podcast' ? 'm4a' : 'mp4';

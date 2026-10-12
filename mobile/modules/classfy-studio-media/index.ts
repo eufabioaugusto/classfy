@@ -26,6 +26,7 @@ export type StudioCameraProState = {
   supportsFocus: boolean; autoFocus: boolean; lensPosition: number;
 };
 export type StudioCameraFPS = 24 | 30 | 60;
+export type StudioRemotePreviewDescriptor = { streamId: string; streamReactTag: string; tracks: { id: string; kind: 'video'; remote: false; enabled: boolean; readyState: 'live'; peerConnectionId: number; constraints: object; settings: object }[] };
 export type StudioCameraState = {
   deviceId: string;
   position: 'front' | 'back' | 'unspecified';
@@ -87,6 +88,10 @@ declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
   getStudioNativeCameraCapabilitiesAsync(tag: number): Promise<StudioCameraState>;
   configureStudioNativeCameraAsync(tag: number, options: StudioNativeCameraConfiguration): Promise<StudioCameraState>;
   startStudioNativeCameraRecordingAsync(tag: number, operationId: string): Promise<StudioNativeRecording>;
+  getStudioRemoteCameraVersionAsync?(): Promise<{version: number; available: boolean; videoOnly: boolean}>;
+  startStudioRemoteCameraPreviewAsync?(tag: number): Promise<StudioRemotePreviewDescriptor>;
+  stopStudioRemoteCameraPreviewAsync?(tag: number): Promise<boolean>;
+  startStudioRemoteCameraRecordingAsync?(tag: number, takeId: string, owner: string, session: string): Promise<StudioNativeRecording>;
   stopStudioNativeCameraRecordingAsync(tag: number, operationId: string): Promise<StudioCameraState>;
   setStudioNativeCameraZoomAsync(tag: number, factor: number): Promise<StudioCameraState>;
   setStudioNativeCameraExposureAsync(tag: number, bias: number): Promise<StudioCameraState>;
@@ -245,6 +250,11 @@ function studioNativeModule() { if (!isStudioNativeCameraAvailable()) throw new 
 export function getStudioNativeCameraCapabilitiesAsync(tag: number) { return studioNativeModule().getStudioNativeCameraCapabilitiesAsync(tag); }
 export function configureStudioNativeCameraAsync(tag: number, options: StudioNativeCameraConfiguration) { return studioNativeModule().configureStudioNativeCameraAsync(tag, options); }
 export function startStudioNativeCameraRecordingAsync(tag: number, operationId: string) { return studioNativeModule().startStudioNativeCameraRecordingAsync(tag, operationId); }
+export function isStudioRemoteCameraAvailable() { return !!native && ['getStudioRemoteCameraVersionAsync','startStudioRemoteCameraPreviewAsync','stopStudioRemoteCameraPreviewAsync','startStudioRemoteCameraRecordingAsync'].every(key => typeof (native as unknown as Record<string, unknown>)[key] === 'function'); }
+function remoteCameraModule() { if (!isStudioRemoteCameraAvailable()) throw new Error('Atualize o Classfy Dev para conectar o iPhone ao computador.'); return native!; }
+export function startStudioRemoteCameraPreviewAsync(tag: number) { return remoteCameraModule().startStudioRemoteCameraPreviewAsync!(tag); }
+export function stopStudioRemoteCameraPreviewAsync(tag: number) { return remoteCameraModule().stopStudioRemoteCameraPreviewAsync!(tag); }
+export function startStudioRemoteCameraRecordingAsync(tag: number, takeId: string, owner: string, session: string) { return remoteCameraModule().startStudioRemoteCameraRecordingAsync!(tag,takeId,owner,session); }
 export function stopStudioNativeCameraRecordingAsync(tag: number, operationId: string) { return studioNativeModule().stopStudioNativeCameraRecordingAsync(tag, operationId); }
 export function setStudioNativeCameraZoomAsync(tag: number, factor: number) { return studioNativeModule().setStudioNativeCameraZoomAsync(tag, factor); }
 export function setStudioNativeCameraExposureAsync(tag: number, bias: number) { return studioNativeModule().setStudioNativeCameraExposureAsync(tag, bias); }

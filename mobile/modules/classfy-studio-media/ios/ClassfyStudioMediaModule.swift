@@ -1,4 +1,5 @@
 import ExpoModulesCore
+import livekit_react_native_webrtc
 import ExpoCamera
 import AVFoundation
 import UIKit
@@ -165,6 +166,19 @@ public final class ClassfyStudioMediaModule: Module {
     AsyncFunction("getStudioNativeCameraCapabilitiesAsync") { (tag: Int, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.capabilities { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)
+    AsyncFunction("getStudioRemoteCameraVersionAsync") { () -> [String: Any] in ["version": 1, "available": true, "videoOnly": true] }
+    AsyncFunction("startStudioRemoteCameraPreviewAsync") { (tag: Int, promise: Promise) in
+      // RCTBridgeProxy implements the same selector in bridgeless RN 0.81.
+      let selector = NSSelectorFromString("moduleForClass:")
+      guard let bridge = self.appContext?.reactBridge as? NSObject, bridge.responds(to: selector),
+        let module = bridge.perform(selector, with: WebRTCModule.self)?.takeUnretainedValue() as? WebRTCModule else {
+        promise.reject("camera_bridge_unavailable", "Atualize o aplicativo para conectar a câmera ao computador."); return
+      }
+      self.withNativeCamera(tag, promise) { view in view.startRemotePreview(module: module) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("stopStudioRemoteCameraPreviewAsync") { (tag: Int, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.stopRemotePreview(); promise.resolve(true) }
+    }.runOnQueue(.main)
     AsyncFunction("getStudioNativeCameraAudioMonitorVersionAsync") { () -> [String: Any] in
       if #available(iOS 16.0, *) { return ["version": 1, "available": true] }
       return ["version": 1, "available": false]
@@ -180,6 +194,9 @@ public final class ClassfyStudioMediaModule: Module {
     }.runOnQueue(.main)
     AsyncFunction("startStudioNativeCameraRecordingAsync") { (tag: Int, operationId: String, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.startRecording(operationId) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("startStudioRemoteCameraRecordingAsync") { (tag: Int, takeId: String, owner: String, session: String, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.capture.startRecording(takeId, durableOwner: owner, durableSession: session) { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)
     AsyncFunction("stopStudioNativeCameraRecordingAsync") { (tag: Int, operationId: String, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.stopRecording(operationId) { self.settleCamera($0, promise: promise) } }

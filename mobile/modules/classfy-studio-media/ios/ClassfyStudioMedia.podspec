@@ -12,6 +12,7 @@ Pod::Spec.new do |s|
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
   s.dependency 'ExpoCamera'
+  s.dependency 'livekit-react-native-webrtc'
   s.frameworks = 'AVFoundation', 'ImageIO', 'CoreGraphics', 'UniformTypeIdentifiers', 'CoreImage', 'Metal', 'MetalKit', 'CoreText', 'CoreVideo', 'Speech', 'Vision', 'VideoToolbox'
   # ExpoCamera imports the two ZXing subspecs. Its public module must be read
   # with the same defines, otherwise ZXing's umbrella asks for unused headers.

@@ -68,6 +68,18 @@ Referências: [Apple: exposição manual](https://developer.apple.com/documentat
 
 ## Escopo inicial
 
+### iPhone como câmera remota do Studio web
+
+A entrada **Conectar iPhone ao computador**, em Projetos, aceita o QR do Studio ou o código copiado. O link `classfy://studio/remote-camera?code=…` está registrado também na compilação ClassfyDev. O servidor `studio-camera` confirma a mesma conta, creator aprovado e Premium ativo antes de pedir acesso à câmera/microfone. A câmera nunca abre ao visitar a rota. Instalações anteriores sem a ponte nativa exibem a necessidade de atualização.
+
+A prévia privada LiveKit recebe apenas vídeo da mesma `AVCaptureVideoDataOutput` já usada pelo Studio: 1280×720 para Aula, 720×1280 para Short e até 30 FPS. Não usa `createLocalTracks`, outra câmera ou uma segunda entrada de microfone. O original com áudio é gravado no iPhone na qualidade efetivamente confirmada, inicialmente 4K30 quando suportada. Controles PRO e zoom retornam valores/ranges físicos; qualquer configuração parcialmente falha bloqueia REC até reconfirmação. O aparelho permanece acordado enquanto essa jornada está conectada ou enviando, com liberação ao sair/perder foco.
+
+Antes de REC, o diário local reserva `Documents/classfy-studio-remote/<owner>/<session>/<take>.mov`. ACK de início depende do evento nativo com horário real, ajustado pelo melhor RTT ao servidor. Comandos repetidos usam recibos duráveis. O arquivo é inspecionado depois do STOP, copiado com ID estável para um projeto local e enviado em partes privadas de 6 MiB por TUS; endereços de retomada ficam no diário, tokens ficam apenas em memória. Comandos usam prazo de 25 s; uma parte de upload tem prazo de 120 s. `uploaded` só vem da confirmação do servidor, inclusive depois de resposta perdida. O original não é apagado ao concluir o envio.
+
+**Recuperar e enviar originais** usa status/recuperação sem abrir a câmera ou exigir nova conexão Premium. Blur/background encerram a captura e preservam o take; a retomada de prévia obtém credenciais novas. Sem recibo conhecido de início, a recuperação não inventa sincronização para cenas: o master permanece utilizável como vídeo independente. Transferência publica `uploadState`, `uploadTakeId`, bytes recebidos e erro sanitizado no heartbeat, para o computador distinguir envio em progresso de envio pausado.
+
+Validação desta implementação: testes de controller/API/diário/ponte JS/TUS e regressões de mídia, TypeScript e build iOS assinada. A troca real de frames pela ponte WebRTC, sincronização audiovisual e uso contínuo no iPhone dependem da instalação e ensaio físico; compilação/testes de fronteira não comprovam esses pontos.
+
 - Tabs: Home, Explore, Rewards, Profile
 - Rotas: Watch, Creator, Auth, Settings
 - Home busca `contents` aprovados do Supabase quando as variaveis publicas existem; sem env, usa preview local.

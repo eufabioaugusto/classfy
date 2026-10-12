@@ -3,6 +3,7 @@ import CoreImage
 import ExpoModulesCore
 import MetalKit
 import UIKit
+import livekit_react_native_webrtc
 
 /// Expo owns the view registration; this view owns its AVFoundation session.
 /// At most one unrendered frame and two GPU submissions are retained.
@@ -39,6 +40,9 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   private let frameLock = NSLock()
   private let gpuSlots = DispatchSemaphore(value: 2)
   private var lifecycleObservers: [NSObjectProtocol] = []
+  private var remotePreview: StudioCameraRemotePreview?
+  private var remotePreviewEpoch = 0
+  private var remotePreviewPreparing = false
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -62,6 +66,7 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
         self.previewLayer.opacity = 1
         self.metalView?.layer.opacity = 0
         self.applyPreviewConfiguration(configuration)
+        self.remotePreview?.setPortrait(configuration.orientation == "portrait")
         if !processed { self.metalView?.isPaused = true }
       }
     }
@@ -81,10 +86,44 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   }
 
   deinit {
+    remotePreview?.dispose()
     effectTimeout?.cancel()
     pendingEffect?.completion(.failure(StudioCaptureError.unavailable("A câmera foi fechada antes de confirmar o tratamento.")))
     lifecycleObservers.forEach { NotificationCenter.default.removeObserver($0) }
     capture.dispose()
+  }
+
+  func startRemotePreview(module: WebRTCModule, completion: @escaping StudioCaptureSession.Completion) {
+    guard remotePreview == nil, !remotePreviewPreparing else { completion(.failure(StudioCaptureError.busy)); return }
+    remotePreviewEpoch += 1; let epoch = remotePreviewEpoch; remotePreviewPreparing = true
+    capture.capabilities { [weak self] result in
+      DispatchQueue.main.async { [weak self] in
+        do {
+          guard let self, self.remotePreviewEpoch == epoch, self.remotePreviewPreparing,
+            self.requestedActive, !self.inBackground, self.window != nil else {
+            throw StudioCaptureError.unavailable("A prévia remota foi fechada.")
+          }
+          let state = try result.get()
+          guard state["previewProcessed"] as? Bool == true else { throw StudioCaptureError.unavailable("Esta combinação não oferece prévia remota. Escolha um formato compatível.") }
+          let portrait = state["orientation"] as? String == "portrait"
+          let preview = try StudioCameraRemotePreview(module: module, width: portrait ? 720 : 1280, height: portrait ? 1280 : 720, fps: 30)
+          self.remotePreview = preview
+          self.capture.onRemoteFrame = { [weak preview] buffer, timestamp in preview?.receive(buffer, timestamp: timestamp) }
+          preview.register { [weak self] descriptor in
+            DispatchQueue.main.async { [weak self] in
+              guard let self, self.remotePreviewEpoch == epoch, self.remotePreview === preview, !descriptor.isEmpty else { completion(.failure(StudioCaptureError.unavailable("A prévia remota foi fechada."))); return }
+              self.remotePreviewPreparing = false
+              completion(.success(descriptor))
+            }
+          }
+        } catch { if self?.remotePreviewEpoch == epoch { self?.remotePreviewPreparing = false }; completion(.failure(error)) }
+      }
+    }
+  }
+  func stopRemotePreview() {
+    remotePreviewEpoch += 1; remotePreviewPreparing = false
+    capture.onRemoteFrame = nil
+    remotePreview?.dispose(); remotePreview = nil
   }
 
   private func prepareMetal() {
