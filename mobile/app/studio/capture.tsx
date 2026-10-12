@@ -76,7 +76,6 @@ export default function StudioCaptureScreen() {
   const [cancelingAudio, setCancelingAudio] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [allowRemoval, setAllowRemoval] = useState(false);
-  const [audioMonitorHeight, setAudioMonitorHeight] = useState(78);
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [showScript, setShowScript] = useState(true);
   const [followScript, setFollowScript] = useState(false);
@@ -765,16 +764,17 @@ export default function StudioCaptureScreen() {
   const safeBottom = Math.max(insets.bottom, 20);
   const safeLeft = Math.max(insets.left, 18);
   const safeRight = Math.max(insets.right, 18);
-  const audioMonitorWidth = Math.max(0, Math.min(250, dimensions.width - safeLeft - safeRight - 184));
+  const visibleTakes = !immersive && !!project?.takes.length;
+  const audioMonitorLeft = safeLeft + (landscape ? 58 : 0);
+  const audioMonitorWidth = Math.max(0, Math.min(landscape ? 180 : 128,
+    landscape ? dimensions.width / 2 - audioMonitorLeft - 117 : (dimensions.width - safeLeft - safeRight) / 2 - 55));
+  const audioMonitorBottom = safeBottom + (visibleTakes ? 82 : 0)
+    + (landscape ? 10 : !immersive && !project?.takes.length ? 64 : 24);
   const landscapeZoomBottom = Math.max(insets.bottom, 16) + (project?.takes.length ? 85 : 15);
   const scriptPresent = !!project?.script.trim();
   const prompterVisible = scriptPresent && showScript;
   const prompterFrame = studioTeleprompterFrame({ width: dimensions.width, height: dimensions.height,
     top: safeTop, left: safeLeft, right: safeRight, landscape, immersive });
-  const monitorBottom = (prompterVisible ? prompterFrame.top + prompterHeight + 10 : safeTop + 70) + audioMonitorHeight;
-  const landscapeZoomLeft = cameraMounted && monitorBottom + 12 > dimensions.height - landscapeZoomBottom - 62
-    ? Math.max(safeLeft + 64, Math.min((dimensions.width - 210) / 2, dimensions.width - safeRight - 116 - audioMonitorWidth - 222))
-    : (dimensions.width - 210) / 2;
   const prompterStatus = scriptMode === 'automatic' ? followScript ? 'Velocidade fixa · não acompanha a voz' : 'Velocidade fixa · toque para ensaiar'
     : !voiceAvailable ? isAudio ? 'Leitura por voz disponível na câmera' : 'Atualize o app para acompanhar sua voz'
     : speech.status === 'denied' ? 'Reconhecimento de voz não autorizado'
@@ -864,10 +864,7 @@ export default function StudioCaptureScreen() {
     {!immersive && landscape && <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.72)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.rightShade, { width: safeRight + 120 }]} />}
 
     {cameraMounted && (audioMonitorAvailable || !immersive) && <View pointerEvents="none"
-      onLayout={event => { const height = Math.ceil(event.nativeEvent.layout.height); if (height > 0 && mounted.current) setAudioMonitorHeight(height); }}
-      style={[styles.audioMonitor, landscape
-      ? { top: prompterVisible ? prompterFrame.top + prompterHeight + 10 : safeTop + 70, right: safeRight + 116, maxWidth: audioMonitorWidth }
-      : { top: prompterVisible ? prompterFrame.top + prompterHeight + 12 : safeTop + 84, left: safeLeft, maxWidth: dimensions.width - safeLeft - safeRight - 64 }]}>
+      style={[styles.audioMonitor, { bottom: audioMonitorBottom, left: audioMonitorLeft, width: audioMonitorWidth }]}>
       <StudioCaptureAudioMonitor input={audioMonitor.input} channels={audioMonitor.channels}
         status={audioMonitor.status} message={audioMonitor.message} compact />
     </View>}
@@ -936,7 +933,7 @@ export default function StudioCaptureScreen() {
       onHeight={height => { if (height > 0) setPrompterHeight(Math.ceil(height)); }} />}
 
     {!immersive && !isAudio && captureAvailable && !gate && (!cameraControls.available || cameraControls.zoomAvailable) && <View pointerEvents="box-none" style={[styles.zoomAnchor, landscape
-      ? { bottom: landscapeZoomBottom, left: landscapeZoomLeft }
+      ? { bottom: landscapeZoomBottom, left: (dimensions.width - 210) / 2 }
       : { bottom: safeBottom + (project?.takes.length ? 206 : 140), alignSelf: 'center' }]}>
       <StudioCaptureZoom reversed value={zoom} onChange={changeZoom} label={zoomLabel} disabled={zoomDisabled}
         confirmedValue={cameraState ? studioNormalizedZoom(cameraState.zoom, cameraState) : undefined}
@@ -1100,7 +1097,7 @@ function CaptureMessage({ icon, title, detail, actionLabel, onAction, disabled }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000' },
-  audioMonitor: { position: 'absolute', width: 250 },
+  audioMonitor: { position: 'absolute' },
   topShade: { position: 'absolute', left: 0, right: 0, top: 0 },
   bottomShade: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   rightShade: { position: 'absolute', top: 0, bottom: 0, right: 0 },
