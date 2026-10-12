@@ -168,11 +168,10 @@ public final class ClassfyStudioMediaModule: Module {
     }.runOnQueue(.main)
     AsyncFunction("getStudioRemoteCameraVersionAsync") { () -> [String: Any] in ["version": 1, "available": true, "videoOnly": true] }
     AsyncFunction("startStudioRemoteCameraPreviewAsync") { (tag: Int, promise: Promise) in
-      // RCTBridgeProxy implements the same selector in bridgeless RN 0.81.
-      let selector = NSSelectorFromString("moduleForClass:")
-      guard let bridge = self.appContext?.reactBridge as? NSObject, bridge.responds(to: selector),
-        let module = bridge.perform(selector, with: WebRTCModule.self)?.takeUnretainedValue() as? WebRTCModule else {
-        promise.reject("camera_bridge_unavailable", "Atualize o aplicativo para conectar a câmera ao computador."); return
+      // Bridgeless RN supplies an RCTBridgeProxy (NSProxy, not NSObject).
+      // Use the bridge's typed API to obtain the same WebRTC module used by JS.
+      guard let module = self.appContext?.reactBridge?.module(for: WebRTCModule.self) as? WebRTCModule else {
+        promise.reject("camera_bridge_unavailable", "A conexão de vídeo ainda não está pronta. Tente reconectar a prévia."); return
       }
       self.withNativeCamera(tag, promise) { view in view.startRemotePreview(module: module) { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)

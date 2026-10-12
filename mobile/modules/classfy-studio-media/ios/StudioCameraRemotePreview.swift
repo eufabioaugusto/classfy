@@ -21,7 +21,7 @@ final class StudioCameraRemotePreview {
 
   init(module: WebRTCModule, width: Int, height: Int, fps: Int) throws {
     guard [(1280, 720), (1920, 1080), (720, 1280), (1080, 1920)].contains(where: { $0.0 == width && $0.1 == height }), [15, 30].contains(fps) else {
-      throw StudioCaptureError.unavailable("Atualize o aplicativo para conectar a câmera ao computador.")
+      throw StudioCaptureError.unavailable("Este formato não oferece prévia remota. Escolha um formato compatível.")
     }
     self.module = module; self.width = width; self.height = height; self.fps = fps
     source = module.peerConnectionFactory.videoSource()
