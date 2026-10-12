@@ -46,7 +46,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
     [...tracks].forEach(release); camera = null; microphone = null; display = null;
     micSource?.disconnect(); screenSource?.disconnect(); screenGain?.disconnect(); micSource = null; screenSource = null; screenGain = null; analyser = null; destination = null;
     if (context) { context.onstatechange = null; void context.close().catch(() => undefined); } context = null;
-    publish({ stream: null, input: null, camera: null, levels: [], videoControls: null, scenes: { ...state.scenes!, cameraReady: false, screenReady: false, screenName: null, preparingScreen: false } });
+    publish({ stream: null, cameraPreviewStream: null, input: null, camera: null, levels: [], videoControls: null, scenes: { ...state.scenes!, cameraReady: false, screenReady: false, screenName: null, preparingScreen: false } });
   };
   const disposeBuffer = () => { const previous = buffer; buffer = null; if (previous) void previous.dispose().catch(() => undefined); };
   const controls = () => camera ? studioCaptureVideoControls(camera, composition ? { effects: composition.effects } as StudioCaptureVideoProcessor : null, grade, zoom) : null;
@@ -67,6 +67,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
     composition?.removeSource(source);
     const previous = state.scenes!.selected;
     if (source === 'camera') {
+      publish({ cameraPreviewStream: null });
       scenes({ cameraReady: false, error: 'A câmera foi desconectada. A tela e o microfone continuam disponíveis.' });
       if (camera?.readyState === 'ended') { release(camera); camera = null; publish({ camera: null, videoControls: null }); }
       if (previous !== 'screen' && state.scenes!.screenReady) scenes({ selected: 'screen' });
@@ -84,7 +85,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
     track.onmute = () => { if (camera === track && ['ready', 'recording'].includes(state.phase)) sourceLost('camera', expected); };
     track.onunmute = () => {
       const owned = composition; if (camera !== track || !owned || track.readyState !== 'live' || closed || generation !== expected) return;
-      void owned.setSource('camera', track).then(() => { assert(expected); if (camera === track && composition === owned) scenes({ cameraReady: true, error: null }); }).catch(error => { if (!closed && generation === expected && camera === track && composition === owned && (error as Error).name !== 'AbortError') scenes({ error: errorMessage(error) }); });
+      void owned.setSource('camera', track).then(() => { assert(expected); if (camera === track && composition === owned) { publish({ cameraPreviewStream: new MediaStream([track]) }); scenes({ cameraReady: true, error: null }); } }).catch(error => { if (!closed && generation === expected && camera === track && composition === owned && (error as Error).name !== 'AbortError') scenes({ error: errorMessage(error) }); });
     };
   };
   const wireMic = (track: MediaStreamTrack, expected: number) => { track.onended = () => { if (microphone === track) fail(new Error('O microfone foi desconectado. O trecho capturado será preservado.'), expected); }; };
@@ -141,7 +142,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
         scenes({ ...config, selected: 'camera', cameraReady: true, screenReady: false, preparingScreen: false, backgroundSupported: true, error: null });
         publish({ videoControls: controls() }); await updateComposition(); assert(expected);
         wireCamera(camera, expected); wireMic(microphone, expected);
-        publish({ phase: 'ready', stream: new MediaStream([composition.track, ...destination.stream.getAudioTracks()]), camera: identity(camera, 'Câmera autorizada'), input: identity(microphone, 'Microfone autorizado'), width, height, frameRate, videoControls: controls(), error: null });
+        publish({ phase: 'ready', stream: new MediaStream([composition.track, ...destination.stream.getAudioTracks()]), cameraPreviewStream: new MediaStream([camera]), camera: identity(camera, 'Câmera autorizada'), input: identity(microphone, 'Microfone autorizado'), width, height, frameRate, videoControls: controls(), error: null });
         meterTimer = setInterval(meter, 100); authorized = true; void refreshDevices();
         const owned = context; owned.onstatechange = () => { if (context !== owned || generation !== expected || closed || state.phase !== 'recording' || owned.state === 'running') return; void owned.resume().catch(error => fail(new Error(`O áudio das cenas foi interrompido. ${errorMessage(error)}`), expected)); };
       } catch (error) { if (!closed && expected === generation) { cleanup(); disposeBuffer(); publish({ phase: 'error', error: errorMessage(error) }); } throw error; }
@@ -177,7 +178,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
         const cam = changeCamera ? incoming.getVideoTracks()[0] : camera, mic = changeMic ? incoming.getAudioTracks()[0] : microphone;
         if (!cam || !mic) throw new Error('O dispositivo escolhido não forneceu a entrada necessária.'); if (changeCamera) await owned.setSource('camera', cam); assert(expected);
         if (changeMic) { mic.enabled = state.microphoneEnabled; const nextSource = context!.createMediaStreamSource(new MediaStream([mic])); nextSource.connect(destination!); nextSource.connect(analyser!); micSource?.disconnect(); micSource = nextSource; microphone = mic; release(oldMic); wireMic(mic, expected); }
-        if (changeCamera) { camera = cam; zoom = 1; release(oldCamera); wireCamera(cam, expected); scenes({ cameraReady: true, error: null }); }
+        if (changeCamera) { camera = cam; zoom = 1; release(oldCamera); wireCamera(cam, expected); publish({ cameraPreviewStream: new MediaStream([cam]) }); scenes({ cameraReady: true, error: null }); }
         cameraId = nextCamera; deviceId = nextMic; publish({ phase: 'ready', camera: identity(camera, 'Câmera autorizada'), input: identity(microphone, 'Microfone autorizado'), videoControls: controls() }); await updateComposition(); assert(expected); void refreshDevices();
       } catch (error) { incoming?.getTracks().forEach(track => { if (track !== camera && track !== microphone) release(track); }); if (!closed && expected === generation) publish({ phase: 'ready', error: errorMessage(error) }); throw error; }
     },

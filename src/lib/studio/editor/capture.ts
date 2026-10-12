@@ -18,6 +18,8 @@ export type StudioCaptureState = {
   width?: number; height?: number; frameRate?: number;
   videoControls?: StudioCaptureVideoControls | null;
   scenes?: StudioCaptureScenes;
+  /** Video-only view of the already authorized camera. Consumers never own or stop its tracks. */
+  cameraPreviewStream?: MediaStream | null;
   /** Recorded chunks still need consolidation; preparing another take would discard them. */
   pendingRecovery?: boolean;
 };
