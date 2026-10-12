@@ -7,9 +7,22 @@ const source = ts.transpileModule(readFileSync(new URL('../../../app/studio/inde
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
 } }).outputText;
 function harness(projects = []) {
-  let owner = 'owner', error = projects.length ? null : 'A lista precisa de recuperação.', dirty = true, cursor = 0, effects = [], tree, recoverCalls = 0, resolveRecovery, rejectRecovery, focused = true, native = true;
+  let owner = 'owner', error = projects.length ? null : 'A lista precisa de recuperação.', dirty = true, cursor = 0, effects = [], tree, recoverCalls = 0, resolveRecovery, rejectRecovery, focused = true, native = true, canPublish = true;
   const pushes = [], creations = [];
   const actionCalls = [], feedback = [], appListeners = new Set(), deferred = new Map();
+  const transients = new Map();
+  const create = async (kind, options = {}) => {
+    creations.push([kind, options]);
+    const wait = deferred.get('create'); deferred.delete('create');
+    if (wait) await wait;
+    if (options.isCurrent && !options.isCurrent()) throw new Error('Sessão mudou');
+    const created = model.withStudioTakes({ ...workspaceProject(`created-${creations.length}`), kind,
+      editing: model.emptyStudioEditing(kind), ...(options.initial || {}) });
+    if (options.transient) transients.set(created.id, created);
+    else projects = [created, ...projects];
+    dirty = true;
+    return created;
+  };
   async function action(kind, id, value, scope) {
     actionCalls.push({ kind, id, value });
     const wait = deferred.get(kind); deferred.delete(kind);
@@ -37,11 +50,12 @@ function harness(projects = []) {
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 54, bottom: 34, left: 0, right: 0 }) },
     'lucide-react-native': Object.fromEntries('ArrowDownWideNarrow ArrowUpRight Camera Check ChevronRight Clock3 Copy Film FolderOpen Images Mic MoreHorizontal Pencil Plus Radio Search Trash2 Video X'.split(' ').map(name => [name, name])),
     '@/components/AppScreen': { AppScreen: 'screen' }, '@/components/NavigationHeader': { NavigationHeader: 'header' }, '@/components/LoadingImage': { LoadingImage: 'image' }, '@/components/LoadingPlaceholder': { SkeletonBlock: 'skeleton', SkeletonGroup: 'skeletons' },
-    '@/components/SheetModal': { SheetCloseButton: 'close', SheetModal: 'sheet', sheetStyles: {} }, '@/features/auth/authContext': { useAuth: () => ({ user: { id: owner } }) }, '@/contexts/PrimaryActionContext': { usePrimaryAction: () => ({ canPublish: true }) },
+    '@/components/SheetModal': { SheetCloseButton: 'close', SheetModal: 'sheet', sheetStyles: {} }, '@/features/auth/authContext': { useAuth: () => ({ user: { id: owner } }) }, '@/contexts/PrimaryActionContext': { usePrimaryAction: () => ({ canPublish }) },
     '@/theme/colors': { colors: {} }, '@/theme/controls': { controls: {} }, '@/features/studio/StudioUI': { StudioAccess: 'access', studioStyles: {} },
-    '@/features/studio/useStudioProjects': { useStudioProjects: () => ({ projects, loading: false, error, create: (...args) => creations.push(args), remove: (id, scope) => action('delete', id, undefined, scope), rename: (id, value, scope) => action('rename', id, value, scope), duplicate: (id, scope) => action('duplicate', id, undefined, scope), recover: () => { recoverCalls++; return new Promise((resolve, reject) => { resolveRecovery = resolve; rejectRecovery = reject; }); } }) },
-    '@/features/studio/store': { getStudioProject: (currentOwner, id) => projects.find(project => project.ownerId === currentOwner && project.id === id) }, '@/features/studio/media': {}, '@/features/studio/model': model,
+    '@/features/studio/useStudioProjects': { useStudioProjects: () => ({ projects, loading: false, error, create, remove: (id, scope) => action('delete', id, undefined, scope), rename: (id, value, scope) => action('rename', id, value, scope), duplicate: (id, scope) => action('duplicate', id, undefined, scope), recover: () => { recoverCalls++; return new Promise((resolve, reject) => { resolveRecovery = resolve; rejectRecovery = reject; }); } }) },
+    '@/features/studio/store': { getStudioProject: (currentOwner, id) => transients.get(id) || projects.find(project => project.ownerId === currentOwner && project.id === id), discardTransient: async (_, id) => transients.delete(id) }, '@/features/studio/media': {}, '@/features/studio/model': model,
     '@/features/studio/snapFeedback': { performStudioSnapFeedback: () => feedback.push('hold') },
+    '@/features/studio/StudioIdeasCard': { StudioIdeasCard: 'ideas-card' },
     '../../modules/classfy-studio-media': { isStudioMediaAvailable: () => native },
   };
   const module = { exports: {} }; new Function('require', 'module', 'exports', source)(name => { assert.ok(name in dependencies, name); return dependencies[name]; }, module, module.exports);
@@ -51,6 +65,7 @@ function harness(projects = []) {
   return { pump, alerts, find, calls: () => recoverCalls, button: () => find(node => node.props?.accessibilityLabel === 'Recuperar rascunhos do backup').props,
     changeOwner: next => { owner = next; dirty = true; }, focus: next => { focused = next; dirty = true; }, native: next => { native = next; dirty = true; }, pushes, creations,
     actionCalls, feedback, appState: state => { for (const listener of appListeners) listener(state); }, projects: () => projects,
+    access: value => { canPublish = value; dirty = true; },
     defer: kind => { let resolve, reject; deferred.set(kind, new Promise((yes, no) => { resolve = yes; reject = no; })); return { resolve, reject }; },
     fail: () => rejectRecovery(new Error('Disco cheio')), complete: () => { error = null; dirty = true; resolveRecovery(); }, dispose: () => { for (const slot of slots) slot?.cleanup?.(); } };
 }
@@ -107,6 +122,65 @@ function workspaceProject(id = 'project', title = 'Minha aula') {
 }
 const control = (h, label) => h.find(node => node.props?.accessibilityLabel === label)?.props;
 const menu = h => h.find(node => node.props?.title === 'Opções do projeto')?.props;
+const ideas = h => h.find(node => node.type === 'ideas-card').props;
+const ideaDraft = { kind: 'short', title: 'Uma ideia aprovada', description: 'Um exemplo para aplicar hoje.', objective: 'Aplicar o conceito', audience: 'Iniciantes',
+  script: 'Texto revisado pelo creator.\nExemplo e conclusão.', tags: ['prática'], suggestionId: 'suggestion', durationMinutes: 1 };
+test('roteiro da Classy persiste antes de fechar sheet e abre a captura do mesmo projeto uma única vez', async () => {
+  const h = harness([workspaceProject()]);
+  try {
+    await h.pump(); const card = ideas(h); assert.equal(card.active, true);
+    card.onBusyChange(true); await h.pump(); assert.equal(control(h, 'Novo projeto').disabled, true);
+    const write = h.defer('create');
+    const accepted = ideas(h).onUseScript(ideaDraft); await h.pump();
+    assert.equal(h.creations.length, 1); assert.equal(h.projects().length, 1); assert.equal(h.pushes.length, 0);
+    assert.equal(ideas(h).disabled, false, 'Own handoff must not abort the editor that is awaiting persistence');
+    assert.equal(await ideas(h).onUseScript(ideaDraft), false);
+    write.resolve(); assert.equal(await accepted, true); await h.pump();
+    assert.equal(h.projects()[0].script, ideaDraft.script); assert.equal(h.projects()[0].kind, 'short');
+    assert.equal(h.creations[0][1].transient, undefined, 'An approved script is a durable draft');
+    assert.equal(h.pushes.length, 0, 'Native modal must finish dismissal before opening camera');
+    ideas(h).onBusyChange(false); ideas(h).onSheetDismiss(); ideas(h).onSheetDismiss(); await h.pump();
+    assert.equal(h.creations.length, 1);
+    assert.deepEqual(h.pushes, [{ pathname: '/studio/capture', params: { id: h.projects()[0].id, from: 'projects' } }]);
+    assert.equal(h.projects()[1].title, 'Minha aula');
+  } finally { h.dispose(); }
+});
+test('falha ao salvar roteiro não abre captura nem deixa projeto vazio e permite repetir o mesmo draft', async () => {
+  const h = harness([workspaceProject()]);
+  try {
+    await h.pump(); const write = h.defer('create');
+    const request = ideas(h).onUseScript(ideaDraft); const failure = assert.rejects(request, /Disco cheio/);
+    await h.pump(); write.reject(Error('Disco cheio')); await failure; await h.pump();
+    ideas(h).onSheetDismiss(); await h.pump(); assert.equal(h.pushes.length, 0); assert.equal(h.projects().length, 1);
+    assert.equal(await ideas(h).onUseScript(ideaDraft), true); await h.pump();
+    ideas(h).onSheetDismiss(); await h.pump();
+    assert.equal(h.projects()[0].script, ideaDraft.script); assert.equal(h.pushes.length, 1);
+  } finally { h.dispose(); }
+});
+for (const change of ['owner', 'focus-cycle', 'background', 'permission-cycle']) test(`handoff de roteiro não cria nem navega depois de ${change} durante persistência`, async () => {
+  const h = harness([workspaceProject()]);
+  try {
+    await h.pump(); const write = h.defer('create'); const request = ideas(h).onUseScript(ideaDraft);
+    const failure = assert.rejects(request, /Sessão mudou/); await h.pump();
+    if (change === 'owner') h.changeOwner('other');
+    else if (change === 'focus-cycle') { h.focus(false); await h.pump(); h.focus(true); }
+    else if (change === 'permission-cycle') { h.access(false); await h.pump(); h.access(true); }
+    else { h.appState('background'); h.appState('active'); }
+    await h.pump(); write.resolve(); await failure; await h.pump();
+    ideas(h).onSheetDismiss(); await h.pump();
+    assert.equal(h.projects().length, 1); assert.equal(h.pushes.length, 0);
+  } finally { h.dispose(); }
+});
+test('roteiro já salvo conserva rascunho, mas retorno tardio de sheet não abre câmera após background', async () => {
+  const h = harness([workspaceProject()]);
+  try {
+    await h.pump(); assert.equal(await ideas(h).onUseScript(ideaDraft), true); await h.pump();
+    h.appState('background'); h.appState('active'); await h.pump();
+    ideas(h).onSheetDismiss(); await h.pump();
+    assert.equal(h.projects()[0].script, ideaDraft.script); assert.equal(h.pushes.length, 0);
+    assert.equal(control(h, 'Novo projeto').disabled, false);
+  } finally { h.dispose(); }
+});
 test('hold de 450 ms abre o mesmo menu dos três pontos e não navega ao soltar', async () => {
   const h = harness([workspaceProject()]); try {
     await h.pump(); const card = control(h, 'Abrir Minha aula, Rascunho');

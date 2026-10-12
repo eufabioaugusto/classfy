@@ -119,3 +119,6 @@ verify_jwt = false
 
 [functions.run-prospector]
 verify_jwt = true
+
+[functions.studio-ideas]
+verify_jwt = true

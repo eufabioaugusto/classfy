@@ -18,6 +18,8 @@ import { discardTransient, getStudioProject } from '@/features/studio/store';
 import { importStudioMedia } from '@/features/studio/media';
 import { compileStudioRecipe, formatStudioDuration, studioFormats, studioSeconds, studioStateLabel, type StudioKind, type StudioProject } from '@/features/studio/model';
 import { StudioAccess, studioStyles } from '@/features/studio/StudioUI';
+import { StudioIdeasCard } from '@/features/studio/StudioIdeasCard';
+import type { StudioIdeaDraft } from '@/features/studio/studioIdeas';
 import { performStudioSnapFeedback } from '@/features/studio/snapFeedback';
 import { isStudioMediaAvailable } from '../../modules/classfy-studio-media';
 
@@ -25,7 +27,8 @@ const formatIcons = { aula: Video, short: Film, podcast: Mic, live: Radio };
 type WorkspaceFormat = StudioKind | 'live';
 type WorkspaceFilter = 'draft' | 'submitted';
 type WorkspaceOrder = 'recent' | 'oldest';
-type CreateRequest = { kind: StudioKind; source: 'camera' | 'gallery'; owner: string } | { kind: 'live'; source: 'live' | 'lives'; owner: string };
+type CreateRequest = { kind: StudioKind; source: 'camera' | 'gallery'; owner: string; epoch: number; projectId?: string }
+  | { kind: 'live'; source: 'live' | 'lives'; owner: string; epoch: number };
 const normalizeSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
 const projectTitle = (project: StudioProject) => project.title.trim() || `${studioFormats.find(format => format.kind === project.kind)?.title} sem título`;
 function projectDate(iso: string) {
@@ -53,6 +56,7 @@ export default function StudioScreen() {
   const [searchVisible, setSearchVisible] = useState(false);
   const [query, setQuery] = useState('');
   const [launching, setLaunching] = useState(false);
+  const [ideasBusy, setIdeasBusy] = useState(false);
   const [workspaceAction, setWorkspaceAction] = useState<'rename' | 'duplicate' | 'delete' | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState('');
@@ -68,14 +72,16 @@ export default function StudioScreen() {
   const mounted = useRef(true);
   const pending = useRef<CreateRequest | null>(null);
   const launchingRef = useRef(false);
+  const ideasBusyRef = useRef(false);
+  const ideaHandoff = useRef(false);
   const workspaceActionRef = useRef<{ owner: string; id: string; epoch: number } | null>(null);
   const heldProject = useRef<string | null>(null);
   const epoch = useRef(0);
   const foreground = useRef(AppState.currentState === 'active');
   const context = useRef({ owner: user?.id, canPublish, focused: isFocused });
-  if (context.current.owner !== user?.id || context.current.focused !== isFocused) epoch.current++;
+  if (context.current.owner !== user?.id || context.current.focused !== isFocused || context.current.canPublish !== canPublish) epoch.current++;
   context.current = { owner: user?.id, canPublish, focused: isFocused };
-  const busy = launching || recovering || !!workspaceAction;
+  const busy = launching || recovering || !!workspaceAction || ideasBusy;
   const selectedId = selected?.ownerId === user?.id ? selected?.id : undefined;
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
@@ -88,6 +94,8 @@ export default function StudioScreen() {
       foreground.current = state === 'active';
       if (state !== 'active') {
         epoch.current++; heldProject.current = null; setSelected(null); setRenaming(false);
+        pending.current = null;
+        if (!launchingRef.current) { ideaHandoff.current = false; setLaunching(false); }
         // Rebind card callbacks even if their menu was already closed. A ref
         // alone leaves every rendered card holding the previous epoch.
         setInteractionEpoch(epoch.current);
@@ -97,11 +105,14 @@ export default function StudioScreen() {
   }, []);
   useEffect(() => {
     setNewProject(false); setSelected(null); setRenaming(false); setActionError(''); setSortVisible(false); setSearchVisible(false); setQuery(''); setFilter('draft');
+    ideasBusyRef.current = false; setIdeasBusy(false);
     pending.current = null;
     if (!launchingRef.current) setLaunching(false);
   }, [user?.id]);
   useEffect(() => { if (!isFocused) { setSelected(null); setRenaming(false); heldProject.current = null; pending.current = null; } }, [isFocused]);
-  const canInteract = () => mounted.current && foreground.current && context.current.focused && !pending.current && !launchingRef.current && !recoveringRef.current && !workspaceActionRef.current;
+  const canInteract = (fromIdeas = false) => mounted.current && foreground.current && context.current.focused && !pending.current
+    && !launchingRef.current && !recoveringRef.current && !workspaceActionRef.current && (fromIdeas || !ideasBusyRef.current);
+  const setIdeasBusyState = useCallback((value: boolean) => { ideasBusyRef.current = value; setIdeasBusy(value); }, []);
   const closeProjectMenu = () => { Keyboard.dismiss(); setSelected(null); setRenaming(false); setActionError(''); };
   const showProjectMenu = (project: StudioProject, held = false) => {
     if (!canInteract() || project.ownerId !== context.current.owner) return;
@@ -118,7 +129,9 @@ export default function StudioScreen() {
     const request = pending.current;
     if (!request || launchingRef.current || recoveringRef.current || workspaceActionRef.current) return;
     pending.current = null;
-    if (!mounted.current || !context.current.focused || !context.current.canPublish || context.current.owner !== request.owner) { if (mounted.current) setLaunching(false); return; }
+    const current = () => mounted.current && foreground.current && context.current.focused && context.current.canPublish
+      && context.current.owner === request.owner && epoch.current === request.epoch;
+    if (!current()) { ideaHandoff.current = false; if (mounted.current) setLaunching(false); return; }
     if (request.kind === 'live') {
       setLaunching(false);
       router.push(request.source === 'live' ? '/studio/live/new' : '/studio/live');
@@ -128,22 +141,24 @@ export default function StudioScreen() {
     let created: StudioProject | null = null;
     let handedOff = false;
     try {
-      created = await create(request.kind, { transient: true });
-      if (context.current.owner !== request.owner || !context.current.canPublish) return;
+      created = request.projectId ? getStudioProject(request.owner, request.projectId) || null
+        : await create(request.kind, { transient: true, isCurrent: current });
+      if (!created) throw new Error('Não foi possível abrir o projeto. Seu roteiro continua salvo.');
+      if (!current()) return;
       if (request.source === 'gallery') {
         await importStudioMedia(created);
         const imported = getStudioProject(request.owner, created.id);
         if (!imported || (!imported.takes.length && !imported.pendingTakes?.length)) return;
       }
-      if (!mounted.current || !context.current.focused || context.current.owner !== request.owner || !context.current.canPublish) return;
+      if (!current()) return;
       setFilter('draft'); setQuery(''); setSearchVisible(false);
       if (request.source === 'camera') router.push({ pathname: '/studio/capture', params: { id: created.id, from: 'projects' } });
       else router.push({ pathname: '/studio/[id]', params: { id: created.id } });
       handedOff = true;
     } catch (cause) {
-      if (mounted.current && context.current.focused && context.current.owner === request.owner) {
+      if (current()) {
         const latest = created ? getStudioProject(request.owner, created.id) : null;
-        const hasMedia = latest && (latest.takes.length > 0 || !!latest.pendingTakes?.length);
+        const hasMedia = latest && (latest.takes.length > 0 || !!latest.pendingTakes?.length || !!latest.script.trim());
         Alert.alert(hasMedia ? 'Seu projeto continua salvo' : 'Novo projeto', cause instanceof Error ? cause.message : 'Não foi possível começar o projeto. Tente novamente.');
         // A copied file may need recovery. Preserve the durable draft and open
         // its editor, while a cancelled or failed empty picker leaves no card.
@@ -154,7 +169,7 @@ export default function StudioScreen() {
       }
     } finally {
       if (created && !handedOff) await discardTransient(request.owner, created.id).catch(() => undefined);
-      launchingRef.current = false; if (mounted.current) setLaunching(false);
+      launchingRef.current = false; ideaHandoff.current = false; if (mounted.current) setLaunching(false);
     }
   }, [create, router]);
   useEffect(() => { if (!newProject && Platform.OS !== 'ios') void launchPending(); }, [newProject, launchPending]);
@@ -162,12 +177,31 @@ export default function StudioScreen() {
     if (!canInteract() || pending.current || !user?.id || !canPublish) return;
     if (format === 'live') {
       if (source !== 'live' && source !== 'lives') return;
-      pending.current = { kind: 'live', source, owner: user.id };
+      pending.current = { kind: 'live', source, owner: user.id, epoch: epoch.current };
     } else {
       if (source !== 'camera' && source !== 'gallery') return;
-      pending.current = { kind: format, source, owner: user.id };
+      pending.current = { kind: format, source, owner: user.id, epoch: epoch.current };
     }
     setLaunching(true); setNewProject(false);
+  };
+  const useIdeaScript = async (draft: StudioIdeaDraft) => {
+    if (!canInteract(true) || !user?.id || !context.current.canPublish || loading || error) return false;
+    if (!['aula', 'short', 'podcast'].includes(draft.kind)) throw new Error('Escolha um formato de gravação válido.');
+    const owner = user.id, generation = epoch.current;
+    const current = () => mounted.current && foreground.current && context.current.focused && context.current.canPublish
+      && context.current.owner === owner && epoch.current === generation;
+    launchingRef.current = true; ideaHandoff.current = true; setLaunching(true); Keyboard.dismiss();
+    let queued = false;
+    try {
+      const created = await create(draft.kind, { initial: draft, isCurrent: current });
+      if (!current()) return false;
+      pending.current = { kind: draft.kind, source: 'camera', owner, epoch: generation, projectId: created.id };
+      queued = true;
+      return true;
+    } finally {
+      launchingRef.current = false;
+      if (!queued) { ideaHandoff.current = false; if (mounted.current) setLaunching(false); }
+    }
   };
   const reserveAction = (project: StudioProject, action: NonNullable<typeof workspaceAction>, confirmed = false) => {
     if (!canInteract() || project.ownerId !== context.current.owner || (!confirmed && selectedIdRef.current !== project.id) || !getStudioProject(project.ownerId, project.id)) return null;
@@ -285,6 +319,12 @@ export default function StudioScreen() {
   </View>} />}>
     <View style={[styles.workspace, { maxWidth: 1060 }]}>
       {searchVisible ? <View style={styles.search}><Search size={17} color={colors.muted} strokeWidth={1.6} /><TextInput autoFocus accessibilityLabel="Buscar projetos" value={query} onChangeText={setQuery} placeholder="Buscar projetos" placeholderTextColor={colors.mutedDim} style={styles.searchInput} returnKeyType="search" autoCorrect={false} onSubmitEditing={Keyboard.dismiss} />{!!query && <Pressable accessibilityRole="button" accessibilityLabel="Limpar busca de projetos" onPress={() => setQuery('')} style={styles.clearSearch}><X size={17} color={colors.muted} /></Pressable>}</View> : null}
+      <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 108 }}>
+        <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10 }}>
+          <StudioIdeasCard key={user?.id} active={isFocused && canPublish && !loading && !!user?.id}
+            disabled={recovering || !!workspaceAction || loading || !!error || launching && !ideaHandoff.current}
+            onUseScript={useIdeaScript} onSheetDismiss={() => { void launchPending(); }} onBusyChange={setIdeasBusyState} />
+        </View>
       <View style={styles.toolbar}><View style={styles.filters}>{([
         ['draft', 'Rascunhos'], ['submitted', 'Enviados'],
       ] as const).map(([key, title]) => <Pressable accessibilityRole="tab" accessibilityLabel={`${title}, ${counts[key]} projetos`} accessibilityState={{ selected: filter === key }} key={key} onPress={() => setFilter(key)} style={({ pressed }) => [styles.filter, filter === key && styles.filterSelected, pressed && { opacity: 0.75 }]}><Text style={[styles.filterLabel, filter === key && { color: colors.text }]}>{title}</Text>{counts[key] > 0 ? <Text style={[styles.filterCount, filter === key && { color: colors.textSecondary }]}>{counts[key]}</Text> : null}</Pressable>)}</View>
@@ -299,9 +339,10 @@ export default function StudioScreen() {
       {launching || workspaceAction ? <View style={styles.activity}><ActivityIndicator size="small" color={colors.textSecondary} /><Text accessibilityLiveRegion="polite" style={studioStyles.hint}>{workspaceAction === 'duplicate' ? 'Duplicando projeto e arquivos…' : workspaceAction === 'delete' ? 'Removendo projeto…' : workspaceAction === 'rename' ? 'Salvando nome…' : 'Preparando seu projeto…'}</Text></View> : null}
       {loading ? <SkeletonGroup label="Abrindo seus projetos" style={{ flexDirection: 'row', gap: 14, paddingHorizontal: 20, paddingTop: 8 }}>
         {Array.from({ length: columns }, (_, column) => <View key={column} style={{ flex: 1, gap: 14 }}><SkeletonBlock style={{ aspectRatio: 4 / 5, borderRadius: 13 }} /><SkeletonBlock style={{ width: '85%', height: 14 }} /><SkeletonBlock style={{ width: '55%', height: 10 }} /><SkeletonBlock style={{ aspectRatio: 4 / 5, borderRadius: 13, marginTop: 8 }} /></View>)}
-      </SkeletonGroup> : filtered.length ? <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 108 }}>
+      </SkeletonGroup> : filtered.length ? <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
         <View style={styles.grid}>{grid.map((row, index) => <View key={index} style={styles.row}>{row.map(renderProject)}</View>)}</View>
-      </ScrollView> : <View style={styles.empty}><View style={styles.emptyIcon}>{query ? <Search size={29} color={colors.mutedDim} strokeWidth={1.35} /> : filter === 'submitted' ? <Check size={29} color={colors.mutedDim} strokeWidth={1.35} /> : <Video size={29} color={colors.mutedDim} strokeWidth={1.35} />}</View><Text style={styles.emptyTitle}>{query ? 'Nenhum projeto encontrado' : filter === 'submitted' ? 'Nenhum projeto enviado' : 'Seu próximo projeto'}</Text><Text style={styles.emptyText}>{query ? 'Tente outro título ou tema.' : filter === 'submitted' ? 'Seus projetos enviados à curadoria aparecem aqui.' : 'Toque no + para gravar ou importar.'}</Text></View>}
+      </View> : <View style={styles.empty}><View style={styles.emptyIcon}>{query ? <Search size={29} color={colors.mutedDim} strokeWidth={1.35} /> : filter === 'submitted' ? <Check size={29} color={colors.mutedDim} strokeWidth={1.35} /> : <Video size={29} color={colors.mutedDim} strokeWidth={1.35} />}</View><Text style={styles.emptyTitle}>{query ? 'Nenhum projeto encontrado' : filter === 'submitted' ? 'Nenhum projeto enviado' : 'Seu próximo projeto'}</Text><Text style={styles.emptyText}>{query ? 'Tente outro título ou tema.' : filter === 'submitted' ? 'Seus projetos enviados à curadoria aparecem aqui.' : 'Toque no + para gravar ou importar.'}</Text></View>}
+      </ScrollView>
       <Pressable accessibilityRole="button" accessibilityLabel="Novo projeto" accessibilityState={{ disabled: loading || busy || !!error, busy }} disabled={loading || busy || !!error} onPress={() => { if (!canInteract()) return; Keyboard.dismiss(); setNewProject(true); }} style={({ pressed }) => [styles.fab, { bottom: Math.max(insets.bottom, 16) + 16, right: 20 }, (loading || busy || !!error) && { opacity: 0.55 }, pressed && { backgroundColor: colors.accentPressed }]}>{busy ? <ActivityIndicator color={colors.text} /> : <Plus size={29} color={colors.text} strokeWidth={1.6} />}</Pressable>
     </View>
     <WorkspaceSheet visible={newProject} title="Novo projeto" onClose={() => setNewProject(false)} onDismiss={() => { void launchPending(); }}>

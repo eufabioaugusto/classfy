@@ -112,15 +112,30 @@ async function persist(owner: string, projects: StudioProject[]) {
   await AsyncStorage.setItem(key(owner), JSON.stringify(projects));
   publish(owner, { projects, loading: false, error: null });
 }
-export type CreateStudioProjectOptions = { transient?: boolean };
+export type StudioInitialProjectFields = Pick<StudioProject, 'title' | 'description' | 'objective' | 'audience' | 'script' | 'tags'>;
+export type CreateStudioProjectOptions = { transient?: boolean; initial?: StudioInitialProjectFields; isCurrent?: () => boolean };
 export function createStudioProject(owner: string, kind: StudioKind, options: CreateStudioProjectOptions = {}): Promise<StudioProject> {
   return serialized(owner, async () => {
+    if (options.isCurrent && !options.isCurrent()) throw new Error('A criação foi cancelada porque a sessão mudou.');
     await loadStudioProjects(owner);
     if (studioSnapshot(owner).error) throw new Error(studioSnapshot(owner).error!);
+    if (options.isCurrent && !options.isCurrent()) throw new Error('A criação foi cancelada porque a sessão mudou.');
+    const initial = options.initial;
+    if (initial && (typeof initial.title !== 'string' || !initial.title.trim() || initial.title.length > 150
+      || typeof initial.description !== 'string' || initial.description.length > 10000
+      || typeof initial.objective !== 'string' || initial.objective.length > 1000
+      || typeof initial.audience !== 'string' || initial.audience.length > 500
+      || typeof initial.script !== 'string' || !initial.script.trim() || initial.script.length > 50000
+      || !Array.isArray(initial.tags) || initial.tags.length > 20
+      || initial.tags.some(tag => typeof tag !== 'string' || !tag.trim() || tag.length > 80))) {
+      throw new Error('Revise o título e o roteiro antes de começar a gravação.');
+    }
     const now = new Date().toISOString();
     const project = withStudioTakes({
-      version: 2, id: randomUUID(), ownerId: owner, kind, title: '', description: '',
-      objective: '', audience: '', script: '', tags: [], visibility: 'free', price: '',
+      version: 2, id: randomUUID(), ownerId: owner, kind,
+      title: initial?.title.trim() || '', description: initial?.description.trim() || '',
+      objective: initial?.objective.trim() || '', audience: initial?.audience.trim() || '',
+      script: initial?.script.trim() || '', tags: initial ? [...new Set(initial.tags.map(tag => tag.trim()))] : [], visibility: 'free', price: '',
       editing: emptyStudioEditing(kind), state: 'draft' as const, progress: 0, revision: 1, createdAt: now, updatedAt: now,
     });
     if (options.transient) {

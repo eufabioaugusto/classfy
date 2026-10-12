@@ -27,6 +27,35 @@ function harness(initial = {}) {
   return { store, data, writes, failNext: () => { failure = true; }, failKey: key => { failKey = key; }, corruptReadback: key => { readbackKey = key; } };
 }
 const take = id => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start: 0, end: 10 });
+const preparedScript = { title: ' Minha próxima aula ', description: 'Uma explicação prática.', objective: 'Aplicar o conceito.', audience: 'Iniciantes', script: ' Abertura.\nExplicação e exemplo.\nConclusão. ', tags: ['tema', 'tema'] };
+test('roteiro aprovado cria rascunho completo em uma escrita e sobrevive ao retorno sem gravar e ao restart', async () => {
+  const h = harness();
+  const p = await h.store.createStudioProject('owner', 'aula', { initial: preparedScript, isCurrent: () => true });
+  assert.equal(h.store.studioSnapshot('owner').projects.length, 1);
+  assert.equal(p.title, 'Minha próxima aula'); assert.equal(p.script, preparedScript.script.trim());
+  assert.equal(p.takes.length, 0); assert.deepEqual([...p.tags], ['tema']);
+  assert.equal(await h.store.discardTransient('owner', p.id), false, 'Approved script must remain after closing the camera without media');
+  const restarted = harness(Object.fromEntries(h.data)); await restarted.store.loadStudioProjects('owner');
+  const saved = restarted.store.getStudioProject('owner', p.id);
+  assert.equal(saved.script, preparedScript.script.trim()); assert.equal(saved.objective, preparedScript.objective);
+  assert.equal(saved.ownerId, 'owner'); assert.equal(saved.title, p.title);
+});
+test('criação com roteiro revalida contexto na fila e falha de disco não publica rascunho vazio', async () => {
+  const h = harness(); let current = true;
+  const request = h.store.createStudioProject('owner', 'short', { initial: preparedScript, isCurrent: () => current });
+  current = false;
+  await assert.rejects(request, /sessão mudou/); assert.equal(h.store.studioSnapshot('owner').projects.length, 0);
+  h.failNext(); await assert.rejects(h.store.createStudioProject('owner', 'short', { initial: preparedScript }), /Disk full/);
+  assert.equal(h.store.studioSnapshot('owner').projects.length, 0);
+  await h.store.createStudioProject('owner', 'short', { initial: preparedScript });
+  assert.equal(h.store.studioSnapshot('owner').projects[0].script, preparedScript.script.trim());
+});
+test('entrada inicial inválida não escreve ou cria projeto sem roteiro', async () => {
+  for (const patch of [{ script: '' }, { title: '' }, { tags: [''] }, { audience: 'a'.repeat(501) }]) {
+    const h = harness(); await assert.rejects(h.store.createStudioProject('owner', 'aula', { initial: { ...preparedScript, ...patch } }), /Revise/);
+    assert.equal(h.store.studioSnapshot('owner').projects.length, 0);
+  }
+});
 test('duas anexações concorrentes e metadados não perdem takes ou texto', async () => {
   const { store } = harness();
   const p = await store.createStudioProject('owner', 'aula');

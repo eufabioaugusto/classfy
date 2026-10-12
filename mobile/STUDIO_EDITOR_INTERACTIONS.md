@@ -203,6 +203,15 @@ Registrar aparelho, build, formato, passos e evidência. Não marcar como aprova
 - [ ] iPhone com bloqueio de rotação ligado: Aula → REC/STOP → Avançar abre editor em retrato sem deformação ou congelamento; repetir após voltar à captura e após abrir/fechar a prévia em tela inteira.
 - [ ] Aula horizontal e Short vertical, clips curtos e aula longa: gestos contínuos por toque real, sem salto de quadro, faixa ou seleção.
 
+### Ideias da Classy antes da gravação (11/10/2026)
+
+- O card fica no topo de Projetos, antes da lista. Usa até oito publicações próprias aprovadas ou uma categoria oficial; sem histórico, escolher uma categoria é suficiente. Não consultar estudos privados de alunos nem inventar sinais de audiência.
+- Pauta → formato/duração → roteiro editável → Gravar com este roteiro. A revisão mantém a ação em rodapé fixo; teclado deve preservar área segura, com Concluir, toque no cabeçalho/fundo e recolhimento ao rolar. O conteúdo não deve capturar o gesto de rolagem.
+- Salvar todos os campos do roteiro em um único rascunho local durável antes de fechar o sheet. Abrir a câmera apenas após o dismiss nativo. Esse rascunho não é transient e continua salvo mesmo sem um take.
+- Revalidar conta, permissão, foco e foreground após awaits. Bloquear toques duplicados; respostas atrasadas não podem navegar nem substituir a conta atual. Erro de persistência mantém a revisão aberta.
+- A Edge `studio-ideas` resolve owner/contexto no servidor. Cache privado, reserva única por conta e orçamento transacional; retry ambíguo mantém UUID, falha terminal confirmada pede outro UUID. Fechar o sheet não cancela automaticamente a geração no servidor.
+- Evidência: testes de contrato, store e workspace; UI do card/revisão/teclado no Simulator com fixture descartável; geração real de três pautas + roteiro/cache em produção por conta temporária removida. O percurso físico completo até REC com esse roteiro continua para validação do Fabio.
+
 **Estado deste contrato:** os cenários acima exigem validação por toque real e comparação de exportação. Testes headless de composição/estado comprovam seus próprios contratos; não comprovam pinça, pressão longa, alças ou fluidez física. Pendências devem permanecer explícitas até o teste correspondente passar.
 
 [capcut-overlays]: https://www.capcut.com/resource/how-to-add-capcut-overlays
