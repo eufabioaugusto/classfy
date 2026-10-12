@@ -49,6 +49,41 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); visibility('visible'); });
 describe('sessão única de cenas Premium', () => {
+  it('prévia pessoal reutiliza só a câmera autorizada e permanece separada do Program em cena só tela', async () => {
+    const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen, s.system])); const h = watch();
+    expect(h.state().cameraPreviewStream ?? null).toBeNull(); await h.capture.prepare();
+    const preview = h.state().cameraPreviewStream!, program = h.state().stream!;
+    expect(preview).not.toBe(program); expect(preview.getTracks()).toEqual([s.camera]); expect(preview.getAudioTracks()).toEqual([]);
+    await h.capture.prepareScreen!(); h.capture.selectScene!('screen'); h.capture.start();
+    expect(h.state().cameraPreviewStream).toBe(preview); expect(h.state().stream).toBe(program); expect(Recorder.instances[0].stream).toBe(program);
+    expect(media.getUserMedia).toHaveBeenCalledTimes(1); expect(s.camera.stop).not.toHaveBeenCalled(); expect(s.mic.stop).not.toHaveBeenCalled();
+    await h.capture.stop(); expect(h.state().cameraPreviewStream).toBeNull(); h.capture.dispose();
+  });
+  it('troca confirmada de câmera substitui prévia pessoal sem reconstruir Program ou abrir microfone novamente', async () => {
+    const s = sources(), replacement = new Track('video', 'usb-camera', 'Câmera externa'); media.getUserMedia.mockResolvedValueOnce(new Stream([s.camera, s.mic])).mockResolvedValueOnce(new Stream([replacement])); const h = watch();
+    await h.capture.prepare(); const program = h.state().stream, oldPreview = h.state().cameraPreviewStream;
+    await h.capture.selectDevices({ cameraId: 'usb-camera' });
+    expect(h.state().cameraPreviewStream).not.toBe(oldPreview); expect(h.state().cameraPreviewStream?.getTracks()).toEqual([replacement]); expect(h.state().cameraPreviewStream?.getAudioTracks()).toEqual([]);
+    expect(h.state().stream).toBe(program); expect(h.capture.getMicrophoneTrack()).toBe(s.mic); expect(s.mic.stop).not.toHaveBeenCalled(); expect(replacement.stop).not.toHaveBeenCalled();
+    h.capture.cancel(); expect(h.state().cameraPreviewStream).toBeNull(); expect(replacement.stop).toHaveBeenCalledOnce(); h.capture.dispose();
+  });
+  it('câmera muda perde autoimagem até confirmação de recuperação sem exibir frames antigos', async () => {
+    const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen])); const h = watch();
+    await h.capture.prepare(); await h.capture.prepareScreen!(); h.capture.selectScene!('screen-camera'); h.capture.start();
+    s.camera.muted = true; s.camera.onmute?.(); expect(h.state().cameraPreviewStream).toBeNull(); expect(h.state().scenes).toMatchObject({ cameraReady: false, screenReady: true, selected: 'screen' });
+    const frame = pending<void>(); composition().setSource.mockReturnValueOnce(frame.promise); s.camera.muted = false; s.camera.onunmute?.();
+    expect(h.state().cameraPreviewStream).toBeNull(); frame.resolve(); await vi.waitFor(() => expect(h.state().scenes?.cameraReady).toBe(true));
+    expect(h.state().cameraPreviewStream?.getTracks()).toEqual([s.camera]); expect(Recorder.instances[0].stop).not.toHaveBeenCalled(); expect(media.getUserMedia).toHaveBeenCalledTimes(1);
+    await h.capture.stop(); h.capture.dispose();
+  });
+  it('prévia não autoriza REC em aba oculta e não pode ressuscitar após câmera tardia cancelada', async () => {
+    const s = sources(); media.getUserMedia.mockResolvedValueOnce(new Stream([s.camera, s.mic])); const h = watch(); await h.capture.prepare();
+    visibility('hidden'); expect(() => h.capture.start()).toThrow('Volte à aba do Studio'); expect(Recorder.instances).toHaveLength(0); expect(h.state().cameraPreviewStream?.getTracks()).toEqual([s.camera]);
+    h.capture.cancel(); expect(h.state().cameraPreviewStream).toBeNull(); h.capture.dispose(); visibility('visible');
+    const later = pending<Stream>(); media.getUserMedia.mockReturnValueOnce(later.promise); const next = watch(), opening = next.capture.prepare();
+    await vi.waitFor(() => expect(media.getUserMedia).toHaveBeenCalledTimes(2)); next.capture.dispose(); const lateSources = sources(); later.resolve(new Stream([lateSources.camera, lateSources.mic]));
+    await expect(opening).rejects.toMatchObject({ name: 'AbortError' }); expect(next.state().cameraPreviewStream).toBeNull(); expect(lateSources.camera.stop).toHaveBeenCalledOnce();
+  });
   it('não pede permissões na construção; tela separada mantém Program, mic e contexto únicos em dez mudanças durante REC', async () => {
     const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen, s.system])); const h = watch();
     expect(media.getUserMedia).not.toHaveBeenCalled(); await h.capture.prepare(); const program = h.state().stream!, audio = program.getAudioTracks()[0], video = program.getVideoTracks()[0];

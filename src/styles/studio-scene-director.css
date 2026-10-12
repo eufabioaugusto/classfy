@@ -4,7 +4,16 @@ body { margin: 0; }
 button { font: inherit; color: inherit; cursor: pointer; }
 button:disabled { cursor: default; opacity: .4; }
 button:focus-visible { outline: 2px solid #ff708c; outline-offset: 3px; }
-.se-director { display: grid; gap: 15px; padding: 20px; }
+.se-director { display: grid; gap: 8px; padding: 12px; }
+.se-director-preview { position: relative; }
+.se-director-video { position: relative; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #030405; border: 1px solid #292c34; }
+.se-director-video video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.se-director-video.is-camera video { object-fit: cover; transform: scaleX(-1); }
+.se-director-video-empty { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; color: #9299a8; font-size: 12px; background: #101217; }
+.se-director-video-label { position: absolute; bottom: 8px; left: 9px; background: #0009; border-radius: 5px; padding: 4px 6px; font-size: 9px; color: #eee; }
+.se-director-preview-tabs { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; }
+.se-director-preview-tabs button { min-height: 25px; padding: 3px 7px; background: #101217e6; color: #c2c7d2; border: 1px solid #3b3e47; border-radius: 7px; font-size: 9px; }
+.se-director-preview-tabs button[aria-pressed='true'] { background: #33212a; color: #ff9cb0; border-color: #8a4054; }
 .se-director header, .se-director header > span, .se-director-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .se-director header > span { justify-content: flex-start; font-size: 15px; }
 .se-director-close { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid #2d3037; border-radius: 50%; background: #181a20; }
@@ -12,12 +21,12 @@ button:focus-visible { outline: 2px solid #ff708c; outline-offset: 3px; }
 .se-director-status > .is-recording { color: #ff6d87; }
 .se-director-status time { font-size: 20px; font-variant-numeric: tabular-nums; font-weight: 550; }
 .se-director-scenes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.se-director-scenes > button { min-width: 0; display: grid; gap: 8px; border: none; background: none; padding: 0; font-size: 11px; }
-.se-director-thumbnail { position: relative; height: 60px; display: grid; place-items: center; border: 1px solid #343740; border-radius: 10px; color: #a8aeba; background: #1c1e25; }
+.se-director-scenes > button { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 44px; border: 1px solid #343740; border-radius: 8px; background: #1c1e25; padding: 5px 3px; font-size: 10px; }
+.se-director-scenes > button[aria-pressed='true'] { border-color: #ef3b62; background: #30202a; color: #ff91a6; }
+.se-director-thumbnail { position: relative; height: 25px; width: 25px; display: grid; place-items: center; border-radius: 5px; color: #a8aeba; }
 [aria-pressed='true'] .se-director-thumbnail { color: #ff91a6; border-color: #ef3b62; background: #30202a; }
-.se-director-thumbnail small { position: absolute; top: 6px; left: 7px; font-size: 9px; color: #8b919f; }
-.se-director-selected { position: absolute; top: 6px; right: 7px; }
-.se-director-thumbnail--screen-camera > i { position: absolute; right: 10px; bottom: 8px; width: 15px; height: 15px; border: 2px solid #ff91a6; background: #30202a; border-radius: 50%; }
+.se-director-thumbnail small, .se-director-selected { display: none; }
+.se-director-thumbnail--screen-camera > i { position: absolute; right: 0; bottom: 0; width: 9px; height: 9px; border: 1px solid #ff91a6; background: #30202a; border-radius: 50%; }
 .se-director-microphone { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .se-director-microphone > button { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border: 1px solid #32353e; border-radius: 50%; background: #1b1d23; }
 .se-director-microphone > button[aria-pressed='true'] { color: #ff7991; }

@@ -1,5 +1,5 @@
 .se-scenes { flex: 0 0 auto; position: relative; color: #f5f4f8; padding: 12px 0 4px; font-size: 11px; }
-.se-scenes-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.se-scenes-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
 .se-scenes-choices { display: flex; gap: 9px; }
 .se-scenes-choices > button { display: flex; align-items: center; gap: 10px; min-height: 52px; min-width: 150px; padding: 5px 16px 5px 5px; border: 1px solid #30313a; border-radius: 12px; background: #18191f; }
 .se-scenes-choices > button[aria-pressed="true"] { border-color: #ee647e; background: #35202b; box-shadow: 0 0 0 1px #ee647e1a; }
@@ -10,8 +10,12 @@
 .se-scene-thumbnail small { position: absolute; top: 3px; left: 5px; font-size: 8px; line-height: 1; color: #cbc9d5; }
 .se-scene-thumbnail i { position: absolute; bottom: 3px; right: 4px; width: 14px; height: 14px; border: 2px solid #f6bbc8; border-radius: 50%; background: #784b69; }
 .se-scene-check { position: absolute; top: 3px; right: 4px; color: #f8a2b5; }
-.se-scenes-actions { display: flex; gap: 7px; align-items: center; }
+.se-scenes-actions { display: flex; gap: 7px; align-items: center; margin-left: auto; flex-shrink: 0; }
 .se-scene-source { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 9px 13px; border: 1px solid #3c3d48; border-radius: 9px; background: #24252e; font-size: 11px !important; white-space: nowrap; }
+.se-scene-floating { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 9px 13px; border: 1px solid #63404f; border-radius: 9px; background: #30202a; color: #f3bbca !important; font-size: 11px !important; font-weight: 550 !important; white-space: nowrap; }
+.se-scene-floating[aria-pressed="true"] { border-color: #e87891; background: #35232f; }
+.se-scene-floating svg { flex-shrink: 0; }
+.se-scenes-floating-hint { margin: 8px 3px 0; color: #b0a4b1; font-size: 10px; line-height: 1.5; }
 .se-scenes-icon { display: flex; align-items: center; justify-content: center; height: 44px; width: 44px; flex: 0 0 44px; padding: 0; border: 1px solid #30313a; border-radius: 10px; background: #1a1b22; }
 .se-scenes-icon[aria-expanded="true"], .se-scenes-icon[aria-pressed="true"] { border-color: #e87891; color: #f2a3b5; }
 .se-scenes-source-state { display: flex; align-items: center; gap: 18px; color: #9296a4; padding: 8px 3px 0; min-width: 0; font-size: 10px; }
@@ -51,9 +55,7 @@
   .se-scene-source { flex: 1; }
   .se-scenes-source-state { gap: 10px; font-size: 9px; padding-top: 7px; }
   .se-scenes-source-state > span { max-width: 64%; }
-  .se-scenes.is-recording .se-scenes-row { flex-wrap: nowrap; }
-  .se-scenes.is-recording .se-scenes-choices { flex: 1 1 auto; }
   .se-scenes.is-recording .se-scenes-choices > button { flex-direction: column; gap: 4px; }
-  .se-scenes.is-recording .se-scenes-actions { width: auto; }
+  .se-scenes.is-recording .se-scene-floating { margin-left: auto; }
   .se-scenes-settings { padding: 12px; }
 }
