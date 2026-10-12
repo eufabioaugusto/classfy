@@ -18,6 +18,11 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllMocks(); vi.useRealTimers(); });
 
 describe('Premium de cenas baseado no entitlement oficial vigente', () => {
+  it.each(['apple', 'google'])('assinatura oficial %s reconhece período vigente sem abrir checkout Stripe', source => {
+    expect(studioPremiumAccess(profile({ entitlement_source: source, stripe_subscription_id: null }), NOW).canUseScenes).toBe(true);
+    expect(studioPremiumAccess(profile({ entitlement_source: source, plan_expires_at: '2026-01-01T00:00:00Z' }), NOW).canUseScenes).toBe(false);
+    expect(studioPremiumAccess(profile({ entitlement_source: source, plan: 'pro' }), NOW).canUseScenes).toBe(false);
+  });
   it.each(['active', 'trialing', 'canceled'])('%s respeita o período pago e expira na borda exata', status => {
     expect(studioPremiumAccess(profile({ subscription_status: status }), NOW).canUseScenes).toBe(true);
     expect(studioPremiumAccess(profile({ subscription_status: status, plan_expires_at: new Date(NOW).toISOString() }), NOW)).toMatchObject({ canUseScenes: false, reason: 'expired' });

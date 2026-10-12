@@ -33,6 +33,8 @@ export type StudioCaptureController = {
   setMicrophoneEnabled(enabled: boolean): void;
   configureVideo(patch: StudioCaptureVideoPatch): Promise<void>;
   getMicrophoneTrack(): MediaStreamTrack | null;
+  /** Borrowed screen video and the scene's single mixed audio track; callers never stop these. */
+  getScreenOriginalStream?(): MediaStream | null;
   prepareScreen?(): Promise<void>;
   selectScene?(scene: StudioCaptureScene): void;
   configureScene?(patch: StudioSceneConfigurationPatch): void;

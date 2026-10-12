@@ -25,3 +25,8 @@ it('cancel em encoder pending não certifica arquivo nem publica conclusão',asy
 });
 it('encoder sem áudio ou geometria correta rejeita resultado completo',async()=>{mocks.inspect.mockResolvedValue({duration:1,width:320,height:180,hasAudio:false});await expect(exportStudioRecipe(recipe(),async()=>new Blob())).rejects.toThrow('áudio');expect(mocks.cancel).toHaveBeenCalled();});
 it('cadência degradada não é certificada apenas pela dimensão correta',async()=>{mocks.inspect.mockResolvedValue({duration:1,width:320,height:180,hasAudio:true,frameRate:24});await expect(exportStudioRecipe(recipe(),async()=>new Blob())).rejects.toThrow('cadência');expect(mocks.cancel).toHaveBeenCalled();});
+it('kernel de originais alimenta encoder e AAC existentes e é liberado após receipt',async()=>{
+  const kernel={draw:vi.fn(async()=>undefined),mixAudio:vi.fn(async(_start:number,length:number)=>[new Float32Array(Math.round(length*48000)),new Float32Array(Math.round(length*48000))]),dispose:vi.fn()};
+  await exportStudioRecipe(recipe(),async()=>new Blob(),{kernelFactory:()=>kernel});
+  expect(kernel.draw).toHaveBeenCalledTimes(30);expect(kernel.mixAudio).toHaveBeenCalledTimes(4);expect(kernel.dispose).toHaveBeenCalledOnce();expect(mocks.recipes).toEqual([]);expect(mocks.inspect).toHaveBeenCalledOnce();
+});

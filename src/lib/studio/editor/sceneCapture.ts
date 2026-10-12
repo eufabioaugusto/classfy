@@ -21,8 +21,9 @@ const errorMessage = (error: unknown) => {
 type Buffer = ReturnType<typeof createStudioSceneRecordingBuffer>;
 type Finalization = { buffer: Buffer; expected: number; mime: string; name: string };
 /** One Program video track and one AudioContext destination live for the entire take. Scene changes never replace them. */
-export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user', cameraId, deviceId }: {
+export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user', cameraId, deviceId, externalCamera }: {
   aspectRatio?: '16:9' | '9:16'; facing?: 'user' | 'environment'; cameraId?: string; deviceId?: string;
+  externalCamera?: { track: MediaStreamTrack; name: string };
 }): StudioCaptureController {
   let width = aspectRatio === '9:16' ? 1080 : 1920, height = aspectRatio === '9:16' ? 1920 : 1080, frameRate = 30;
   let config = normalizeStudioSceneConfiguration(studioDefaultSceneConfiguration(), {}, width, height), grade: StudioGrade = studioGrade(), zoom = 1;
@@ -154,7 +155,9 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
         // Confirm the worker, transferable streams, GPU/2D surface and local disk before requesting physical inputs.
         composition = newComposition({ width, height, frameRate }, expected).engine; own(new MediaStream([composition.track]), expected);
         await composition.ready(); assert(expected); buffer = createStudioSceneRecordingBuffer(); await buffer.prepare(); assert(expected);
-        const source = own(await media.getUserMedia({ video: videoConstraints(), audio: audioConstraints() }), expected);
+        const incoming = await media.getUserMedia({ video: externalCamera ? false : videoConstraints(), audio: audioConstraints() });
+        // Own only a clone of the transport track; stopping this engine cannot stop the phone preview.
+        const source = own(externalCamera ? new MediaStream([externalCamera.track.clone(), ...incoming.getAudioTracks()]) : incoming, expected);
         camera = source.getVideoTracks()[0] ?? null; microphone = source.getAudioTracks()[0] ?? null;
         if (!camera || !microphone) throw new Error('Autorize câmera e microfone para preparar as cenas.'); microphone.enabled = state.microphoneEnabled;
         context = new AudioContext(); await resumeStudioCaptureAudio(context, () => assert(expected)); assert(expected); destination = context.createMediaStreamDestination(); own(destination.stream, expected);
@@ -190,6 +193,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
     },
     configureScene(patch) { assertSceneEditable(); config = normalizeStudioSceneConfiguration(config, patch, width, height); scenes(config); const expected = generation; void updateComposition().catch(error => { if ((error as Error).name !== 'AbortError') fail(error as Error, expected); }); },
     async selectDevices(selection) {
+      if (externalCamera && selection.cameraId !== undefined) throw new Error('Escolha a câmera do iPhone nos controles da conexão.');
       assertInputsEditable(); const nextCamera = selection.cameraId !== undefined ? selection.cameraId || undefined : cameraId, nextMic = selection.microphoneId !== undefined ? selection.microphoneId || undefined : deviceId;
       if (state.phase !== 'ready' || !composition || !context) { cameraId = nextCamera; deviceId = nextMic; return; }
       const changeCamera = selection.cameraId !== undefined, changeMic = selection.microphoneId !== undefined, expected = generation, owned = composition;
@@ -208,6 +212,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
       patch = { ...patch, ...patch.output };
       if (!camera && (patch.hardware || patch.zoom !== undefined || patch.grade)) throw new Error('Prepare a câmera antes de ajustar a imagem.');
       if (patch.hardware) {
+        if (externalCamera) throw new Error('Ajuste a câmera do iPhone pelos controles remotos.');
         if (Object.keys(patch).some(key => key !== 'hardware')) throw new Error('Ajuste os controles da câmera separadamente do formato da gravação.');
         const expected = generation, owned = camera!, current = controls()!;
         publish({ phase: 'preparing', videoControls: { ...current, busy: true }, error: null });
@@ -227,7 +232,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
       try {
         if (resize) {
           // Ask authorized sources for detail, but Program output never depends on a camera supporting this profile.
-          if (owned?.readyState === 'live' && !owned.muted) {
+          if (!externalCamera && owned?.readyState === 'live' && !owned.muted) {
             const target = studioCaptureSourceDimensions(owned.getSettings(), profile.width, profile.height);
             try { await owned.applyConstraints({ ...previous, width: { ideal: target.width }, height: { ideal: target.height }, frameRate: { ideal: profile.frameRate } }); applied = true; }
             catch { /* Retain the real input and disclose enlargement in outputVideo. */ }
@@ -272,6 +277,10 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
       } finally { if (replacement) { pendingCompositions.delete(replacement); tracks.delete(replacement.track); replacement.dispose(); } }
     },
     getMicrophoneTrack() { return !closed && microphone?.readyState === 'live' ? microphone : null; },
+    getScreenOriginalStream() {
+      const track = display?.getVideoTracks()[0];
+      return !closed && track?.readyState === 'live' && destination ? new MediaStream([track, ...destination.stream.getAudioTracks()]) : null;
+    },
     setMicrophoneEnabled(enabled) { if (closed) throw abort(); if (state.phase === 'stopping' || candidate || state.pendingRecovery) throw new Error('Conclua o take antes de alterar o microfone.'); if (microphone) microphone.enabled = enabled; publish({ microphoneEnabled: enabled }); meter(); },
     async flip() { const previous = facing; facing = facing === 'user' ? 'environment' : 'user'; try { await controller.selectDevices({ cameraId: '' }); } catch (error) { facing = previous; throw error; } },
     start() {

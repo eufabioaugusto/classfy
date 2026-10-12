@@ -4,7 +4,7 @@ import { inspectStudioMedia, type StudioMediaMetadata } from './media';
 import { createProject, getAsset, getProject, putAsset, saveProject, studioAssetUri } from './storage';
 
 export type StudioRecordingScope = { isCurrent?: () => boolean; signal?: AbortSignal };
-export type StudioRecordingAppendScope = StudioRecordingScope & { operationId?: string };
+export type StudioRecordingAppendScope = StudioRecordingScope & { operationId?: string; remoteTakeId?: string };
 export type StudioRecordingSessionOptions = {
   owner: string; kind: StudioKind; title?: string; projectId?: string; isCurrent?: () => boolean;
 };
@@ -19,7 +19,7 @@ type RecordingStorage = { createProject: typeof createProject; getProject: typeo
 export type StudioRecordingDependencies = {
   storage?: RecordingStorage; inspect?: typeof inspectStudioMedia; id?: () => string;
 };
-type TakeReceipt = { operationId: string; assetId: string; clipId: string; metadata?: StudioMediaMetadata; asset?: StudioAsset };
+type TakeReceipt = { operationId: string; assetId: string; clipId: string; remoteTakeId?: string; metadata?: StudioMediaMetadata; asset?: StudioAsset };
 
 export class StudioRecordingBusyError extends Error {
   constructor() { super('Aguarde o salvamento deste take antes de continuar.'); this.name = 'StudioRecordingBusyError'; }
@@ -79,25 +79,35 @@ export function createStudioRecordingSession(options: StudioRecordingSessionOpti
     flight = { key, promise };
     return promise;
   }
-  function receiptFor(file: File, operationId?: string): TakeReceipt {
+  function receiptFor(file: File, operationId?: string, remoteTakeId?: string): TakeReceipt {
     if (!file || !Number.isFinite(file.size) || file.size <= 0 || typeof file.slice !== 'function') throw new Error('A gravação está vazia ou não está disponível.');
     if (operationId !== undefined) identity(operationId);
+    if (remoteTakeId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(remoteTakeId)) throw new Error('A identificação do take remoto não é válida.');
     const byFile = files.get(file), byOperation = operationId ? receipts.get(operationId) : undefined;
     if (byOperation && byFile !== byOperation || byFile && operationId && byFile.operationId !== operationId) throw new Error('Esta tentativa pertence a outro arquivo de gravação.');
-    if (byOperation || byFile) return (byOperation ?? byFile)!;
-    const receipt: TakeReceipt = { operationId: operationId ?? id(), assetId: id(), clipId: id() };
+    if (byOperation || byFile) { const previous = (byOperation ?? byFile)!; if (previous.remoteTakeId !== remoteTakeId) throw new Error('Esta tentativa pertence a outro take remoto.'); return previous; }
+    const receipt: TakeReceipt = { operationId: operationId ?? id(), assetId: remoteTakeId ? `remote-${remoteTakeId}` : id(), clipId: remoteTakeId ? `remote-clip-${remoteTakeId}` : id(), ...(remoteTakeId ? { remoteTakeId } : {}) };
     identity(receipt.operationId); identity(receipt.assetId); identity(receipt.clipId);
     receipts.set(receipt.operationId, receipt); files.set(file, receipt);
     return receipt;
   }
-  async function ensureBytes(assetId: string, blob: Blob, scope?: StudioRecordingScope) {
+  async function sameBytes(left: Blob, right: Blob, scope?: StudioRecordingScope) {
+    if (left.size !== right.size || left.type !== right.type) return false;
+    const chunk = 1024 * 1024;
+    for (let offset = 0; offset < right.size; offset += chunk) {
+      assertScope(scope); const [a, b] = await Promise.all([left.slice(offset, offset + chunk).arrayBuffer(), right.slice(offset, offset + chunk).arrayBuffer()]); assertScope(scope);
+      const x = new Uint8Array(a), y = new Uint8Array(b); if (x.length !== y.length || x.some((byte, index) => byte !== y[index])) return false;
+    }
+    return true;
+  }
+  async function ensureBytes(assetId: string, blob: Blob, scope?: StudioRecordingScope, compare = false) {
     assertScope(scope);
     // An interrupted put may have committed before its Promise was observed.
     // The session's exclusive asset ID is reused, never overwritten.
     const previous = await storage.getAsset(owner, projectId!, assetId);
     assertScope(scope);
     if (previous) {
-      if (previous.size !== blob.size || previous.type !== blob.type) throw new Error('O original salvo não corresponde a este take.');
+      if (previous.size !== blob.size || previous.type !== blob.type || compare && !await sameBytes(previous, blob, scope)) throw new Error('O original salvo não corresponde a este take.');
       return;
     }
     await storage.putAsset(owner, projectId!, assetId, blob);
@@ -107,16 +117,32 @@ export function createStudioRecordingSession(options: StudioRecordingSessionOpti
     receipt.metadata = undefined;
     return value;
   }
+  async function remoteAcknowledgement(receipt: TakeReceipt, original: StudioAsset, file: File, current: StudioProject, scope?: StudioRecordingAppendScope) {
+    if (!receipt.remoteTakeId) throw new Error('O original salvo não corresponde a este take.');
+    const previous = await storage.getAsset(owner, current.id, original.id); assertScope(scope);
+    if (!previous || previous.size !== file.size || previous.type !== file.type || original.name !== file.name || original.uri !== studioAssetUri(owner, current.id, original.id, file.name)) throw new Error('O original salvo não corresponde a este take remoto.');
+    // A lost acknowledgement can reopen a File. Compare disk-backed originals
+    // in bounded chunks instead of accepting a filename/size or loading 4K in RAM.
+    if (!await sameBytes(previous, file, scope)) throw new Error('O original salvo não corresponde a este take remoto.');
+    const metadata = await inspect(file, { signal: scope?.signal }); assertScope(scope); validMetadata(metadata, current.kind);
+    if (original.kind !== metadata.kind || original.width !== metadata.width || original.height !== metadata.height || original.durationTicks !== studioTicks(metadata.duration) || original.hasAudio !== metadata.hasAudio) throw new Error('Os dados do original salvo não correspondem ao take remoto.');
+    receipt.asset = original; return acknowledged(receipt, current);
+  }
   async function appendReceipt(receipt: TakeReceipt, file: File, scope?: StudioRecordingAppendScope) {
     // Only the current failed candidate may keep its decoded thumbnail. The
     // caller owns Files; neither the operation ledger nor its WeakMap values do.
     for (const old of receipts.values()) if (old !== receipt) old.metadata = undefined;
     let current = await latest(scope);
+    if (!current && receipt.remoteTakeId) {
+      const recovered = await storage.getProject(owner, receipt.remoteTakeId); assertScope(scope);
+      if (recovered) { if (recovered.ownerId !== owner || recovered.kind !== initialKind) throw new Error('O projeto já salvo não corresponde a esta gravação remota.'); projectId = recovered.id; current = accept(recovered); }
+    }
     if (current) {
       // This includes a successful but unobserved save, and clips subsequently
       // split/removed in another tab. Do not resurrect an already accepted take.
       const original = current.editing?.assets.find(asset => asset.id === receipt.assetId);
       if (original) {
+        if (receipt.remoteTakeId && !receipt.asset) return remoteAcknowledgement(receipt, original, file, current, scope);
         if (!receipt.asset || JSON.stringify(original) !== JSON.stringify(receipt.asset)) throw new Error('O original salvo não corresponde a este take.');
         return acknowledged(receipt, current);
       }
@@ -128,7 +154,7 @@ export function createStudioRecordingSession(options: StudioRecordingSessionOpti
     // No project or original is written until the decoder has accepted media.
     if (!current) {
       assertScope(scope);
-      const created = await storage.createProject(owner, kind, title);
+      const created = await storage.createProject(owner, kind, title, receipt.remoteTakeId);
       projectId = created.id; current = accept(created);
       assertScope(scope);
     }
@@ -141,7 +167,7 @@ export function createStudioRecordingSession(options: StudioRecordingSessionOpti
         ...(metadata.frameRate !== undefined ? { frameRate: metadata.frameRate } : {}), hasAudio: metadata.hasAudio,
         ...(metadata.colorSpace ? { colorSpace: metadata.colorSpace } : {}), ...(metadata.thumbnail ? { thumbnailUri: `${uri}:thumbnail` } : {}) };
     }
-    await ensureBytes(receipt.asset.id, file, scope);
+    await ensureBytes(receipt.asset.id, file, scope, !!receipt.remoteTakeId);
     if (metadata.thumbnail) await ensureBytes(`${receipt.asset.id}:thumbnail`, metadata.thumbnail, scope);
     // Re-read after byte I/O. An edit made while the codec/copy ran is preserved;
     // another edit during save still conflicts through the storage revision CAS.
@@ -169,7 +195,7 @@ export function createStudioRecordingSession(options: StudioRecordingSessionOpti
         assertScope(scope);
         const previous = scope?.operationId ? receipts.get(scope.operationId) : files.get(file);
         if (flight && (!previous || flight.key !== `append:${previous.operationId}`)) throw new StudioRecordingBusyError();
-        receipt = receiptFor(file, scope?.operationId);
+        receipt = receiptFor(file, scope?.operationId, scope?.remoteTakeId);
       } catch (error) { return Promise.reject(error); }
       return run(`append:${receipt.operationId}`, () => appendReceipt(receipt, file, scope));
     },
