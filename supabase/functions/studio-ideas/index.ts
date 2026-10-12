@@ -18,18 +18,26 @@ function clipped(value: unknown, max: number): string {
 export function createIdeasStore(db: ServiceClient): IdeasStore {
   const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> => {
     const { data, error } = await db.rpc(name, args);
-    if (error) storageError();
+    if (error) {
+      if (error.message === 'editorial_required') throw new IdeasError('editorial_required', 'Escolha sua categoria e conte sobre o que você ensina.', 422);
+      if (error.message === 'editorial_context_changed') throw new IdeasError('editorial_context_changed', 'Seu contexto editorial mudou. Atualize as ideias.', 409);
+      if (error.message === 'invalid_editorial') throw new IdeasError('invalid_editorial', 'Escolha sua categoria e descreva seu foco em 12 a 280 caracteres.');
+      if (error.message === 'category_not_found') throw new IdeasError('category_not_found', 'Esta categoria não está disponível. Escolha outra.', 404);
+      if (error.message === 'creator_required') throw new IdeasError('creator_required', 'Este recurso está disponível para creators aprovados.', 403);
+      storageError();
+    }
     return data as T;
   };
   return {
     async context(ownerId, categoryId) {
-      const [categoriesResult, recentResult] = await Promise.all([
+      const [categoriesResult, recentResult, profileResult] = await Promise.all([
         db.from('categories').select('id,name,slug').order('name').limit(200),
         db.from('contents').select('id,title,description,tags,category_id')
           .eq('creator_id', ownerId).eq('status', 'approved').in('content_type', ['aula', 'short', 'podcast'])
           .order('published_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false }).limit(8),
+        db.from('profiles').select('creator_category_id,creator_teaching_focus,bio,creator_bio').eq('id', ownerId).maybeSingle(),
       ]);
-      if (categoriesResult.error || recentResult.error) storageError();
+      if (categoriesResult.error || recentResult.error || profileResult.error || !profileResult.data) storageError();
       const categories = (categoriesResult.data ?? []).map(row => ({ id: row.id, name: clipped(row.name, 160), slug: clipped(row.slug, 160) }));
       const recentContents = (recentResult.data ?? []).map(row => ({
         id: row.id, title: clipped(row.title, 200), description: clipped(row.description, 1_600),
@@ -38,13 +46,23 @@ export function createIdeasStore(db: ServiceClient): IdeasStore {
       }));
       const category = categoryId ? categories.find(item => item.id === categoryId) : undefined;
       if (categoryId && !category) throw new IdeasError('category_not_found', 'Esta categoria não está disponível. Escolha outra.', 404);
+      const profile = profileResult.data;
+      const editorialCategory = categories.find(item => item.id === profile.creator_category_id);
+      const teachingFocus = clipped(profile.creator_teaching_focus, 280);
+      const ready = !!editorialCategory && teachingFocus.length >= 12 && teachingFocus.length <= 280;
       return {
         categories, recentContents,
-        source: category
+        editorial: { categoryId: profile.creator_category_id ?? null, categoryName: editorialCategory?.name ?? null, teachingFocus, ready },
+        // The editable profile bio is newer than the creator application bio.
+        creatorBio: clipped(profile.bio, 1_600) || clipped(profile.creator_bio, 1_600),
+        editorialRevision: { categoryId: profile.creator_category_id ?? null, categoryName: categoriesResult.data?.find(item => item.id === profile.creator_category_id)?.name ?? null,
+          teachingFocus: profile.creator_teaching_focus ?? '', bio: profile.bio ?? '', creatorBio: profile.creator_bio ?? '' },
+        topicCategoryId: category?.id ?? null,
+        source: !ready
+          ? { type: 'empty', label: 'Defina seu foco editorial', contentIds: [], categoryId: null }
+          : category
           ? { type: 'category', label: `Categoria: ${category.name}`, contentIds: [], categoryId: category.id }
-          : recentContents.length
-          ? { type: 'recent', label: 'Seus últimos conteúdos', contentIds: recentContents.map(item => item.id), categoryId: null }
-          : { type: 'empty', label: 'Escolha uma categoria', contentIds: [], categoryId: null },
+          : { type: 'profile', label: 'Seu foco editorial', contentIds: recentContents.map(item => item.id), categoryId: editorialCategory!.id },
       };
     },
     async suggestion(ownerId, suggestionId) {
@@ -65,7 +83,7 @@ export function createIdeasStore(db: ServiceClient): IdeasStore {
       return data?.result as GenerationResult ?? null;
     },
     reserve(input) {
-      return rpc<Reservation>('studio_ideas_reserve', {
+      return rpc<Reservation>('studio_ideas_reserve_editorial', {
         p_owner_id: input.ownerId, p_request_id: input.requestId, p_action: input.action,
         p_cache_key: input.cacheKey, p_context: input.context, p_refresh: input.refresh,
       });
@@ -75,6 +93,9 @@ export function createIdeasStore(db: ServiceClient): IdeasStore {
     },
     async fail(ownerId, jobId, code) { await rpc('studio_ideas_fail', { p_owner_id: ownerId, p_job_id: jobId, p_code: code }); },
     async cancel(ownerId, requestId) { await rpc('studio_ideas_cancel', { p_owner_id: ownerId, p_request_id: requestId }); },
+    async saveEditorial(ownerId, categoryId, teachingFocus) {
+      await rpc('studio_ideas_save_editorial', { p_owner_id: ownerId, p_category_id: categoryId, p_teaching_focus: teachingFocus });
+    },
   };
 }
 

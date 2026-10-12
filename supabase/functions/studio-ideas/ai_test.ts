@@ -4,6 +4,9 @@ import type { IdeasContext } from './core.ts';
 const context: IdeasContext = {
   categories: [], recentContents: [],
   source: { type: 'category', label: 'Categoria: Design', categoryId: '33333333-3333-4333-8333-333333333333', contentIds: [] },
+  editorial: { categoryId: '33333333-3333-4333-8333-333333333333', categoryName: 'Design', teachingFocus: 'Ensino design acessível.', ready: true },
+  creatorBio: '', topicCategoryId: null,
+  editorialRevision: { categoryId: '33333333-3333-4333-8333-333333333333', categoryName: 'Design', teachingFocus: 'Ensino design acessível.', bio: '', creatorBio: '' },
 };
 function assert(value: unknown, message = 'assertion failed'): asserts value { if (!value) throw new Error(message); }
 function equal(actual: unknown, expected: unknown) { assert(JSON.stringify(actual) === JSON.stringify(expected), `${JSON.stringify(actual)} != ${JSON.stringify(expected)}`); }

@@ -21,6 +21,9 @@ const context: IdeasContext = {
   categories: [{ id: CATEGORY, name: 'Design', slug: 'design' }],
   recentContents: [{ id: CONTENT, title: 'Introdução ao design acessível', description: 'Princípios de contraste e legibilidade.', tags: ['design'], categoryId: CATEGORY, categoryName: 'Design' }],
   source: { type: 'recent', label: 'Seus últimos conteúdos', contentIds: [CONTENT], categoryId: null },
+  editorial: { categoryId: CATEGORY, categoryName: 'Design', teachingFocus: 'Ensino design acessível para interfaces.', ready: true },
+  creatorBio: '', topicCategoryId: null,
+  editorialRevision: { categoryId: CATEGORY, categoryName: 'Design', teachingFocus: 'Ensino design acessível para interfaces.', bio: '', creatorBio: '' },
 };
 const aiSuggestions = { suggestions: ['Contraste na prática', 'Erros de legibilidade', 'Design para todos'].map(title => ({
   title, summary: 'Uma explicação prática para melhorar a leitura das interfaces.',
@@ -32,7 +35,7 @@ function request(body: unknown, signal?: AbortSignal) {
   return new Request('https://example.test/studio-ideas', { method: 'POST', body: JSON.stringify(body), signal });
 }
 function fixture() {
-  const calls = { context: [] as string[], suggestion: [] as string[], reserve: [] as string[], complete: 0, fail: [] as string[], generate: 0, cancel: [] as string[] };
+  const calls = { context: [] as string[], suggestion: [] as string[], reserve: [] as string[], complete: 0, fail: [] as string[], generate: 0, cancel: [] as string[], save: [] as string[] };
   let cached: GenerationResult | null = null;
   let reservation: Reservation = { state: 'reserved', jobId: JOB };
   let stored: StoredSuggestion | null = { suggestion: idea, context };
@@ -45,6 +48,12 @@ function fixture() {
     complete: async (owner, _job, result) => { assert(owner === OWNER); calls.complete++; cached = result; return true; },
     fail: async (_owner, _job, code) => { calls.fail.push(code); },
     cancel: async (owner, id) => { calls.cancel.push(`${owner}:${id}`); },
+    saveEditorial: async (owner, categoryId, focus) => {
+      calls.save.push(`${owner}:${categoryId}:${focus}`);
+      if (categoryId !== CATEGORY) throw new IdeasError('category_not_found', 'Categoria indisponível', 404);
+      activeContext = { ...activeContext, editorial: { categoryId, categoryName: 'Design', teachingFocus: focus, ready: true },
+        editorialRevision: { ...activeContext.editorialRevision, categoryId, categoryName: 'Design', teachingFocus: focus } };
+    },
   };
   const deps: IdeasDependencies = {
     authenticate: async () => ({ id: OWNER, admin: false, approvedCreator: true }), store,
@@ -72,7 +81,7 @@ Deno.test('admin is allowed without a creator profile; context never calls AI', 
 Deno.test('client cannot inject another owner, publications, script or suggestion context', async () => {
   const f = fixture();
   const result = await runStudioIdeas(request({ action: 'suggest', ownerId: OTHER, context: { contents: [{ title: 'Private other user' }] }, requestId: REQUEST }), f.deps);
-  equal(f.calls.context, [OWNER]); equal(f.calls.reserve, [OWNER]); equal(result.source, context.source);
+  equal(f.calls.context, [OWNER, OWNER]); equal(f.calls.reserve, [OWNER]); equal(result.source, context.source);
   assert((result.suggestions as Array<{ id: string }>).every(item => item.id !== IDEA));
 });
 Deno.test('script lookup is owner scoped and forged/other-owner suggestion fails before generation', async () => {
@@ -81,10 +90,10 @@ Deno.test('script lookup is owner scoped and forged/other-owner suggestion fails
   await rejects(() => runStudioIdeas(request({ action: 'script', suggestionId: IDEA, kind: 'aula', durationMinutes: 1, requestId: REQUEST }), f.deps), 'suggestion_not_found');
   equal(f.calls.suggestion, [OTHER]); equal(f.calls.generate, 0); equal(f.calls.reserve.length, 0);
 });
-Deno.test('new creator needs an official category, and an unknown category is rejected', async () => {
+Deno.test('creator needs confirmed editorial fields, and an unknown category is rejected', async () => {
   const f = fixture();
-  f.setContext({ ...context, recentContents: [], source: { type: 'empty', label: 'Escolha uma categoria', categoryId: null, contentIds: [] } });
-  await rejects(() => runStudioIdeas(request({ action: 'suggest', requestId: REQUEST }), f.deps), 'context_required');
+  f.setContext({ ...context, editorial: { categoryId: null, categoryName: null, teachingFocus: '', ready: false }, recentContents: [], source: { type: 'empty', label: 'Escolha uma categoria', categoryId: null, contentIds: [] } });
+  await rejects(() => runStudioIdeas(request({ action: 'suggest', requestId: REQUEST }), f.deps), 'editorial_required');
   await rejects(() => runStudioIdeas(request({ action: 'suggest', categoryId: OTHER, requestId: REQUEST }), f.deps), 'category_not_found');
   equal(f.calls.generate, 0);
 });
@@ -141,11 +150,29 @@ Deno.test('script validates duration, preserves selected idea, and is teleprompt
   equal((result.draft as Record<string, unknown>).kind, 'short'); equal(f.calls.complete, 1);
   let rejected = false; try { validateScript({ ...script, script: 'too short' }, idea, 'aula', 4); } catch { rejected = true; } assert(rejected);
 });
-Deno.test('context fingerprint changes with metadata, but category choice ignores unrelated history', async () => {
+Deno.test('context fingerprint changes with metadata and confirmed editorial anchors', async () => {
   const key = await contextCacheKey(context);
   assert(key !== await contextCacheKey({ ...context, recentContents: [{ ...context.recentContents[0], title: 'New topic' }] }));
   const categoryContext: IdeasContext = { ...context, source: { type: 'category', label: 'Categoria: Design', categoryId: CATEGORY, contentIds: [] } };
-  equal(await contextCacheKey(categoryContext), await contextCacheKey({ ...categoryContext, recentContents: [] }));
+  assert(await contextCacheKey(categoryContext) !== await contextCacheKey({ ...categoryContext, recentContents: [] }));
+  assert(key !== await contextCacheKey({ ...context, creatorBio: 'Nova bio sobre design.' }));
+  assert(key !== await contextCacheKey({ ...context, editorial: { ...context.editorial, teachingFocus: 'Ensino escrita de interfaces.' } }));
+  assert(key !== await contextCacheKey({ ...context, editorialRevision: { ...context.editorialRevision, bio: 'Bio editada' } }));
+});
+Deno.test('JSONB recursively reordered snapshot keys preserve fingerprint and permit fresh script', async () => {
+  function reorder(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(reorder);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).reverse().map(([key, item]) => [key, reorder(item)]));
+    return value;
+  }
+  const snapshot = reorder(JSON.parse(JSON.stringify(context))) as IdeasContext;
+  equal(await contextCacheKey(snapshot), await contextCacheKey(context));
+  const f = fixture(); f.setStored({ suggestion: idea, context: snapshot });
+  const result = await runStudioIdeas(request({ action: 'script', suggestionId: IDEA, kind: 'aula', durationMinutes: 1, requestId: REQUEST }), f.deps);
+  equal((result.draft as Record<string, unknown>).title, idea.title); equal(f.calls.generate, 1);
+  assert(await contextCacheKey(snapshot) !== await contextCacheKey({ ...snapshot, recentContents: [{ ...snapshot.recentContents[0], title: 'Novo conteúdo' }] }));
+  assert(await contextCacheKey(snapshot) !== await contextCacheKey({ ...snapshot, editorial: { ...snapshot.editorial, teachingFocus: 'Novo foco editorial confirmado.' } }));
+  assert(await contextCacheKey(snapshot) !== await contextCacheKey({ ...snapshot, editorialRevision: { ...snapshot.editorialRevision, bio: 'Nova bio.' } }));
 });
 Deno.test('prompts describe only real metadata sources, isolate untrusted context and budget long scripts', () => {
   const suggestionPrompt = generationPrompt({ action: 'suggest', context });
@@ -154,4 +181,58 @@ Deno.test('prompts describe only real metadata sources, isolate untrusted contex
   assert(!suggestionPrompt.userPrompt.includes('views_count'));
   const long = generationPrompt({ action: 'script', context, suggestion: idea, kind: 'aula', durationMinutes: 10 });
   assert(long.maxTokens >= 7_000); assert(long.userPrompt.includes('1300 palavras'));
+});
+
+Deno.test('ambiguous Luz title and even a meaningful bio cannot replace confirmed editorial setup', async () => {
+  const f = fixture();
+  const incomplete: IdeasContext = { ...context, editorial: { categoryId: null, categoryName: null, teachingFocus: '', ready: false },
+    creatorBio: 'Eu ensino espiritualidade e desenvolvimento interior.',
+    source: { type: 'empty', label: 'Defina seu foco editorial', contentIds: [], categoryId: null },
+    recentContents: [{ ...context.recentContents[0], title: 'A LUZ - Aula 1', description: 'ddasdasdsa', tags: [], categoryId: null, categoryName: null }] };
+  f.setContext(incomplete); f.setCached({ suggestions: validateSuggestions(aiSuggestions, () => IDEA), generatedAt: '2026-10-11T20:00:00Z' });
+  const loaded = await runStudioIdeas(request({ action: 'context' }), f.deps);
+  equal(loaded.suggestions, []); equal(loaded.cached, false); assert(typeof loaded.contextKey === 'string');
+  await rejects(() => runStudioIdeas(request({ action: 'suggest', requestId: REQUEST }), f.deps), 'editorial_required');
+  await rejects(() => runStudioIdeas(request({ action: 'script', suggestionId: IDEA, kind: 'aula', durationMinutes: 1, requestId: REQUEST }), f.deps), 'editorial_required');
+  equal(f.calls.generate, 0); equal(f.calls.reserve.length, 0);
+});
+Deno.test('saving editorial is owner scoped, atomic in store and never automatically generates', async () => {
+  const f = fixture();
+  for (const teachingFocus of ['', 'curto', 'x'.repeat(281)]) await rejects(() => runStudioIdeas(request({ action: 'save_editorial', categoryId: CATEGORY, teachingFocus }), f.deps), 'invalid_editorial');
+  equal(f.calls.save.length, 0);
+  const result = await runStudioIdeas(request({ action: 'save_editorial', ownerId: OTHER, categoryId: CATEGORY, teachingFocus: '  Ensino escrita acessível para interfaces.  ' }), f.deps);
+  equal(f.calls.save, [`${OWNER}:${CATEGORY}:Ensino escrita acessível para interfaces.`]);
+  equal((result.editorial as Record<string, unknown>).teachingFocus, 'Ensino escrita acessível para interfaces.');
+  assert(typeof result.contextKey === 'string'); equal(f.calls.generate, 0);
+  assert(!Object.hasOwn(result, 'editorialRevision'));
+});
+Deno.test('changed editorial blocks old suggestions and cached script retries before AI or reserve', async () => {
+  const f = fixture();
+  f.setContext({ ...context, editorial: { ...context.editorial, teachingFocus: 'Ensino espiritualidade e desenvolvimento interior.' },
+    editorialRevision: { ...context.editorialRevision, teachingFocus: 'Ensino espiritualidade e desenvolvimento interior.' } });
+  f.setReservation({ state: 'cached', result: { generatedAt: '2026-10-11T20:00:00Z', draft: { ...script, title: idea.title, kind: 'aula', objective: idea.objective, audience: idea.audience } } });
+  await rejects(() => runStudioIdeas(request({ action: 'script', suggestionId: IDEA, kind: 'aula', durationMinutes: 1, requestId: REQUEST }), f.deps), 'editorial_context_changed');
+  equal(f.calls.generate, 0); equal(f.calls.reserve.length, 0);
+  f.setStored({ suggestion: idea, context: { ...context, editorial: undefined } as unknown as IdeasContext });
+  await rejects(() => runStudioIdeas(request({ action: 'script', suggestionId: IDEA, kind: 'aula', durationMinutes: 1, requestId: REQUEST }), f.deps), 'editorial_context_changed');
+});
+Deno.test('editorial or bio changes while AI runs cannot commit a stale output', async () => {
+  const f = fixture();
+  f.deps.generate = async () => {
+    f.setContext({ ...context, creatorBio: 'Uma nova bio sobre espiritualidade.', editorialRevision: { ...context.editorialRevision, creatorBio: 'Uma nova bio sobre espiritualidade.' } });
+    return aiSuggestions;
+  };
+  await rejects(() => runStudioIdeas(request({ action: 'suggest', requestId: REQUEST }), f.deps), 'editorial_context_changed');
+  equal(f.calls.complete, 0); equal(f.calls.fail, ['editorial_context_changed']);
+  const late = fixture();
+  late.deps.store.complete = async () => { late.setContext({ ...context, editorialRevision: { ...context.editorialRevision, bio: 'A bio mudou entre check e commit.' } }); return false; };
+  await rejects(() => runStudioIdeas(request({ action: 'suggest', requestId: REQUEST }), late.deps), 'editorial_context_changed');
+});
+Deno.test('spirituality is an explicit prompt anchor; Luz is not silently translated into physics', () => {
+  const anchored: IdeasContext = { ...context, editorial: { categoryId: CATEGORY, categoryName: 'Espiritualidade', teachingFocus: 'Ensino espiritualidade e desenvolvimento interior.', ready: true },
+    source: { type: 'profile', label: 'Seu foco editorial', categoryId: CATEGORY, contentIds: [CONTENT] },
+    recentContents: [{ ...context.recentContents[0], title: 'A LUZ - Aula 1', description: 'ddasdasdsa', tags: [], categoryId: null, categoryName: null }] };
+  const prompt = generationPrompt({ action: 'suggest', context: anchored });
+  assert(prompt.userPrompt.includes('Espiritualidade')); assert(prompt.userPrompt.includes('desenvolvimento interior'));
+  assert(prompt.systemPrompt.includes('Nunca mude essa área')); assert(prompt.systemPrompt.includes('Bio e publicações recentes são apenas apoio'));
 });

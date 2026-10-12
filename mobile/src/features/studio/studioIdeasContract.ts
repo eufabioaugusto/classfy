@@ -1,6 +1,7 @@
 export type StudioIdeaKind = 'aula' | 'short' | 'podcast';
 export type StudioIdeaCategory = { id: string; name: string; slug: string };
-export type StudioIdeaSource = { type: 'recent' | 'category' | 'empty'; label: string; contentIds: string[]; categoryId: string | null };
+export type StudioIdeaSource = { type: 'profile' | 'recent' | 'category' | 'empty'; label: string; contentIds: string[]; categoryId: string | null };
+export type StudioIdeasEditorial = { categoryId: string | null; categoryName: string | null; teachingFocus: string; ready: boolean };
 export type StudioIdeaSuggestion = {
   id: string; title: string; summary: string; objective: string; audience: string; tags: string[];
   kind: StudioIdeaKind; durationMinutes: number;
@@ -12,12 +13,13 @@ export type StudioIdeaDraft = {
 export type StudioIdeasContext = {
   categories: StudioIdeaCategory[];
   recentContents: { id: string; title: string; description: string; tags: string[]; categoryId: string | null; categoryName: string | null }[];
-  source: StudioIdeaSource; suggestions: StudioIdeaSuggestion[]; cached: boolean;
+  source: StudioIdeaSource; editorial: StudioIdeasEditorial; contextKey: string | null; suggestions: StudioIdeaSuggestion[]; cached: boolean;
 };
-export type StudioIdeasSuggestions = { suggestions: StudioIdeaSuggestion[]; source: StudioIdeaSource; cached: boolean; generatedAt?: string };
+export type StudioIdeasSuggestions = { suggestions: StudioIdeaSuggestion[]; source: StudioIdeaSource; contextKey: string | null; cached: boolean; generatedAt?: string };
 export type StudioIdeasScript = { draft: StudioIdeaDraft; cached: boolean; generatedAt?: string };
 export type StudioIdeasRequest =
   | { action: 'context'; categoryId?: string }
+  | { action: 'save_editorial'; categoryId: string; teachingFocus: string }
   | { action: 'suggest'; categoryId?: string; refresh?: boolean; requestId: string }
   | { action: 'script'; suggestionId: string; kind: StudioIdeaKind; durationMinutes: number; requestId: string };
 
@@ -46,7 +48,7 @@ export function studioIdeaDuration(value: unknown, format: StudioIdeaKind) {
 }
 function source(value: unknown): StudioIdeaSource {
   const item = object(value);
-  if (item.type !== 'recent' && item.type !== 'category' && item.type !== 'empty') throw new Error('Contexto de sugestões inválido.');
+  if (item.type !== 'profile' && item.type !== 'recent' && item.type !== 'category' && item.type !== 'empty') throw new Error('Contexto de sugestões inválido.');
   if (!Array.isArray(item.contentIds) || item.contentIds.length > 8) throw new Error('Contexto de sugestões inválido.');
   return { type: item.type, label: text(item.label, 300), contentIds: item.contentIds.map(id), categoryId: optionalId(item.categoryId) };
 }
@@ -62,16 +64,31 @@ function suggestions(value: unknown): StudioIdeaSuggestion[] {
 export function parseStudioIdeasContext(value: unknown): StudioIdeasContext {
   const item = object(value);
   if (!Array.isArray(item.categories) || item.categories.length > 200 || !Array.isArray(item.recentContents) || item.recentContents.length > 8) throw new Error('Contexto de sugestões inválido.');
+  const categories = item.categories.map(value => { const category = object(value); return { id: id(category.id), name: text(category.name, 180, true), slug: text(category.slug, 180, true) }; });
+  const editorial = parseStudioIdeasEditorial(item.editorial, categories);
   return {
-    categories: item.categories.map(value => { const category = object(value); return { id: id(category.id), name: text(category.name, 180, true), slug: text(category.slug, 180, true) }; }),
+    categories,
     recentContents: item.recentContents.map(value => { const content = object(value); return { id: id(content.id), title: text(content.title, 1000), description: text(content.description, 10000), tags: strings(content.tags), categoryId: optionalId(content.categoryId), categoryName: content.categoryName == null ? null : text(content.categoryName, 180) }; }),
-    source: source(item.source), suggestions: suggestions(item.suggestions), cached: item.cached === true,
+    source: source(item.source), editorial, contextKey: parseContextKey(item.contextKey), suggestions: editorial.ready ? suggestions(item.suggestions) : [], cached: editorial.ready && item.cached === true,
   };
+}
+function parseContextKey(value: unknown): string | null { return value == null ? null : text(value, 180, true); }
+function parseStudioIdeasEditorial(value: unknown, categories: StudioIdeaCategory[]): StudioIdeasEditorial {
+  if (value == null) return { categoryId: null, categoryName: null, teachingFocus: '', ready: false };
+  const item = object(value), categoryId = optionalId(item.categoryId), teachingFocus = text(item.teachingFocus, 280);
+  const category = categories.find(item => item.id === categoryId);
+  return { categoryId, categoryName: category?.name || null, teachingFocus, ready: item.ready === true && !!category && teachingFocus.length >= 12 };
+}
+export function validateStudioIdeasEditorial(categoryId: unknown, teachingFocus: unknown, categories: StudioIdeaCategory[]) {
+  const selected = id(categoryId), focus = text(teachingFocus, 280, true);
+  if (!categories.some(item => item.id === selected)) throw new Error('Escolha sua área principal.');
+  if (focus.length < 12) throw new Error('Conte um pouco mais sobre o que você ensina (pelo menos 12 caracteres).');
+  return { categoryId: selected, teachingFocus: focus };
 }
 export function parseStudioIdeasSuggestions(value: unknown): StudioIdeasSuggestions {
   const item = object(value), result = suggestions(item.suggestions);
   if (result.length !== 3) throw new Error('Não foi possível receber as três sugestões.');
-  return { suggestions: result, source: source(item.source), cached: item.cached === true, generatedAt: typeof item.generatedAt === 'string' ? item.generatedAt : undefined };
+  return { suggestions: result, source: source(item.source), contextKey: parseContextKey(item.contextKey), cached: item.cached === true, generatedAt: typeof item.generatedAt === 'string' ? item.generatedAt : undefined };
 }
 export function validateStudioIdeaDraft(value: unknown): StudioIdeaDraft {
   const item = object(value), format = kind(item.kind);
@@ -85,6 +102,9 @@ export function parseStudioIdeasScript(value: unknown, expected: Extract<StudioI
 export function studioIdeasSourceKey(value: StudioIdeaSource) {
   return `${value.type}:${value.categoryId || ''}:${value.contentIds.join(',')}`;
 }
+export function studioIdeasContextKey(value: StudioIdeasContext) {
+  return value.contextKey || JSON.stringify({ source: studioIdeasSourceKey(value.source), categoryId: value.editorial.categoryId, teachingFocus: value.editorial.teachingFocus });
+}
 export class StudioIdeasRequestError extends Error {
   code: string;
   constructor(code: string, message: string) { super(message); this.code = code; }
@@ -95,9 +115,15 @@ export function studioIdeasRetryNeedsNewId(cause: unknown) {
   const code = cause && typeof cause === 'object' && 'code' in cause ? cause.code : null;
   return typeof code === 'string' && ['request_failed', 'request_conflict', 'generation_failed', 'generation_cancelled', 'ai_invalid_response', 'ai_unavailable'].includes(code);
 }
+export function studioIdeasNeedsFreshContext(cause: unknown) {
+  const code = cause && typeof cause === 'object' && 'code' in cause ? cause.code : null;
+  return typeof code === 'string' && ['editorial_required', 'editorial_context_changed', 'suggestion_not_found'].includes(code);
+}
 export function studioIdeasFriendlyError(code: unknown, retryAfterSeconds?: unknown) {
   switch (code) {
-    case 'context_required': return 'Escolha uma categoria para a Classy preparar suas sugestões.';
+    case 'context_required': case 'editorial_required': return 'Escolha sua área e conte sobre o que você ensina para personalizar as sugestões.';
+    case 'editorial_context_changed': return 'Seu contexto mudou. Atualize as sugestões antes de preparar outro roteiro.';
+    case 'invalid_editorial': return 'Escolha sua área principal e descreva o que você ensina em 12 a 280 caracteres.';
     case 'generation_in_progress': return 'A Classy já está preparando esse pedido. Aguarde um pouco e tente novamente.';
     case 'request_conflict': return 'Esse pedido mudou. Feche o painel e escolha a pauta novamente.';
     case 'request_failed': case 'generation_cancelled': return 'Essa geração foi encerrada. Tente novamente para preparar seu conteúdo.';
