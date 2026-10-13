@@ -7,6 +7,19 @@ export type StudioRemoteConfiguration = {
   cameraFacing: 'front' | 'back';
   pro?: Record<string, unknown>;
   imageGrade?: StudioGrade;
+  /** null uses the iPhone's automatic route; strings are native available-input UIDs. */
+  audioInputId?: string | null;
+};
+export type StudioRemoteAudioPort = { id: string; name: string; type: string };
+export type StudioRemoteAudioInput = {
+  version: 1; available: StudioRemoteAudioPort[]; preferredId: string | null;
+  current: StudioRemoteAudioPort | null; confirmed: boolean; selecting: boolean; warning: string | null;
+};
+export type StudioRemoteAudioMonitor = {
+  status: 'waiting' | 'live' | 'unavailable' | 'interrupted';
+  input: { id?: string; name: string; type: string } | null;
+  channels: { averageDb: number; peakDb: number }[];
+  message?: string;
 };
 export type StudioRemoteMetadata = {
   bytes: number; mime: string; width: number; height: number; fps: number; duration: number;
@@ -17,6 +30,8 @@ export type StudioRemoteDeviceState = {
   width?: number; height?: number; fps?: number;
   recording?: boolean; deviceName?: string;
   capabilities?: Record<string, unknown>; pro?: Record<string, unknown>;
+  audioInput?: StudioRemoteAudioInput;
+  audioMonitor?: StudioRemoteAudioMonitor;
   error?: string | null;
   [key: string]: unknown;
 };

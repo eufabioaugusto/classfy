@@ -103,7 +103,8 @@ try {
  assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_sessions WHERE owner_id='${user}' AND controller_id='${controller}' AND status<>'closed';`)).stdout.trim()),1);
  if(racing[1].status==='fulfilled')assert.equal((await sql(`SELECT status FROM studio_camera_sessions WHERE id='${current}';`)).stdout.trim(),'starting');
  await sql(await readFile(new URL('recovery_priority_test.sql',import.meta.url),'utf8'));
- console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency, durable pairings, safe camera handoff and protected original recovery priority.');
+ await sql(await readFile(new URL('audio_input_test.sql',import.meta.url),'utf8'));
+ console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency, durable pairings, safe camera handoff, protected original recovery priority and acknowledged audio input selection.');
 } finally {
  if (started) await command('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']).catch(() => undefined);
  await rm(temporary, { recursive: true, force: true });
