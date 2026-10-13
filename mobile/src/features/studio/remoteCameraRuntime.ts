@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import {randomUUID} from 'expo-crypto';
 import {NativeModules} from 'react-native';
-import type {Room,LocalVideoTrack} from 'livekit-client';
+import type {Room,LocalVideoTrack,RemoteParticipant} from 'livekit-client';
 import type {MediaStream} from '@livekit/react-native-webrtc';
 import {withLiveDeadline} from '@/features/live/request';
 import {configureStudioNativeCameraAsync,getStudioNativeCameraCapabilitiesAsync,getMediaInfoAsync,setStudioNativeCameraProSettingsAsync,setStudioNativeCameraZoomAsync,
@@ -10,7 +10,7 @@ import {configureStudioNativeCameraAsync,getStudioNativeCameraCapabilitiesAsync,
   setStudioNativeCameraFocusAsync,setStudioNativeCameraEffectAsync,isStudioNativeCameraEffectsAvailable,isStudioCompositionAvailable,
   setStudioNativeAudioInputAsync,isStudioNativeAudioInputSelectionAvailable,
   type StudioCameraProSettings,type StudioCameraState} from '../../../modules/classfy-studio-media';
-import {createRemoteCameraController,type RemoteCameraNative} from './remoteCameraController';
+import {createRemoteCameraController,REMOTE_CAMERA_LIVE_CONTROL_TOPIC,REMOTE_CAMERA_LIVE_ACK_TOPIC,remoteCameraLiveId,validRemoteCameraLivePatch,type RemoteCameraNative} from './remoteCameraController';
 import {remoteCameraRequest,remoteCameraDiscoveryRequest,createRemoteUploadFetch,type RemoteCameraScope,assertRemoteCameraScope} from './remoteCameraApi';
 import {readRemoteCameraJournal,mutateRemoteCameraJournal,remoteMasterUri,type RemoteTakeJournal} from './remoteCameraJournal';
 import {createStudioProject,getStudioProject,loadStudioProjects,mutateStudioProject} from './store';
@@ -46,11 +46,14 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
   let configurationConfirmed=false,confirmedGrade:StudioGrade=studioGrade('natural'),confirmedGeneration:number|undefined;
   let configuring=false,focusing=false,nativeReady=false;
   let selectingAudio=false,audioSelectionSupported=false,lastAudio:StudioRemoteAudioInputState|undefined;
+  let liveHandler:Parameters<NonNullable<RemoteCameraNative['setLiveConfigurationHandler']>>[0]=null;
+  let removeLiveListener:(()=>void)|null=null;
   const gradeState=(state:StudioCameraState)=>{
     lastAudio=state.audioInput;audioSelectionSupported=state.supportsAudioInputSelection===true&&isStudioNativeAudioInputSelectionAvailable();
     nativeReady=configurationConfirmed&&!configuring&&!focusing&&!selectingAudio&&state.proConfirmed!==false&&
       (confirmedGeneration===undefined||state.generation===confirmedGeneration)&&state.imageGradeConfirmed!==false&&(!room||state.remoteGradeConfirmed!==false);
-    return {...remoteDeviceState(state,nativeReady?configuration:undefined),
+    const actual=remoteDeviceState(state,nativeReady?configuration:undefined);
+    return {...actual,capabilities:{...actual.capabilities,...(liveHandler&&room&&removeLiveListener?{liveControls:1}:{})},
       imageGrade:state.imageGrade||confirmedGrade,imageGradeConfirmed:nativeReady,configurationConfirmed:nativeReady};
   };
   async function applyGrade(target:number,requested:StudioGrade){
@@ -105,6 +108,7 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
     return pro;
   }
   const port:RemoteCameraNative={
+    setLiveConfigurationHandler(handler){liveHandler=handler;},
     async configure(next){const target=tag();
       if(configuring||focusing||selectingAudio)throw new Error('Aguarde o iPhone confirmar os ajustes da câmera.');
       const previous=configuration,wasConfirmed=configurationConfirmed;
@@ -185,6 +189,26 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
       const ownedStream=new runtime.rtc.MediaStream(descriptor);stream=ownedStream;const media=ownedStream.getVideoTracks()[0];if(!media)throw new Error('A câmera não forneceu a pista de prévia.');
       track=new runtime.client.LocalVideoTrack(media as unknown as globalThis.MediaStreamTrack,{},true);
       const owned=new runtime.client.Room({adaptiveStream:false,dynacast:true,stopLocalTrackOnUnpublish:false});room=owned;
+      const expectedController=`studio-controller-${session.id}-${session.controllerId}`;
+      if(runtime.client.RoomEvent?.DataReceived&&typeof owned.on==='function'&&typeof owned.off==='function'&&typeof owned.localParticipant.publishData==='function'){
+        const received=(payload:Uint8Array,participant?:RemoteParticipant,_kind?:unknown,topic?:string)=>{
+          if(topic!==REMOTE_CAMERA_LIVE_CONTROL_TOPIC||participant?.identity!==expectedController||!liveHandler||room!==owned||owned.state!=='connected'||payload.byteLength>8192)return;
+          let value:{v?:unknown;id?:unknown;patch?:unknown};
+          try{check();value=JSON.parse(new TextDecoder().decode(payload));}catch{return;}
+          if(!value||typeof value!=='object'||Array.isArray(value)||value.v!==1||!remoteCameraLiveId(value.id)||!validRemoteCameraLivePatch(value.patch)||Object.keys(value).some(key=>!['v','id','patch'].includes(key)))return;
+          const id=value.id,patch=value.patch,handler=liveHandler;
+          void (async()=>{
+            let ack:Record<string,unknown>;
+            try{const state=await handler(id,patch);check();ack={v:1,id,ok:true,state};}
+            catch(cause){ack={v:1,id,ok:false,error:(cause instanceof Error?cause.message:'O iPhone não confirmou esse ajuste.').replace(/(?:https?|wss?|file):\/\/\S+|Bearer\s+\S+|\beyJ[\w-]+\.[\w-]+\.[\w-]+\b/gi,'[dado privado omitido]').slice(0,500)};}
+            try{check();if(room!==owned||owned.state!=='connected'||liveHandler!==handler)return;
+              await owned.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(ack)),{reliable:true,topic:REMOTE_CAMERA_LIVE_ACK_TOPIC,destinationIdentities:[expectedController]});
+            }catch{/* Durable delivery remains the fallback when RTC closes. */}
+          })();
+        };
+        owned.on(runtime.client.RoomEvent.DataReceived,received);
+        removeLiveListener=()=>owned.off(runtime.client.RoomEvent.DataReceived,received);
+      }
       try {if(new URL(connection.url).protocol!=='wss:')throw new Error('A prévia precisa de uma conexão privada segura.');
         await withLiveDeadline(()=>owned.connect(connection.url,connection.token,{autoSubscribe:false}),scope.signal,30_000);check();if(room!==owned)throw new Error('A conexão mudou.');
         await owned.localParticipant.publishTrack(track,{source:runtime.client.Track.Source.Camera,videoCodec:'h264',simulcast:false,
@@ -196,7 +220,7 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
       }catch {await port.disconnect();throw new Error('Não foi possível conectar a prévia privada. O original permanece no iPhone.');}
     },
     async disconnect(){
-      const owned=room;room=null;await owned?.disconnect();track=null;
+      const owned=room;room=null;removeLiveListener?.();removeLiveListener=null;await owned?.disconnect();track=null;
       if(previewTag)await stopStudioRemoteCameraPreviewAsync(previewTag).catch(()=>undefined);previewTag=null;stream?.release();stream=null;
       // Restore the installed default only after this video-only room is gone.
     },

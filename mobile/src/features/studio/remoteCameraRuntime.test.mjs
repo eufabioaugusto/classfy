@@ -8,12 +8,14 @@ import {mergeRemoteCameraConfiguration} from './remoteCameraConfiguration.ts';
 import * as upload from './remoteCameraUpload.ts';
 import * as transfer from './uploadTransport.ts';
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+const liveId=index=>`11111111-1111-4111-8111-${String(index).padStart(12,'0')}`;
 function compile(file,dependencies){
   const code=ts.transpileModule(readFileSync(new URL(file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
   const module={exports:{}};new Function('require','module','exports',code)(name=>{if(!(name in dependencies))throw Error(`Unexpected dependency ${name}`);return dependencies[name];},module,module.exports);return module.exports;
 }
 function nativeHarness(options={}){
-  const calls=[],recording=deferred(),data=new Map();let current=true;
+  const calls=[],recording=deferred(),data=new Map(),rooms=[];let current=true;
   const state={position:'back',qualities:[{quality:'2160p',width:3840,height:2160,fps:[24,30,60]},{quality:'1080p',width:1920,height:1080,fps:[24,30,60]}],quality:'2160p',width:3840,height:2160,fps:30,isRecording:false,
     minZoom:1,maxZoom:7.5,zoom:1,generation:2,proConfirmed:true,pro:{supportsExposure:true,autoExposure:true,iso:100,shutterSeconds:1/60},
     ...(options.audioState?{supportsAudioInputSelection:true,audioInput:structuredClone(options.audioState)}:{})};
@@ -57,10 +59,13 @@ function nativeHarness(options={}){
     startStudioRemoteCameraPreviewAsync:async tag=>{calls.push({kind:'native-preview',tag});return {streamId:'native-stream',streamReactTag:'native-stream',tracks:[{id:'native-track',kind:'video'}]};},
     stopStudioRemoteCameraPreviewAsync:async tag=>{calls.push({kind:'stop-native-preview',tag});},
   };
-  const sdk={Track:{Source:{Camera:'camera'}},LogLevel:{silent:'silent'},setLogLevel(){},
+  const sdk={Track:{Source:{Camera:'camera'}},RoomEvent:{DataReceived:'dataReceived'},LogLevel:{silent:'silent'},setLogLevel(){},
     LocalVideoTrack:class{constructor(media,_constraints,provided){calls.push({kind:'user-track',media,provided});}},
-    Room:class{state='disconnected';localParticipant={publishTrack:async(_track,options)=>{calls.push({kind:'publish',options});}};
-      constructor(options){calls.push({kind:'room',options});}async connect(url,_token,options){calls.push({kind:'connect',url,options});this.state='connected';}async disconnect(){calls.push({kind:'disconnect'});this.state='disconnected';}},
+    Room:class{state='disconnected';listeners=new Map();localParticipant={publishTrack:async(_track,options)=>{calls.push({kind:'publish',options});},publishData:async(bytes,options)=>{calls.push({kind:'data-ack',value:JSON.parse(new TextDecoder().decode(bytes)),options});}};
+      constructor(options){rooms.push(this);calls.push({kind:'room',options});}
+      on(event,listener){this.listeners.set(event,listener);return this;}off(event,listener){if(this.listeners.get(event)===listener)this.listeners.delete(event);return this;}
+      emit(bytes,identity='studio-controller-session-controller',topic=controller.REMOTE_CAMERA_LIVE_CONTROL_TOPIC){this.listeners.get('dataReceived')?.(bytes,identity===null?undefined:{identity},0,topic);}
+      async connect(url,_token,options){calls.push({kind:'connect',url,options});this.state='connected';}async disconnect(){calls.push({kind:'disconnect'});this.state='disconnected';}},
   };
   const runtime=compile('./remoteCameraRuntime.ts',{
     '@react-native-async-storage/async-storage':{getItem:async key=>data.get(key)||null,setItem:async(key,value)=>data.set(key,value)},'expo-file-system/legacy':{},'expo-crypto':{randomUUID:()=> 'device'},
@@ -72,16 +77,19 @@ function nativeHarness(options={}){
     'livekit-client':sdk,'@livekit/react-native-webrtc':{MediaStream:class{constructor(descriptor){calls.push({kind:'stream',descriptor});}getVideoTracks(){return [{id:'native-track'}];}release(){calls.push({kind:'release-stream'});}}},
     '@livekit/react-native':{registerGlobals:options=>calls.push({kind:'register',options}),setupIOSAudioManagement:()=>calls.push({kind:'restore-audio-policy'})},
   });
-  const session={id:'session',kind:'short',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
+  const session={id:'session',controllerId:'controller',deviceId:'device',kind:'short',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
   const port=runtime.createRemoteNativePort('owner',session,()=>77,{isCurrent:()=>current});
-  return {runtime,port,session,state,calls,recording,invalidate:()=>{current=false;}};
+  return {runtime,port,session,state,calls,recording,rooms,invalidate:()=>{current=false;},
+    data:(value,identity,topic)=>rooms.at(-1).emit(value instanceof Uint8Array?value:new TextEncoder().encode(JSON.stringify(value)),identity,topic),
+    async reply(id){for(let index=0;index<20;index++){const ack=calls.find(call=>call.kind==='data-ack'&&call.value.id===id);if(ack)return ack;await tick();}throw Error('ACK RTC não recebido');}};
 }
-async function linkedController(h,configuration){
+async function linkedController(h,configuration,options={}){
   let journal={version:1,owner:'owner',deviceId:'device',sessionId:h.session.id,sequence:0,receipts:{},takes:[]},commands=[];
   const server={...h.session,status:'ready',sequence:0,configuration},requests=[];
   const camera=controller.createRemoteCameraController({owner:'owner',deviceId:'device',current:()=>true,
     request:async(action,body)=>{
       requests.push({action,body:structuredClone(body)});
+      await options.request?.(action,body);
       if(action==='heartbeat')server.deviceState=structuredClone(body.state);
       if(action==='ack'){
         const command=commands.find(command=>command.id===body.commandId);server.sequence=command.sequence;
@@ -90,11 +98,12 @@ async function linkedController(h,configuration){
       }
       return {session:structuredClone(server),commands:structuredClone(commands),takes:[],serverAt:new Date().toISOString(),
         ...(action==='connect'?{connection:{url:'wss://private.invalid',token:'not-real',identity:'device'}}:{})};
-    },journal:async()=>structuredClone(journal),mutate:async(_id,change)=>(journal=change(structuredClone(journal))),
+    },journal:async()=>structuredClone(journal),mutate:async(_id,change)=>{await options.mutate?.();return journal=change(structuredClone(journal));},
     masterUri:()=>{throw Error('Não deve iniciar REC');},inspect:async()=>{throw Error('Não deve inspecionar take');},
     saveLocal:async()=>{throw Error('Não deve salvar take');},upload:async()=>{throw Error('Não deve enviar take');}});
   await camera.resume(h.session.id);await camera.cameraReady(h.port.port);
-  return {camera,server,requests,async configure(...patches){commands=patches.map((payload,index)=>({id:`configure-${server.sequence+index+1}`,sequence:server.sequence+index+1,type:'configure',payload,status:'pending'}));await camera.poll();}};
+  return {camera,server,requests,async configure(...patches){commands=patches.map((payload,index)=>({id:`configure-${server.sequence+index+1}`,sequence:server.sequence+index+1,type:'configure',payload,status:'pending'}));await camera.poll();},
+    async durable(id,payload){commands=[{id,sequence:server.sequence+1,type:'configure',payload,status:'pending'}];await camera.poll();}};
 }
 test('pista remota é fornecida pelo mesmo native view, apenas vídeo; SDK não abre câmera ou microfone',async()=>{
   const h=nativeHarness();await h.port.port.configure(h.session.configuration);
@@ -320,4 +329,62 @@ test('snapshot expõe perda de confirmação nativa e nova geração exige recon
   h.state.proConfirmed=true;h.state.imageGradeConfirmed=false;snapshot=await h.port.port.snapshot();assert.equal(snapshot.configurationConfirmed,false);assert.throws(()=>h.port.port.begin('take'),/Reconfirme/);
   h.state.imageGradeConfirmed=true;h.state.generation++;snapshot=await h.port.port.snapshot();assert.equal(snapshot.configurationConfirmed,false);
   await h.port.port.configure({...h.session.configuration,pro:{autoExposure:false,iso:200,shutterSeconds:1/90}});assert.equal(h.calls.filter(call=>call.kind==='configure').length,2);
+});
+test('RTC privado confirma ISO/clamp imediatamente e recibo durável antigo não desfaz ajuste mais recente',async()=>{
+  const h=nativeHarness({confirmPro:state=>{state.pro.iso=Math.min(600,state.pro.iso);}}),linked=await linkedController(h,{...h.session.configuration,pro:{autoExposure:false,iso:200,shutterSeconds:1/90,zoom:2}});
+  assert.equal(linked.camera.getSnapshot().state.capabilities.liveControls,1);h.calls.length=0;const requests=linked.requests.length;
+  h.data({v:1,id:liveId(1),patch:{pro:{iso:900}}});const first=await h.reply(liveId(1));
+  assert.equal(first.value.ok,true);assert.equal(first.value.state.configuration.pro.iso,600);assert.equal(first.value.state.liveConfigurationId,liveId(1));assert.equal(first.value.state.configurationConfirmed,true);
+  assert.deepEqual(first.options,{reliable:true,topic:controller.REMOTE_CAMERA_LIVE_ACK_TOPIC,destinationIdentities:['studio-controller-session-controller']});assert.equal(linked.requests.length,requests);
+  h.data({v:1,id:liveId(2),patch:{pro:{iso:250,shutterSeconds:1/100}}});await h.reply(liveId(2));
+  await linked.durable(liveId(1),{pro:{iso:900}});
+  let ack=linked.requests.filter(call=>call.action==='ack').at(-1).body.result;
+  assert.equal(ack.ok,true);assert.equal(ack.state.configuration.pro.iso,250);assert.equal(ack.state.configuration.pro.shutterSeconds,1/100);assert.equal(ack.state.liveConfigurationId,liveId(2));
+  await linked.durable(liveId(2),{pro:{iso:250,shutterSeconds:1/100}});
+  assert.deepEqual(h.calls.filter(call=>call.kind==='pro').map(call=>call.pro),[{iso:900},{iso:250,shutterSeconds:1/100}]);
+  assert.equal(h.calls.some(call=>['configure','grade','zoom','audio-input','native-preview','stop-native-preview'].includes(call.kind)),false);
+  await linked.camera.dispose();
+});
+test('ACK HTTP anterior pendente não bloqueia novo ajuste RTC nem perde snapshot canônico',async()=>{
+  let block=false;const entered=deferred(),gate=deferred(),h=nativeHarness(),linked=await linkedController(h,{...h.session.configuration,pro:{autoExposure:false,iso:200,shutterSeconds:1/90}},{request:(action)=>{if(block&&action==='ack'){entered.resolve();return gate.promise;}}});
+  h.data({v:1,id:liveId(3),patch:{pro:{iso:300}}});await h.reply(liveId(3));block=true;
+  const durable=linked.durable(liveId(3),{pro:{iso:300}});await entered.promise;
+  h.data({v:1,id:liveId(4),patch:{pro:{iso:20}}});const fast=await h.reply(liveId(4));
+  assert.equal(fast.value.ok,true);assert.equal(h.state.pro.iso,20);assert.equal(linked.camera.getSnapshot().state.configuration.pro.iso,20);
+  gate.resolve();await durable;assert.equal(linked.camera.getSnapshot().state.configuration.pro.iso,20);
+  await linked.durable(liveId(4),{pro:{iso:20}});assert.equal(h.calls.filter(call=>call.kind==='pro').length,3);
+  await linked.camera.dispose();
+});
+test('RTC perdido usa configure durável e payload ampliado só pula se todo alvo foi aplicado',async()=>{
+  const h=nativeHarness(),linked=await linkedController(h,{...h.session.configuration,pro:{autoExposure:false,iso:200,shutterSeconds:1/90}});h.calls.length=0;
+  h.data({v:1,id:liveId(5),patch:{pro:{iso:300}}},'outro-computador');await linked.durable(liveId(5),{pro:{iso:300}});
+  assert.equal(h.state.pro.iso,300);assert.deepEqual(h.calls.filter(call=>call.kind==='pro').map(call=>call.pro),[{iso:300}]);
+  h.data({v:1,id:liveId(6),patch:{pro:{iso:400}}});await h.reply(liveId(6));
+  await linked.durable(liveId(6),{pro:{iso:400,autoWhiteBalance:false,temperatureKelvin:5900,whiteBalanceTint:8}});
+  assert.equal(h.state.pro.temperatureKelvin,5900);assert.equal(linked.camera.getSnapshot().state.liveConfigurationId,undefined);
+  assert.deepEqual(h.calls.filter(call=>call.kind==='pro').at(-1).pro,{autoWhiteBalance:false,temperatureKelvin:5900,whiteBalanceTint:8});
+  await linked.camera.dispose();
+});
+test('RTC rejeita identidade ausente/errada, tópico, captura/áudio, JSON/UUID/Pro/grade inválidos e payload grande',async()=>{
+  const h=nativeHarness(),linked=await linkedController(h,h.session.configuration);h.calls.length=0;
+  const packet={v:1,id:liveId(7),patch:{pro:{iso:200}}};
+  h.data(packet,null);h.data(packet,'studio-controller-outra-session-controller');h.data(packet,undefined,'outro-topic');
+  for(const patch of [{resolution:'1080p'},{fps:60},{cameraFacing:'front'},{audioInputId:null},{pro:{supportsExposure:true}},{pro:{iso:-1}},{pro:{zoom:0}},{pro:{autoExposure:true,iso:200}},{pro:{focusPoint:{x:2,y:.5,locked:false}}},{imageGrade:{...model.studioGrade('natural'),intensity:2}},{imageGrade:{...model.studioGrade('natural'),audioInputId:'usb'}}])h.data({...packet,patch});
+  h.data({...packet,id:'invalid'});h.data({...packet,v:2});h.data(new TextEncoder().encode('{invalid'));h.data(new Uint8Array(8193));await tick();await tick();
+  assert.equal(h.calls.length,0);await linked.camera.dispose();
+});
+test('RTC duplica UUID sem reaplicar, rejeita novo alvo com mesmo UUID e remove listeners/ACK tardio no teardown',async()=>{
+  const entered=deferred(),gate=deferred(),h=nativeHarness({proGate:pro=>{if(pro.iso===350){entered.resolve();return gate.promise;}}}),linked=await linkedController(h,{...h.session.configuration,pro:{autoExposure:false,iso:200,shutterSeconds:1/90}});
+  const packet={v:1,id:liveId(8),patch:{pro:{iso:300}}};h.data(packet);await h.reply(liveId(8));const count=h.calls.filter(call=>call.kind==='pro').length;
+  h.data(packet);await tick();await tick();assert.equal(h.calls.filter(call=>call.kind==='pro').length,count);
+  h.data({...packet,patch:{pro:{iso:400}}});await tick();await tick();assert.equal(h.calls.filter(call=>call.kind==='pro').length,count);assert.equal(h.calls.filter(call=>call.kind==='data-ack').at(-1).value.ok,false);
+  const old=h.rooms.at(-1);h.data({v:1,id:liveId(9),patch:{pro:{iso:350}}});await entered.promise;
+  await linked.camera.disconnect();assert.equal(old.listeners.size,0);gate.resolve();await tick();await tick();assert.equal(h.calls.some(call=>call.kind==='data-ack'&&call.value.id===liveId(9)),false);
+  const calls=h.calls.length;old.emit(new TextEncoder().encode(JSON.stringify(packet)));await tick();assert.equal(h.calls.length,calls);await linked.camera.dispose();
+});
+test('troca de conta durante ajuste RTC descarta confirmação e reconectar prévia mantém exatamente um listener',async()=>{
+  const h=nativeHarness(),linked=await linkedController(h,{...h.session.configuration,pro:{autoExposure:false,iso:200,shutterSeconds:1/90}}),old=h.rooms.at(-1);
+  await linked.camera.reconnectPreview();assert.equal(old.listeners.size,0);assert.equal(h.rooms.at(-1).listeners.size,1);
+  const calls=h.calls.length;h.invalidate();h.data({v:1,id:liveId(10),patch:{pro:{iso:300}}});await tick();assert.equal(h.calls.length,calls);
+  await linked.camera.dispose();assert.equal(h.rooms.at(-1).listeners.size,0);
 });

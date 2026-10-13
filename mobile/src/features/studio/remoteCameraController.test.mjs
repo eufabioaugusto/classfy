@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRemoteCameraController} from './remoteCameraController.ts';
+import {createRemoteCameraController,validRemoteCameraLivePatch} from './remoteCameraController.ts';
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return{promise,resolve,reject};};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const sessionId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',takeId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function harness(patch={}){
-  let current=true,time=10000,commands=[],failAck=false,writeGate,actualRecording=false,hardware=structuredClone(patch.nativeState||{});
+  let current=true,time=10000,commands=[],failAck=false,writeGate,actualRecording=false,hardware=structuredClone(patch.nativeState||{}),liveHandler=null;
   let journal={version:1,owner:'owner',deviceId:'device',sessionId,sequence:0,receipts:{},takes:[],...patch.journal};
   const started=deferred(),finished=deferred(),calls=[],writes=[];
   const session={id:sessionId,ownerId:'owner',controllerId:'controller',deviceId:'device',kind:'aula',status:'ready',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
@@ -28,7 +28,8 @@ function harness(patch={}){
     saveLocal:async(_session,take)=>{calls.push({action:'save-local',take:clone(take)});if(patch.saveFail?.())throw Error('Disco indisponível');return{projectId:'project',localTakeId:'local-take'};},
     upload:async(_session,take,onProgress)=>{calls.push({action:'upload',take:clone(take)});onProgress?.(5);await patch.upload?.(take);},
   };
-  const native={configure:async configuration=>{calls.push({action:'configure',configuration});await patch.configure?.(configuration);return{width:3840,height:2160,fps:30,recording:false,...structuredClone(hardware)};},
+  const native={configure:async configuration=>{calls.push({action:'configure',configuration});await patch.configure?.(configuration);if(patch.liveControls)hardware={...hardware,configuration:clone(configuration),configurationConfirmed:true,imageGradeConfirmed:true,pro:clone(configuration.pro||{})};return{width:3840,height:2160,fps:30,recording:false,...structuredClone(hardware)};},
+    setLiveConfigurationHandler:handler=>{liveHandler=handler;},
     snapshot:async()=>{calls.push({action:'snapshot'});await patch.snapshot?.();return {width:3840,height:2160,fps:30,recording:actualRecording,...structuredClone(hardware)};},
     selectAudioInput:async inputId=>{calls.push({action:'select-audio',inputId});await patch.selectAudio?.(inputId);const currentInput=hardware.audioInput?.available.find(input=>input.id===(inputId??'builtin'));
       if(!currentInput)throw Error('Microfone não disponível');hardware={...hardware,audioInput:{...hardware.audioInput,preferredId:inputId,current:currentInput,confirmed:true,selecting:false},configuration:{...session.configuration,audioInputId:inputId}};
@@ -40,6 +41,7 @@ function harness(patch={}){
   const controller=createRemoteCameraController(deps);
   const command=(type,id=type,sequence=1)=>({id,sequence,type,payload:type==='configure'?session.configuration:{takeId},status:'pending'});
   return{controller,calls,writes,started,finished,native,command,
+    live:(id,patch)=>liveHandler?liveHandler(id,patch):Promise.reject(Error('Canal desconectado')),hasLiveHandler:()=>!!liveHandler,
     configuration:value=>{session.configuration=value;},session:value=>Object.assign(session,value),journal:()=>clone(journal),queue:values=>{commands=values;},invalidate:()=>{current=false;},failAck:()=>{failAck=true;},
     advance:ms=>{time+=ms;},hardware:value=>{hardware={...hardware,...value};},
     blockWrite:()=>{const gate=deferred();gate.entered=deferred();writeGate=gate;return gate;},
@@ -48,6 +50,37 @@ function harness(patch={}){
 }
 
 const selectedAudio=()=>({supportsAudioInputSelection:true,audioInput:{version:1,available:[{id:'builtin',name:'iPhone',type:'MicrophoneBuiltIn'},{id:'usb',name:'USB',type:'USBAudio'}],preferredId:null,current:{id:'builtin',name:'iPhone',type:'MicrophoneBuiltIn'},confirmed:true,selecting:false,warning:null}});
+const fastId=index=>`22222222-2222-4222-8222-${String(index).padStart(12,'0')}`;
+test('START aguarda hardware RTC pendente; canal rápido recusa controles enquanto o take está ativo',async()=>{
+  const gate=deferred();let block=false;
+  const h=harness({liveControls:true,configure:configuration=>block&&configuration.pro?.iso===300?gate.promise:undefined});
+  h.configuration({resolution:'4k',fps:30,cameraFacing:'back',pro:{autoExposure:false,iso:200,shutterSeconds:1/90}});await h.ready();block=true;
+  const adjusting=h.live(fastId(1),{pro:{iso:300}});await tick();assert.equal(h.controller.getSnapshot().state.configurationConfirmed,false);
+  h.started.resolve(10050);h.queue([h.command('start')]);const starting=h.controller.poll();await tick();
+  assert.equal(h.calls.filter(call=>call.action==='native-start').length,0);
+  gate.resolve();const actual=await adjusting;await starting;assert.equal(actual.configuration.pro.iso,300);assert.equal(h.calls.filter(call=>call.action==='native-start').length,1);
+  const controls=h.calls.filter(call=>call.action==='configure').length;
+  await assert.rejects(h.live(fastId(2),{pro:{iso:400}}),/pronto/);assert.equal(h.calls.filter(call=>call.action==='configure').length,controls);
+  await h.controller.dispose();assert.equal(h.hasLiveHandler(),false);
+});
+test('RTC recusa controles durante upload e depois da troca de conta sem tocar o sensor',async()=>{
+  const gate=deferred(),h=harness({liveControls:true,upload:()=>gate.promise,journal:{takes:[{id:takeId,uri:'file:///master.mov',phase:'local_ready',metadata:{bytes:6291457,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4}}]}});
+  await h.ready();await tick();assert.equal(h.controller.getSnapshot().uploading,true);const controls=h.calls.filter(call=>call.action==='configure').length;
+  await assert.rejects(h.live(fastId(3),{pro:{iso:200}}),/pronto/);assert.equal(h.calls.filter(call=>call.action==='configure').length,controls);
+  gate.resolve();await tick();await tick();h.invalidate();await assert.rejects(h.live(fastId(4),{pro:{iso:200}}),/conexão mudou/);assert.equal(h.calls.filter(call=>call.action==='configure').length,controls);await h.controller.dispose();
+});
+test('cache RTC mantém 256 alvos e só pula configuração durável com payload coberto',async()=>{
+  const h=harness({liveControls:true});await h.ready();
+  for(let index=1;index<=257;index++)await h.live(fastId(index),{pro:{iso:index}});
+  const controls=h.calls.filter(call=>call.action==='configure').length;
+  h.queue([{...h.command('configure',fastId(257),1),payload:{pro:{iso:257}}}]);await h.controller.poll();assert.equal(h.calls.filter(call=>call.action==='configure').length,controls);
+  h.queue([{...h.command('configure',fastId(1),2),payload:{pro:{iso:1}}}]);await h.controller.poll();assert.equal(h.calls.filter(call=>call.action==='configure').length,controls+1);
+  assert.equal(h.controller.getSnapshot().state.liveConfigurationId,undefined);await h.controller.dispose();
+});
+test('allowlist RTC aceita somente números físicos finitos, modos compatíveis e grade completa',()=>{
+  assert.equal(validRemoteCameraLivePatch({pro:{iso:20,shutterSeconds:1/47,zoom:1.5,autoExposure:false,focusPoint:{x:.2,y:.4,locked:false}}}),true);
+  for(const patch of [{pro:{iso:NaN}},{pro:{lensPosition:2}},{pro:{autoExposure:'false'}},{pro:{iso:20,autoExposure:true}},{pro:{redGain:1,temperatureKelvin:5900}},{audioInputId:'usb'},{imageGrade:{preset:'natural'}}])assert.equal(validRemoteCameraLivePatch(patch),false);
+});
 test('consulta comandos a cada 300ms com um request por ciclo e heartbeat pronto limitado a 3s',async()=>{
   const h=harness({requestLatencyMs:0,nativeState:{previewConnection:'connected'}});await h.ready();
   assert.equal(h.calls.filter(call=>call.action==='heartbeat').length,1);
