@@ -139,6 +139,13 @@ public final class ClassfyStudioMediaModule: Module {
       ["version": 1, "available": true, "textEffects": true, "playbackRate": true,
        "mirror": true, "motion": true, "gradient": true, "audioExtraction": true]
     }
+    AsyncFunction("getStudioEnhancementCapabilitiesAsync") { () -> [String: Any] in
+      ["version": 1, "recipeVersion": 3, "available": StudioEffectRenderer.editorTreatmentsAvailable,
+       "features": ["enhancement-v1", "portrait-v1"], "maximumAnalysisFrames": 12]
+    }
+    AsyncFunction("analyzeStudioSceneAsync") { (uri: String, kind: String, startSeconds: Double, endSeconds: Double, frameCount: Int) async throws -> [String: Any] in
+      try await self.recipeEngine.analyzeScene(uri: uri, kind: kind, startSeconds: startSeconds, endSeconds: endSeconds, frameCount: frameCount)
+    }
     AsyncFunction("renderStudioRecipeThumbnailAsync") { (recipeJSON: String, outputUri: String, seconds: Double) async throws -> [String: Any] in
       try await self.recipeEngine.thumbnail(recipeJSON: recipeJSON, outputUri: outputUri, seconds: seconds)
     }

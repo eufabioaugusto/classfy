@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { transformFileSync } from '@babel/core';
 import ts from 'typescript';
 import * as model from './model.ts';
+const sceneTreatments = { studioUntreatedPreviewRecipe: recipe => ({...recipe,version:2,requiredFeatures:undefined,clips:recipe.clips.map(clip=>({...clip,enhancement:undefined,portrait:undefined,effect:'natural',grade:{preset:'natural',intensity:0,exposure:0,contrast:0,saturation:0,temperature:0}}))}) };
 import { initialStudioCanvasTransformChannel } from './canvasTransformChannel.ts';
 const require = createRequire(import.meta.url);
 const reanimatedSource = join(dirname(require.resolve('react-native-reanimated/package.json')), 'src');
@@ -43,7 +44,7 @@ function graded(value) {
 // Execute the production wrapper and NativePreview hooks, imperative handle,
 // native event handlers and promise continuations. AVPlayer's async command
 // completion is stubbed independently from periodic events and React renders.
-function harness({ available = true, initialProject = project(), playbackChannel, nativeRuntime = false, interactive = false, editorTools = false, capability = { version: 1, available: true } } = {}) {
+function harness({ available = true, initialProject = project(), playbackChannel, nativeRuntime = false, interactive = false, editorTools = false, capability = { version: 1, available: true }, enhancements = { available: true }, enhancementPromise } = {}) {
   const slots = []; let cursor = 0, dirty = true, effects = [], tree, nativeProps;
   const published = [], selected = [], calls = [];
   const uiQueue = [], jsQueue = [], registrations = new Map();
@@ -152,12 +153,12 @@ function harness({ available = true, initialProject = project(), playbackChannel
       StyleSheet: { create: styles => styles, absoluteFill: {}, absoluteFillObject: {} } },
     'expo-modules-core': { requireNativeViewManager: () => 'native-canvas' },
     '../../../modules/classfy-studio-media': { isStudioCompositionAvailable: () => available, isStudioEditorToolsAvailable: () => editorTools,
-      studioRecipeNeedsEditorTools: recipe => recipe.clips.some(clip => clip.kind === 'audio' && recipe.assets.some(asset => asset.id === clip.assetId && asset.kind === 'video') || clip.zIndex === 0 && (clip.fadeInTicks > 0 || clip.fadeOutTicks > 0 || clip.opacity !== 1) || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal || clip.flipVertical || clip.motion && clip.motion !== 'none' || clip.text && (clip.text.animation && clip.text.animation !== 'none' || clip.text.visualEffect && clip.text.visualEffect !== 'none' || clip.text.decoration && clip.text.decoration !== 'none' || clip.text.gradientColors)),
+      studioRecipeNeedsTreatments: recipe => recipe.version===3, getStudioEnhancementCapabilitiesAsync: () => enhancementPromise || Promise.resolve(enhancements), getCachedStudioEnhancementCapabilities: () => enhancements, studioRecipeNeedsEditorTools: recipe => recipe.clips.some(clip => clip.kind === 'audio' && recipe.assets.some(asset => asset.id === clip.assetId && asset.kind === 'video') || clip.zIndex === 0 && (clip.fadeInTicks > 0 || clip.fadeOutTicks > 0 || clip.opacity !== 1) || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal || clip.flipVertical || clip.motion && clip.motion !== 'none' || clip.text && (clip.text.animation && clip.text.animation !== 'none' || clip.text.visualEffect && clip.text.visualEffect !== 'none' || clip.text.decoration && clip.text.decoration !== 'none' || clip.text.gradientColors)),
       isStudioInteractiveCompositionAvailable: () => interactive,
       getStudioInteractiveCompositionVersionAsync: () => Promise.resolve(capability),
       seekStudioCompositionAsync: (...args) => command('seek', args),
       previewStudioCompositionSourceAsync: (...args) => command('source', args) },
-    './model': model, './StudioPreview': { StudioPreview: 'legacy-preview' },
+    './model': model, './sceneTreatments': sceneTreatments, './StudioPreview': { StudioPreview: 'legacy-preview' },
   };
   const code = nativeRuntime ? compileNative() : ts.transpileModule(readFileSync(new URL('./StudioCompositionPreview.tsx', import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
@@ -957,4 +958,17 @@ test('binário antigo recusa prévia com efeitos novos em vez de ignorar o trata
   const modern = harness({ available: true, editorTools: true, initialProject: treated }); await modern.pump();
   try { assert.equal(JSON.parse(modern.canvas().recipeJSON).clips[0].flipHorizontal, true); }
   finally { modern.dispose(); }
+});
+
+test('primeiro tratamento usa o ACK de capacidade já confirmado sem substituir player ou perder cursor',async()=>{
+ let acknowledge;const enhancements={available:false},pending=new Promise(resolve=>{acknowledge=resolve;});const h=harness({enhancements,enhancementPromise:pending});await h.pump();
+ h.ref.current.seek(5);h.calls.at(-1).resolve();await h.pump();h.emit({positionSeconds:5,sourcePositionSeconds:7,loading:false});await h.pump();
+ const original=h.project(),editing=model.patchStudioClipPortrait(original.editing,'a',{version:1,strength:.4});
+ enhancements.available=true;acknowledge(enhancements);h.update({project:{...original,editing}});h.flushRender();
+ assert.ok(h.canvas(),'cache confirmado preserva NativePreview antes do commit assíncrono do estado');await h.pump();
+ assert.equal(h.published.at(-1).position,5);assert.equal(JSON.parse(h.canvas().recipeJSON).version,3);h.dispose();
+});
+test('restauro legacy-source com magia ativa nunca cai no player legado sem efeitos',async()=>{
+ const original=project(),editing=model.patchStudioClipPortrait({...original.editing,output:{...original.editing.output,profile:'legacy-source',colorSpace:'source'}},'a',{version:1,strength:.4});
+ const h=harness({initialProject:{...original,editing}});await h.pump();assert.equal(h.canvas(),undefined);assert.match(h.text(),/Atualize/);h.dispose();
 });

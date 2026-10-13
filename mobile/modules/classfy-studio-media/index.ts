@@ -1,5 +1,20 @@
 import { requireOptionalNativeModule, type NativeModule } from 'expo-modules-core';
 import type { StudioGrade, StudioRenderRecipe } from '../../src/features/studio/model';
+import type { StudioSceneSample } from '../../src/features/studio/autoEnhance';
+
+export type StudioEnhancementCapabilities = { version: number; recipeVersion: number; available: boolean; features: string[]; maximumAnalysisFrames: number };
+export const unavailableStudioEnhancement: StudioEnhancementCapabilities = { version: 0, recipeVersion: 0, available: false, features: [], maximumAnalysisFrames: 0 };
+export function studioEnhancementCapabilities(value: unknown): StudioEnhancementCapabilities {
+  if (!value || typeof value !== 'object') return unavailableStudioEnhancement;
+  const state = value as Partial<StudioEnhancementCapabilities>;
+  if (state.version !== 1 || state.recipeVersion !== 3 || state.available !== true || !Array.isArray(state.features)
+    || !state.features.includes('enhancement-v1') || !state.features.includes('portrait-v1')
+    || !Number.isInteger(state.maximumAnalysisFrames) || state.maximumAnalysisFrames! < 1 || state.maximumAnalysisFrames! > 12) return unavailableStudioEnhancement;
+  return { version: 1, recipeVersion: 3, available: true, features: [...state.features], maximumAnalysisFrames: state.maximumAnalysisFrames! };
+}
+export function studioRecipeNeedsTreatments(recipe: StudioRenderRecipe) {
+  return recipe.version === 3 || !!recipe.requiredFeatures?.length || recipe.clips.some(clip => (clip.enhancement?.strength ?? 0) > 0 || (clip.portrait?.strength ?? 0) > 0);
+}
 
 export type StudioMediaInfo = {
   duration: number;
@@ -85,6 +100,8 @@ declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
   getStudioNativeAudioInputSelectionVersionAsync?(): Promise<{ version: number; available: boolean }>;
   setStudioNativeAudioInputAsync?(tag: number, inputId: string | null): Promise<StudioCameraState>;
   getStudioEditorCapabilitiesAsync?(): Promise<{ version: number; available: boolean }>;
+  getStudioEnhancementCapabilitiesAsync?(): Promise<StudioEnhancementCapabilities>;
+  analyzeStudioSceneAsync?(uri: string, kind: string, startSeconds: number, endSeconds: number, frameCount: number): Promise<{ version: number; samples: StudioSceneSample[] }>;
   renderStudioRecipeThumbnailAsync?(recipeJSON: string, outputUri: string, seconds: number): Promise<{ uri: string; width: number; height: number; seconds: number }>;
   getStudioExportCapabilitiesAsync?(): Promise<StudioExportCapabilities>;
   getStudioInteractiveCompositionVersionAsync?(): Promise<{ version: number; available: boolean }>;
@@ -176,7 +193,47 @@ export function isStudioEditorToolsAvailable() { return isStudioCompositionAvail
 export function isStudioFilterPreviewAvailable() { return isStudioEditorToolsAvailable() && typeof native?.renderStudioRecipeThumbnailAsync === 'function'; }
 export async function renderStudioRecipeThumbnailAsync(recipeJSON: string, outputUri: string, seconds: number) {
   if (!isStudioFilterPreviewAvailable()) throw new Error('Atualize o Classfy Dev para visualizar as miniaturas dos filtros.');
+  await assertStudioTreatmentsAvailable(JSON.parse(recipeJSON) as StudioRenderRecipe);
   return native!.renderStudioRecipeThumbnailAsync!(recipeJSON, outputUri, seconds);
+}
+export function isStudioEnhancementAvailable() {
+  return isStudioCompositionAvailable() && typeof native?.getStudioEnhancementCapabilitiesAsync === 'function' && typeof native?.analyzeStudioSceneAsync === 'function';
+}
+let confirmedEnhancementCapabilities = unavailableStudioEnhancement;
+let enhancementCapabilityRequest: Promise<StudioEnhancementCapabilities> | undefined;
+export function getCachedStudioEnhancementCapabilities() { return confirmedEnhancementCapabilities; }
+export async function getStudioEnhancementCapabilitiesAsync(): Promise<StudioEnhancementCapabilities> {
+  if (!isStudioEnhancementAvailable()) return unavailableStudioEnhancement;
+  if (confirmedEnhancementCapabilities.available) return confirmedEnhancementCapabilities;
+  if (!enhancementCapabilityRequest) enhancementCapabilityRequest = (async () => {
+    try {
+      const value = studioEnhancementCapabilities(await native!.getStudioEnhancementCapabilitiesAsync!());
+      if (value.available) confirmedEnhancementCapabilities = value;
+      return value;
+    } catch { return unavailableStudioEnhancement; }
+    finally { enhancementCapabilityRequest = undefined; }
+  })();
+  return enhancementCapabilityRequest;
+}
+async function assertStudioTreatmentsAvailable(recipe: StudioRenderRecipe) {
+  if (studioRecipeNeedsTreatments(recipe) && !(await getStudioEnhancementCapabilitiesAsync()).available) {
+    throw new Error('Atualize o Classfy para visualizar e exportar Melhorar cena e Retoque natural sem perder os tratamentos.');
+  }
+}
+let sceneAnalysisLease: Promise<unknown> = Promise.resolve();
+export async function analyzeStudioSceneAsync(options: { uri: string; kind: 'image' | 'video'; startSeconds: number; endSeconds: number; frameCount: number }) {
+  const pending = sceneAnalysisLease.then(() => analyzeStudioScene(options));
+  sceneAnalysisLease = pending.catch(() => undefined);
+  return pending;
+}
+async function analyzeStudioScene(options: { uri: string; kind: 'image' | 'video'; startSeconds: number; endSeconds: number; frameCount: number }) {
+  const capabilities = await getStudioEnhancementCapabilitiesAsync();
+  if (!capabilities.available) throw new Error('Atualize o Classfy para melhorar a cena neste aparelho.');
+  if (!Number.isInteger(options.frameCount) || options.frameCount < 1 || options.frameCount > capabilities.maximumAnalysisFrames) throw new Error('Escolha um trecho válido para melhorar a cena.');
+  const result = await native!.analyzeStudioSceneAsync!(options.uri, options.kind, options.startSeconds, options.endSeconds, options.frameCount);
+  if (result.version !== 1 || !Array.isArray(result.samples) || result.samples.length < 1 || result.samples.length > options.frameCount
+    || result.samples.some(sample => !sample || ['p10', 'p50', 'p90', 'p99', 'saturation', 'neutralRed', 'neutralGreen', 'neutralBlue', 'neutralFraction'].some(key => !Number.isFinite(sample[key as keyof StudioSceneSample]) || sample[key as keyof StudioSceneSample] < 0 || sample[key as keyof StudioSceneSample] > 1))) throw new Error('A análise desta cena não foi confirmada pelo aparelho.');
+  return result.samples;
 }
 export function studioRecipeNeedsEditorTools(recipe: StudioRenderRecipe) {
   return recipe.clips.some(clip => clip.kind === 'audio' && recipe.assets?.some(asset => asset.id === clip.assetId && asset.kind === 'video') || clip.zIndex === 0 && (clip.fadeInTicks > 0 || clip.fadeOutTicks > 0 || clip.opacity !== 1) || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal || clip.flipVertical || clip.motion && clip.motion !== 'none'
@@ -298,7 +355,9 @@ export function previewStudioCompositionSourceAsync(tag: number, clipId: string,
 export function restoreStudioCompositionAsync(tag: number, token: number) { return compositionModule().restoreStudioCompositionAsync(tag, token); }
 export async function exportRecipeAsync(options: { requestId: string; recipeJSON: string; outputUri: string }, onProgress?: (value: number) => void) {
   const module = compositionModule();
-  if (studioRecipeNeedsEditorTools(JSON.parse(options.recipeJSON) as StudioRenderRecipe) && !(await getStudioEditorCapabilitiesAsync()).available) throw new Error('Instale o Classfy Dev atualizado para exportar os efeitos, o espelhamento e a velocidade desta montagem.');
+  const recipe = JSON.parse(options.recipeJSON) as StudioRenderRecipe;
+  await assertStudioTreatmentsAvailable(recipe);
+  if (studioRecipeNeedsEditorTools(recipe) && !(await getStudioEditorCapabilitiesAsync()).available) throw new Error('Instale o Classfy Dev atualizado para exportar os efeitos, o espelhamento e a velocidade desta montagem.');
   const listener = onProgress ? module.addListener('onExportProgress', event => { if (event.requestId === options.requestId) onProgress(Math.max(0, Math.min(1, event.progress))); }) : undefined;
   try { return await module.exportRecipeAsync(options); } finally { listener?.remove(); }
 }

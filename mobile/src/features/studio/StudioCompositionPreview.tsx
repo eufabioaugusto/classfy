@@ -2,8 +2,9 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, u
 import { findNodeHandle, StyleSheet, Text, View } from 'react-native';
 import Animated, { runOnJS, runOnUI, useAnimatedProps, useEvent, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { requireNativeViewManager } from 'expo-modules-core';
-import { getStudioInteractiveCompositionVersionAsync, isStudioCompositionAvailable, isStudioEditorToolsAvailable, studioRecipeNeedsEditorTools, isStudioInteractiveCompositionAvailable, previewStudioCompositionSourceAsync, seekStudioCompositionAsync, type StudioNativePlayback } from '../../../modules/classfy-studio-media';
+import { getStudioInteractiveCompositionVersionAsync, getStudioEnhancementCapabilitiesAsync, getCachedStudioEnhancementCapabilities, studioRecipeNeedsTreatments, isStudioCompositionAvailable, isStudioEditorToolsAvailable, studioRecipeNeedsEditorTools, isStudioInteractiveCompositionAvailable, previewStudioCompositionSourceAsync, seekStudioCompositionAsync, type StudioNativePlayback } from '../../../modules/classfy-studio-media';
 import { compileStudioRecipe, type StudioProject, type StudioRenderRecipe } from './model';
+import { studioUntreatedPreviewRecipe } from './sceneTreatments';
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from './StudioPreview';
 import type { StudioTimelinePlaybackChannelRef } from './timelinePlaybackChannel';
 import type { StudioCanvasTransformChannelRef } from './canvasTransformChannel';
@@ -69,8 +70,19 @@ function receivePlaybackOnUI(value: StudioNativePlayback, controls: SharedValue<
 
 export const StudioCompositionPreview = forwardRef<StudioPreviewHandle, Props>(function StudioCompositionPreview(props, ref) {
   const editing = props.project.editing;
+  const needsTreatments = !!editing && studioRecipeNeedsTreatments(props.recipe || compileStudioRecipe(props.project));
+  const [treatmentsAvailable, setTreatmentsAvailable] = useState(false);
+  useEffect(() => {
+    let current = true;
+    void getStudioEnhancementCapabilitiesAsync().then(value => { if (current) setTreatmentsAvailable(value.available); });
+    return () => { current = false; };
+  }, []);
+  // The treatment panel waits for this same capability ACK before publishing
+  // a draft. Its synchronous bridge cache closes the React microtask gap: the
+  // first treatment cannot temporarily replace/unmount the active player.
+  const missingTreatments = needsTreatments && !(treatmentsAvailable || getCachedStudioEnhancementCapabilities().available);
   const missingTools = !!editing && studioRecipeNeedsEditorTools(props.recipe || compileStudioRecipe(props.project)) && !isStudioEditorToolsAvailable();
-  const native = !!NativeCanvas && editing?.output.profile === 'standard' && props.project.kind !== 'podcast' && !missingTools;
+  const native = !!NativeCanvas && editing?.output.profile === 'standard' && props.project.kind !== 'podcast' && !missingTools && !missingTreatments;
   useLayoutEffect(() => {
     const channel = props.playbackChannel;
     if (!native && channel) runOnUI(() => {
@@ -79,8 +91,8 @@ export const StudioCompositionPreview = forwardRef<StudioPreviewHandle, Props>(f
   }, [native, props.playbackChannel]);
   // Master mute is supported by the existing Expo player's real audio control.
   // Per-layer mixes, geometry and effects still require the native compositor.
-  const enhanced = !!editing && (editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.rect || clip.rotationDegrees || clip.fit === 'cover' || clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (props.project.kind === 'short' ? 'portrait' : 'landscape'));
-  if (missingTools || enhanced && (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast')) return <UnavailablePreview ref={ref} />;
+  const enhanced = needsTreatments || !!editing && (editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.rect || clip.rotationDegrees || clip.fit === 'cover' || clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (props.project.kind === 'short' ? 'portrait' : 'landscape'));
+  if (missingTools || missingTreatments || enhanced && (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast')) return <UnavailablePreview ref={ref} />;
   if (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast') return <StudioPreview ref={ref} takes={props.project.takes} kind={props.project.kind} activeTakeId={props.activeTakeId} paused={props.paused} muted={editing?.mainMuted === true} onActiveTakeChange={props.onActiveTakeChange} onPlaybackState={props.onPlaybackState} onCanvasPress={props.onCanvasPress} canvasLabel={props.canvasLabel} />;
   return <NativePreview {...props} ref={ref} />;
 });
@@ -129,7 +141,7 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
   const duration = useRef(0); duration.current = Math.max(0, compiled.durationTicks / compiled.timebase);
   const recipe = useMemo(() => {
     const preview = studioCompositionPreviewRecipe(compiled);
-    return JSON.stringify(props.before ? { ...preview, clips: preview.clips.map(clip => ({ ...clip, effect: 'natural', grade: { preset: 'natural', intensity: 0, exposure: 0, contrast: 0, saturation: 0, temperature: 0 } })) } : preview);
+    return JSON.stringify(props.before ? studioUntreatedPreviewRecipe(preview) : preview);
   }, [compiled, props.before]);
   const revisionSequence = useRef({ recipe: '', projectId: '', value: 0 });
   if (revisionSequence.current.recipe !== recipe || revisionSequence.current.projectId !== props.project.id) {

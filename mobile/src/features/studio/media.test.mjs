@@ -610,3 +610,13 @@ test('blur durante escrita já iniciada confirma compromisso durável e não sim
     onPersisted: () => order.push('persisted'), onPersistError: () => order.push('error') });
   assert.deepEqual(order, ['before', 'persisted']); assert.equal(saved.project.editing.layers.length, 1); assert.equal(saved.project.pendingTakes.length, 0);
 });
+
+test('melhoria ou retoque ativo em profile legado bloqueia export antigo mesmo após restauração',async()=>{
+ for(const field of ['enhancement','portrait']){
+ const h=harness(),p=await h.store.createStudioProject('owner','aula'),created=await h.store.updateStudioProject('owner',p.id,{takes:[baseTake]});
+ const legacy={...created.editing,output:{...created.editing.output,profile:'legacy-source',colorSpace:'source'}};
+ const value=field==='portrait'?{version:1,strength:.4}:{version:1,strength:.8,exposure:.2,contrast:0,saturation:0,temperature:0,tint:0,shadows:0,highlights:0,analyzedFrames:1};
+ const editing=field==='portrait'?h.model.patchStudioClipPortrait(legacy,'base',value):h.model.patchStudioClipEnhancement(legacy,'base',value);
+ const saved=await h.store.updateStudioProject('owner',p.id,{editing});await assert.rejects(h.media.exportStudioProject(saved),/perfil de composição/);assert.equal(h.nativeExports(),0);
+ }
+});

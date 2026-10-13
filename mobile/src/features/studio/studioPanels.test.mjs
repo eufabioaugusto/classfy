@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as model from './model.ts';
+import * as autoEnhance from './autoEnhance.ts';
 
 const dependenciesEqual = (a, b) => a?.length === b?.length && a.every((value, index) => Object.is(value, b[index]));
 function harness(file, exportName, initialProps, dependencyOverrides = {}) {
@@ -31,7 +32,7 @@ function harness(file, exportName, initialProps, dependencyOverrides = {}) {
     'react-native': { Pressable: 'button', ScrollView: 'scroll', Text: 'text', TextInput: 'input', View: 'view', ActivityIndicator: 'spinner', StyleSheet: { create: value => value } },
     'lucide-react-native': new Proxy({}, { get: (_, key) => `icon:${String(key)}` }),
     '@/theme/colors': { colors: { surface: '#141414', surfaceAlt: '#1F1F1F', surfaceMuted: '#262626', text: '#FAFAFA', muted: '#A3A3A3', accent: '#E11D48' } },
-    './textLibrary': libraryHarness(), './filterCatalog': { studioFilterPresets, studioSelectedFilter }, './filterPreviews': { prepareStudioFilterPreviews: () => () => {} }, '@/components/LoadingImage': { LoadingImage: 'image' }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
+    '../../../modules/classfy-studio-media': { getStudioEnhancementCapabilitiesAsync: async () => ({ available: false }) }, './autoEnhance': autoEnhance, './sceneTreatments': { studioSceneAnalysisRequest: (editing, id) => { const clip=editing.main.find(clip=>clip.id===id); const asset=editing.assets.find(asset=>asset.id===clip.assetId); return {uri:asset.uri,kind:asset.kind,startSeconds:model.studioSeconds(clip.sourceStartTicks),endSeconds:model.studioSeconds(clip.sourceEndTicks),frameCount:8}; } }, './textLibrary': libraryHarness(), './filterCatalog': { studioFilterPresets, studioSelectedFilter }, './filterPreviews': { prepareStudioFilterPreviews: () => () => {} }, '@/components/LoadingImage': { LoadingImage: 'image' }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
     ...dependencyOverrides,
   };
   const source = readFileSync(new URL(file, import.meta.url), 'utf8');
@@ -96,7 +97,7 @@ function layer(options = {}) {
 }
 function treatment(options = {}) {
   const { editing } = editingFixture(), previews = [], applied = [], before = [], closed = [];
-  const view = harness('./StudioTreatmentPanel.tsx', 'StudioTreatmentPanel', { editing, targetId: 'main', onPreview: value => previews.push(value), onApply: async value => { applied.push(value); }, onClose: () => closed.push(true), onBefore: value => before.push(value), ...options });
+  const view = harness('./StudioTreatmentPanel.tsx', 'StudioTreatmentPanel', { editing, targetId: 'main', onPreview: value => previews.push(value), onApply: async value => { applied.push(value); }, onClose: () => closed.push(true), onBefore: value => before.push(value), ...options }, options.dependencies);
   return { view, editing, previews, applied, before, closed, grade: () => previews.at(-1)?.main[0].grade };
 }
 
@@ -347,4 +348,44 @@ test('hidratação e callbacks de conta anterior não mudam biblioteca nem estil
     assert.deepEqual(JSON.parse(storage.get(keyB)), values[keyB]);
     const late = view.button('Fonte Avenir').onPress; view.unmount(); late(); await view.pump(); assert.deepEqual(writes, [keyA]);
   } finally { view.unmount(); }
+});
+
+const treatmentSample = autoEnhance.measureStudioScene([80,88,95,255,100,105,110,255]);
+const treatmentDependencies = analyze => ({ '../../../modules/classfy-studio-media': {
+  getStudioEnhancementCapabilitiesAsync: async () => ({available:true}), analyzeStudioSceneAsync: analyze || (async () => [treatmentSample]),
+} });
+test('Melhorar cena e Retoque usam drafts independentes, comparação e Aplicar único sem tocar o original', async () => {
+  const {view,previews,applied,before,editing} = treatment({initialTab:'scene',dependencies:treatmentDependencies()});
+  await view.pump();view.press('Analisar e melhorar cena');await view.pump();
+  assert.equal(applied.length,0);assert.equal(previews.at(-1).main[0].enhancement.analyzedFrames,1);
+  view.slider('Intensidade da melhoria').onChange(.55);view.slider('Intensidade da melhoria').onInteractionEnd(false);view.draw();
+  view.slider('Intensidade do retoque').onChange(.4);view.slider('Intensidade do retoque').onInteractionEnd(false);view.draw();
+  let clip=previews.at(-1).main[0];assert.equal(clip.enhancement.strength,.55);assert.equal(clip.portrait.strength,.4);
+  view.button('Segure para comparar com o original').onPressIn();assert.equal(before.at(-1),true);
+  view.button('Segure para comparar com o original').onPressOut();assert.equal(before.at(-1),false);
+  view.press('Filtros');view.press('Filtro Cinema');view.press('Aplicar tratamento');await view.pump();
+  assert.equal(applied.length,1);assert.equal(applied[0].main[0].grade.preset,'cinematic');assert.equal(applied[0].main[0].portrait.strength,.4);
+  assert.equal(applied[0].main[0].enhancement.strength,.55);assert.deepEqual(applied[0].assets,editing.assets);assert.equal(editing.main[0].portrait,undefined);
+});
+test('remover melhoria preserva retoque e filtro; remover retoque não modifica o balanço da cena',async()=>{
+  const {view,previews}=treatment({initialTab:'scene',dependencies:treatmentDependencies()});await view.pump();view.press('Analisar e melhorar cena');await view.pump();
+  view.slider('Intensidade do retoque').onChange(.35);view.slider('Intensidade do retoque').onInteractionEnd(false);view.draw();view.press('Remover melhoria da cena');
+  assert.equal(previews.at(-1).main[0].enhancement,undefined);assert.equal(previews.at(-1).main[0].portrait.strength,.35);
+  view.press('Analisar e melhorar cena');await view.pump();const enhancement=previews.at(-1).main[0].enhancement;view.press('Remover retoque natural');
+  assert.equal(previews.at(-1).main[0].portrait,undefined);assert.deepEqual(previews.at(-1).main[0].enhancement,enhancement);
+});
+test('análise tardia não altera outra seleção, tela desfocada ou painel encerrado',async()=>{
+  for(const mode of ['selection','blur','close']){
+    let finish;const {view,editing,previews,applied}=treatment({initialTab:'scene',dependencies:treatmentDependencies(()=>new Promise(resolve=>{finish=resolve;}))});
+    await view.pump();view.press('Analisar e melhorar cena');assert.equal(view.button('Aplicar tratamento').disabled,true);
+    if(mode==='selection')view.update({editing:{...editing,main:[...editing.main,{...editing.main[0],id:'other'}]},targetId:'other'});
+    else if(mode==='blur')view.update({disabled:true});else {view.press('Fechar tratamento');view.unmount();}
+    const count=previews.length;finish([treatmentSample]);await view.pump();assert.equal(previews.length,count);assert.equal(applied.length,0);
+  }
+});
+test('análise com falha mantém o filtro e oferece nova ação; ABI antigo nunca aplica efeito escondido',async()=>{
+  const {view,previews}=treatment({initialTab:'scene',dependencies:treatmentDependencies(async()=>{throw Error('Original indisponível');})});
+  await view.pump();view.press('Analisar e melhorar cena');await view.pump();assert.ok(view.labels().includes('Original indisponível'));assert.equal(view.button('Analisar e melhorar cena').disabled,false);
+  assert.equal(previews.at(-1),undefined);
+  const old=treatment({initialTab:'scene'});await old.view.pump();assert.equal(old.view.button('Analisar e melhorar cena').disabled,true);assert.equal(old.view.slider('Intensidade do retoque').disabled,true);
 });
