@@ -213,6 +213,45 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await click('Fechar configurações'); await click('Abrir câmera'); expect(permissions.mock.calls.at(-1)![0].video).toBeTruthy(); await click('Iniciar gravação'); await click('Encerrar gravação'); expect([...projects.values()][0].kind).toBe('short'); expect(io.create).toHaveBeenCalledTimes(1);
   });
 
+  it('seleção do mic remoto usa UID do iPhone, bloqueia REC sem confirmação e mantém medidor no take', async () => {
+    const builtin = { id: 'BuiltInMic', name: 'Microfone integrado do iPhone', type: 'MicrophoneBuiltIn' };
+    const usb = { id: 'USB-Audio-1', name: 'USB externo do iPhone', type: 'USBAudio' };
+    const configure = vi.fn(), start = vi.fn();
+    remoteIO.create.mockImplementation(() => {
+      const listeners = new Set<(state: StudioCaptureState) => void>(), remoteListeners = new Set<(state: StudioRemoteView) => void>();
+      let state: StudioCaptureState = { phase: 'idle', stream: null, file: null, error: null, elapsed: 0, input: null, camera: null, devices: { cameras: [], microphones: [] }, levels: [], microphoneEnabled: true };
+      let remote: StudioRemoteView = { pairing: null, connection: 'connected', transfer: 'idle', pendingTakeId: null, error: null, session: {
+        id: 'native-session', projectId: null, kind: 'aula', title: 'Nova aula', status: 'ready', controllerId: 'browser', deviceId: 'iphone', sequence: 0, activeTakeId: null,
+        configuration: { resolution: '4k', fps: 30, cameraFacing: 'back' }, deviceState: {
+          capabilities: { audioInputSelection: true },
+          audioInput: { version: 1, available: [builtin, usb], preferredId: usb.id, current: builtin, confirmed: false, selecting: false, warning: 'Confirme o microfone USB no iPhone.' },
+          audioMonitor: { status: 'live', input: builtin, channels: [{ averageDb: -24, peakDb: -10 }] },
+        }, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(), pairedAt: new Date().toISOString(), controllerSeenAt: null, deviceSeenAt: new Date().toISOString(), closedAt: null,
+      } };
+      const publish = (patch: Partial<StudioCaptureState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener(state)); };
+      configure.mockImplementation(async ({ audioInputId }: { audioInputId: string | null }) => {
+        const current = audioInputId === usb.id ? usb : builtin;
+        remote = { ...remote, session: { ...remote.session!, deviceState: { ...remote.session!.deviceState, audioInput: { ...remote.session!.deviceState!.audioInput!, preferredId: audioInputId, current, confirmed: true, warning: null }, audioMonitor: { status: 'live', input: current, channels: [{ averageDb: -24, peakDb: -10 }] } } } };
+        remoteListeners.forEach(listener => listener(remote));
+      });
+      start.mockImplementation(async () => publish({ phase: 'recording' }));
+      return {
+        subscribe(listener) { listeners.add(listener); listener(state); return () => listeners.delete(listener); },
+        subscribeRemote(listener) { remoteListeners.add(listener); listener(remote); return () => remoteListeners.delete(listener); },
+        async prepare() { publish({ phase: 'ready', stream: new Stream([new Track('video')]) as unknown as MediaStream }); },
+        configureRemote: configure, start, cancel() {}, dispose() { listeners.clear(); remoteListeners.clear(); }, getMicrophoneTrack() { return null; },
+      } as unknown as StudioRemoteCaptureController;
+    });
+    await act(async () => root.render(<MemoryRouter initialEntries={['/studio/record']}><StudioRecordingWorkspace owner="owner" initialKind="aula" canUseScenes /></MemoryRouter>));
+    await click('Usar meu iPhone · Premium'); await click('Conectar meu iPhone');
+    expect(button('Iniciar gravação')?.disabled).toBe(true); expect(host.textContent).toContain('Confirme o microfone do iPhone'); expect(host.querySelector('[role="meter"]')).toBeNull();
+    await click('Iniciar gravação'); expect(start).not.toHaveBeenCalled();
+    await click('Selecionar microfone do iPhone'); const option = [...host.querySelectorAll<HTMLButtonElement>('.src-audio-option')].find(value => value.textContent?.includes(usb.name))!;
+    await act(async () => option.click()); expect(configure).toHaveBeenCalledWith({ audioInputId: usb.id }); expect(permissions).not.toHaveBeenCalled();
+    expect(button('Iniciar gravação')?.disabled).toBe(false); expect(host.querySelector('.src-audio-heading')?.textContent).toContain(usb.name);
+    await click('Iniciar gravação'); expect(start).toHaveBeenCalledTimes(1); expect(button('Selecionar microfone do iPhone')?.disabled).toBe(true); expect(host.querySelector('[role="meter"]')).toBeTruthy(); expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it('saída tranquila não pede confirmação nem trava leaving; captura pronta é encerrada antes de voltar', async () => {
     await mount(); await click('Abrir câmera'); const stream = await permissions.mock.results[0].value; await click('Voltar aos projetos');
     expect(confirmation()).toBeNull(); expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/projects'); expect(stream.tracks.every((t: Track) => t.stop.mock.calls.length === 1)).toBe(true);

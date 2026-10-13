@@ -26,6 +26,32 @@ Deno.test('configure accepts capability-driven Pro but validates quality and key
   assert(configuration({ resolution: '4k', fps: 24, cameraFacing: 'back', pro: { iso: 100 } }).fps === 24);
   for (const patch of [{ resolution: '8k' }, { fps: '60' }, { cameraFacing: 'usb' }, { ownerId: id }, {}, { pro: { text: 'x'.repeat(9000) } }]) rejects(() => configuration(patch));
 });
+Deno.test('audio selection accepts automatic routing or bounded native input UID only', () => {
+  assert(configuration({ audioInputId: null }).audioInputId === null);
+  const selected = configuration({ audioInputId: 'USB-Audio-Input-1' });
+  assert(selected.audioInputId === 'USB-Audio-Input-1');
+  for (const audioInputId of ['', ' ', 'x'.repeat(257), 12, false, {}, [], 'USB\n1']) rejects(() => configuration({ audioInputId }));
+});
+Deno.test('audio routes carry real device ports and confirmed selection without local file paths', () => {
+  const usb = { id: 'USB-Audio-Input-1', name: 'Microfone USB', type: 'USBAudio' }, builtin = { id: 'BuiltInMic', name: 'Microfone do iPhone', type: 'MicrophoneBuiltIn' };
+  const audio = { version: 1, available: [builtin, usb], preferredId: usb.id, current: usb, confirmed: true, selecting: false, warning: null };
+  const route = validateRequest({ action: 'heartbeat', sessionId: id, role: 'device', clientId: id, state: { audioInput: audio,
+    audioMonitor: { status: 'live', input: usb, channels: [{ averageDb: -30, peakDb: -12 }] } } }).params.state as Record<string, unknown>;
+  assert(JSON.stringify(route.audioInput) === JSON.stringify(audio));
+  assert(((route.audioMonitor as Record<string, unknown>).input as Record<string, unknown>).id === usb.id);
+  const lost = validateRequest({ action: 'heartbeat', sessionId: id, role: 'device', clientId: id, state: { audioInput: { ...audio, available: [builtin], current: builtin, confirmed: false, warning: 'O microfone USB foi desconectado.' } } });
+  assert(((lost.params.state as Record<string, unknown>).audioInput as Record<string, unknown>).confirmed === false);
+  for (const patch of [{ version: 2 }, { available: [usb, usb] }, { available: [{ ...usb, id: '' }] }, { current: { ...usb, name: '' } }, { preferredId: 1 }, { confirmed: 'true' }, { selecting: null }, { warning: 'x'.repeat(501) }])
+    rejects(() => validateRequest({ action: 'heartbeat', sessionId: id, role: 'device', clientId: id, state: { audioInput: { ...audio, ...patch } } }));
+  rejects(() => validateRequest({ action: 'heartbeat', sessionId: id, role: 'device', clientId: id, state: { audioInput: { ...audio, current: { ...usb, token: 'private' } } } }));
+});
+Deno.test('audio levels are bounded and legacy input labels remain usable without selection support', () => {
+  const monitor = { status: 'live', input: { name: 'Microfone do iPhone', type: 'MicrophoneBuiltIn' }, channels: [{ averageDb: -40, peakDb: -10 }] };
+  const legacy = validateRequest({ action: 'heartbeat', sessionId: id, role: 'device', clientId: id, state: { audioMonitor: monitor } });
+  assert(((legacy.params.state as Record<string, unknown>).audioMonitor as Record<string, unknown>).status === 'live');
+  for (const patch of [{ status: 'fake' }, { channels: [{ averageDb: NaN, peakDb: -12 }] }, { channels: [{ averageDb: -200, peakDb: -12 }] }, { channels: Array.from({ length: 9 }, () => ({ averageDb: -30, peakDb: -12 })) }])
+    rejects(() => validateRequest({ action: 'heartbeat', sessionId: id, role: 'device', clientId: id, state: { audioMonitor: { ...monitor, ...patch } } }));
+});
 Deno.test('the request boundary removes ownership/storage/provider fields supplied by clients', () => {
   const request = validateRequest({ action: 'upload-start', sessionId: id, takeId: id, ownerId: id,
     bucket: 'public', path: '../other-user', metadata: { ...info, secret: 'never retained' } });

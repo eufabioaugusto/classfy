@@ -1,5 +1,5 @@
 import { Room, RoomEvent, Track, type RemoteTrack, type RemoteParticipant, type RemoteTrackPublication } from 'livekit-client';
-import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteEnvelope, StudioRemoteResponse, StudioRemoteSession, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
+import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteEnvelope, StudioRemoteResponse, StudioRemoteSession, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
 import { studioGrade } from '../../../../shared/studio/model';
 import type { StudioCaptureController, StudioCaptureState, StudioCaptureVideoPatch } from './capture';
 import { inspectStudioMedia, type StudioMediaMetadata } from './media';
@@ -17,6 +17,12 @@ export type StudioRemoteView = {
 };
 export type StudioRemotePreview = { disconnect(): Promise<void>; reconnect?(): Promise<void> };
 export type StudioRemotePreviewFactory = (response: StudioRemoteResponse, callbacks: { track(track: MediaStreamTrack | null): void; connection(value: StudioRemoteView['connection']): void }, signal: AbortSignal) => Promise<StudioRemotePreview>;
+/** Older apps keep their existing audio route; new apps must confirm the chosen input. */
+export function studioRemoteAudioReady(device: StudioRemoteDeviceState | null | undefined): boolean {
+  if (device?.capabilities?.audioInputSelection !== true) return true;
+  const audio = device.audioInput;
+  return !!audio?.confirmed && !audio.selecting && !!audio.current && (audio.preferredId === null || audio.preferredId === audio.current.id);
+}
 export type StudioRemoteCaptureController = StudioCaptureController & {
   remoteStart(): Promise<StudioRemoteStart>;
   remoteStop(): Promise<StudioRemoteMaster>;
@@ -103,6 +109,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   let state: StudioCaptureState = { phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true, levels: [] };
   let remote: StudioRemoteView = { pairing: null, connection: 'idle', session: null, transfer: 'idle', pendingTakeId: null, error: null };
   const snapshot = () => ({ ...state, devices: { cameras: [], microphones: [] }, levels: [], ...(state.videoControls ? { videoControls: structuredClone(state.videoControls) } : {}), ...(state.outputVideo ? { outputVideo: structuredClone(state.outputVideo) } : {}) });
+  const configurationPending = () => configuring || !!envelope?.commands.some(command => command.type === 'configure' && command.status === 'pending');
   const view = () => structuredClone(remote);
   const publish = (patch: Partial<StudioCaptureState>) => { if (disposed) return; state = { ...state, ...patch }; listeners.forEach(listener => listener(snapshot())); };
   const publishRemote = (patch: Partial<StudioRemoteView>) => { if (disposed) return; remote = { ...remote, ...patch }; remoteListeners.forEach(listener => listener(view())); };
@@ -125,7 +132,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     const profile = remoteStudioProfile(response, options.kind);
     const confirmed = response.session.deviceState?.configurationConfirmed !== false && response.session.deviceState?.imageGradeConfirmed !== false && Number(response.session.deviceState?.width) > 0 && Number(response.session.deviceState?.height) > 0 && Number(response.session.deviceState?.fps) > 0;
     publish({ width: confirmed ? profile.width : undefined, height: confirmed ? profile.height : undefined, frameRate: confirmed ? profile.frameRate : undefined, camera: response.session.deviceId ? { id: response.session.deviceId, name: response.session.deviceState?.deviceName || 'iPhone · Câmera remota' } : null,
-      videoControls: confirmed ? { busy: configuring, processed: false, effects: false, grade: studioGrade(), zoom: { mode: 'none', min: 1, max: 1, step: 1, value: 1 }, resolutions: profile.resolutions, frameRates: profile.frameRates } : null, outputVideo: confirmed ? { resolutions: profile.resolutions, frameRates: profile.frameRates, sourceWidth: profile.width, sourceHeight: profile.height, sourceFrameRate: profile.frameRate, scaled: false } : null });
+      videoControls: confirmed ? { busy: configurationPending(), processed: false, effects: false, grade: studioGrade(), zoom: { mode: 'none', min: 1, max: 1, step: 1, value: 1 }, resolutions: profile.resolutions, frameRates: profile.frameRates } : null, outputVideo: confirmed ? { resolutions: profile.resolutions, frameRates: profile.frameRates, sourceWidth: profile.width, sourceHeight: profile.height, sourceFrameRate: profile.frameRate, scaled: false } : null });
     if (response.session.deviceState?.error) publishRemote({ error: String(response.session.deviceState.error) });
     if (!confirmed && (response.session.deviceState?.configurationConfirmed === false || response.session.deviceState?.imageGradeConfirmed === false) && !remote.pendingTakeId && !pendingStart) publish({ phase: 'error', pendingRecovery: false, error: 'O iPhone não confirmou os ajustes. Restaure o modo Auto ou ajuste novamente antes de gravar.' });
     if (confirmed && response.session.status === 'ready' && cameraTrack && (state.phase === 'preparing' || state.phase === 'error' && !state.pendingRecovery) && !pendingStart) publish({ phase: 'ready', error: null });
@@ -173,7 +180,9 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   const remoteStart = () => {
     if (startWork) return startWork; if (state.phase === 'recording' && lastStart) return Promise.resolve(lastStart);
     if (!envelope || remote.connection !== 'connected' || !cameraTrack || !['ready', 'preparing', 'error'].includes(state.phase) || remote.pendingTakeId) return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone ficar pronto antes de gravar.'));
+    if (configurationPending()) return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone confirmar o ajuste antes de gravar.', 'configuration_pending'));
     if (envelope.session.deviceState?.configurationConfirmed === false || envelope.session.deviceState?.imageGradeConfirmed === false) return Promise.reject(new StudioRemoteCameraError('Confirme os ajustes no iPhone antes de gravar.'));
+    if (!studioRemoteAudioReady(envelope.session.deviceState)) return Promise.reject(new StudioRemoteCameraError(envelope.session.deviceState?.audioInput?.warning?.trim() || 'Confirme o microfone antes de gravar.', 'audio_input_unconfirmed'));
     const token = generation; pendingStart ??= { id: crypto.randomUUID(), takeId: crypto.randomUUID() }; const intent = pendingStart;
     forgotten = false; persistIntent();
     publish({ phase: 'preparing', error: null });
@@ -254,7 +263,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     if (!envelope || !['ready', 'error'].includes(state.phase) || state.pendingRecovery || startWork || stopWork || configuring) throw new StudioRemoteCameraError('Aguarde o iPhone estar pronto para ajustar a câmera.');
     const token = generation; configuring = true; publish({ videoControls: state.videoControls ? { ...state.videoControls, busy: true } : null });
     try { await command(crypto.randomUUID(), 'configure', patch, token); assert(token); }
-    finally { if (!disposed && token === generation) { configuring = false; publish({ videoControls: state.videoControls ? { ...state.videoControls, busy: false } : null }); } }
+    finally { if (!disposed && token === generation) { configuring = false; publish({ videoControls: state.videoControls ? { ...state.videoControls, busy: configurationPending() } : null }); } }
   };
   const cancel = () => {
     const previous = envelope, hadMaster = !!cachedMaster, takeId = remote.pendingTakeId ?? pendingStart?.takeId ?? previous?.session.activeTakeId; bestRTT = Infinity;

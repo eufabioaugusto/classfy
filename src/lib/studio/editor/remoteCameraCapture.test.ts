@@ -184,6 +184,30 @@ describe('câmera remota preserva o original nativo e a autoridade do iPhone', (
     await expect(h.controller.configureVideo({ grade: { exposure: 1 } })).rejects.toThrow('controles Pro');
     expect(h.state().videoControls?.effects).toBe(false);
   });
+  it('microfone não confirmado no app novo impede reservar um take na nuvem', async () => {
+    const usb = { id: 'USB-Audio-1', name: 'Microfone USB', type: 'USBAudio' }, builtin = { id: 'BuiltInMic', name: 'Microfone do iPhone', type: 'MicrophoneBuiltIn' };
+    for (const patch of [{ selecting: true }, { confirmed: false }, { current: null }, { current: builtin }]) {
+      const h = fixture(); h.data.session.deviceState!.capabilities!.audioInputSelection = true;
+      h.data.session.deviceState!.audioInput = { version: 1, available: [usb, builtin], preferredId: usb.id, current: usb, confirmed: true, selecting: false, warning: 'Confirme o microfone antes de gravar.', ...patch };
+      await h.controller.prepare(); await expect(h.controller.remoteStart()).rejects.toMatchObject({ code: 'audio_input_unconfirmed', message: 'Confirme o microfone antes de gravar.' });
+      expect(h.data.takes).toHaveLength(0); expect(h.data.commands.filter(value => value.type === 'start')).toHaveLength(0); expect(h.remote().pendingTakeId).toBeNull();
+    }
+  });
+  it('Auto com USB confirmado permite REC e troca nativa mantém UID até ACK', async () => {
+    const usb = { id: 'USB-Audio-1', name: 'Microfone USB', type: 'USBAudio' }, h = fixture();
+    h.data.session.deviceState!.capabilities!.audioInputSelection = true; h.data.session.deviceState!.audioInput = { version: 1, available: [usb], preferredId: null, current: usb, confirmed: true, selecting: false, warning: null };
+    await h.controller.prepare(); await h.controller.configureRemote({ audioInputId: usb.id }); expect(h.data.commands[0].payload).toEqual({ audioInputId: usb.id });
+    await h.controller.remoteStart(); expect(h.data.takes).toHaveLength(1);
+  });
+  it('seleção de microfone pendente impede REC mesmo após timeout, sem reservar take usando rota antiga', async () => {
+    const h = fixture(); await h.controller.prepare(); h.pending();
+    const configuring = h.controller.configureRemote({ audioInputId: 'USB-Audio-1' }).catch(error => error);
+    await expect(h.controller.remoteStart()).rejects.toMatchObject({ code: 'configuration_pending' });
+    await vi.advanceTimersByTimeAsync(600); expect((await configuring).code).toBe('ack_timeout'); expect(h.state().videoControls?.busy).toBe(true);
+    await expect(h.controller.remoteStart()).rejects.toMatchObject({ code: 'configuration_pending' });
+    expect(h.data.takes).toHaveLength(0); expect(h.data.commands.filter(value => value.type === 'start')).toHaveLength(0); expect(h.remote().pendingTakeId).toBeNull();
+    h.data.commands[0].status = 'applied'; await h.controller.reconnect(); expect(h.state().videoControls?.busy).toBe(false);
+  });
   it('snapshots não permitem alterar configuração/qualidades internas e o relógio usa server midpoint', async () => {
     const h = fixture(); await h.controller.prepare(); const external = h.controller.getEnvelope()!; external.session.configuration.resolution = '720p'; expect(h.controller.getEnvelope()!.session.configuration.resolution).toBe('4k');
     h.state().videoControls!.resolutions.length = 0; let fresh!: StudioCaptureState; h.controller.subscribe(value => fresh = value); expect(fresh.videoControls!.resolutions).toHaveLength(4); expect(h.controller.getServerNow()).toBe(Date.now());

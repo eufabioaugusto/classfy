@@ -59,12 +59,43 @@ function transferReceipt(source: JsonObject): JsonObject {
   if (typeof result.uploadProgressBytes === 'number' && typeof result.uploadTotalBytes === 'number' && result.uploadProgressBytes > result.uploadTotalBytes) throw new CameraError('studio_camera_invalid_metadata');
   return result;
 }
+function audioUID(value: unknown, code = 'studio_camera_invalid_request'): string {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 256 || !value.trim() || /[\u0000-\u001f\u007f]/.test(value)) throw new CameraError(code);
+  return value;
+}
+function audioText(value: unknown, max: number): string {
+  if (typeof value !== 'string' || value.length > max || !value.trim() || /[\u0000-\u001f\u007f]/.test(value)) throw new CameraError('studio_camera_invalid_request');
+  return value;
+}
+function audioPort(value: unknown, legacy = false): JsonObject {
+  const port = object(value);
+  return { ...(legacy && port.id === undefined ? {} : { id: audioUID(port.id) }), name: audioText(port.name, 256), type: audioText(port.type, 64) };
+}
+function audioInput(value: unknown): JsonObject {
+  const state = object(value);
+  if (state.version !== 1 || !Array.isArray(state.available) || state.available.length > 32 || typeof state.confirmed !== 'boolean' || typeof state.selecting !== 'boolean') throw new CameraError('studio_camera_invalid_request');
+  const available = state.available.map(port => audioPort(port));
+  if (new Set(available.map(port => port.id)).size !== available.length) throw new CameraError('studio_camera_invalid_request');
+  if (state.warning !== null && (typeof state.warning !== 'string' || state.warning.length > 500)) throw new CameraError('studio_camera_invalid_request');
+  return { version: 1, available, preferredId: state.preferredId === null ? null : audioUID(state.preferredId),
+    current: state.current === null ? null : audioPort(state.current), confirmed: state.confirmed, selecting: state.selecting, warning: state.warning };
+}
+function audioMonitor(value: unknown): JsonObject {
+  const monitor = object(value);
+  if (!['waiting', 'live', 'unavailable', 'interrupted'].includes(String(monitor.status)) || !Array.isArray(monitor.channels) || monitor.channels.length > 8) throw new CameraError('studio_camera_invalid_request');
+  if (monitor.message !== undefined && (typeof monitor.message !== 'string' || monitor.message.length > 500)) throw new CameraError('studio_camera_invalid_request');
+  return { status: monitor.status, input: monitor.input === null ? null : audioPort(monitor.input, true), channels: monitor.channels.map(value => {
+    const channel = object(value); return { averageDb: finite(channel.averageDb, -160, 24), peakDb: finite(channel.peakDb, -160, 24) };
+  }), ...(monitor.message === undefined ? {} : { message: monitor.message }) };
+}
 function deviceState(value: unknown): JsonObject {
-  const state = boundedObject(value, 12000); return { ...state, ...transferReceipt(state) };
+  const state = boundedObject(value, 12000); return { ...state, ...transferReceipt(state),
+    ...(state.audioInput === undefined ? {} : { audioInput: audioInput(state.audioInput) }),
+    ...(state.audioMonitor === undefined ? {} : { audioMonitor: audioMonitor(state.audioMonitor) }) };
 }
 export function configuration(value: unknown): JsonObject {
   const source = object(value); const result: JsonObject = {};
-  for (const key of Object.keys(source)) if (!['resolution', 'fps', 'cameraFacing', 'pro', 'imageGrade'].includes(key)) throw new CameraError('studio_camera_invalid_configuration');
+  for (const key of Object.keys(source)) if (!['resolution', 'fps', 'cameraFacing', 'pro', 'imageGrade', 'audioInputId'].includes(key)) throw new CameraError('studio_camera_invalid_configuration');
   if (source.resolution !== undefined) {
     if (!['720p', '1080p', '2k', '4k'].includes(String(source.resolution))) throw new CameraError('studio_camera_invalid_configuration');
     result.resolution = source.resolution;
@@ -77,6 +108,7 @@ export function configuration(value: unknown): JsonObject {
     if (!['front', 'back'].includes(String(source.cameraFacing))) throw new CameraError('studio_camera_invalid_configuration');
     result.cameraFacing = source.cameraFacing;
   }
+  if (source.audioInputId !== undefined) result.audioInputId = source.audioInputId === null ? null : audioUID(source.audioInputId, 'studio_camera_invalid_configuration');
   if (source.pro !== undefined) {
     const pro = boundedObject(source.pro);
     if (pro.focusPoint !== undefined) {
