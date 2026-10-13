@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StudioRemoteCommand, StudioRemoteResponse, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
+import type { StudioRemoteCommand, StudioRemoteDeviceState, StudioRemoteResponse, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
 import type { StudioCaptureState } from './capture';
 import { createStudioRemoteCapture, remoteStudioProfile, studioRemoteControllerId, validateStudioRemoteMaster, type StudioRemoteCaptureController, type StudioRemotePreviewFactory, type StudioRemoteView } from './remoteCameraCapture';
 import { StudioRemoteCameraError, type StudioRemoteClient } from './remoteCameraClient';
@@ -286,6 +286,42 @@ describe('câmera remota preserva o original nativo e a autoridade do iPhone', (
     await h.controller.reconnect(); const changes = h.request.mock.calls.map(([body]) => body).filter(body => body.action === 'command');
     expect(changes).toHaveLength(2); expect(changes[1]).toMatchObject({ commandId: first.commandId, payload: { pro: { iso: 20 } } });
     expect(h.data.commands).toHaveLength(1); expect(h.state().videoControls?.busy).toBe(false);
+  });
+  it('ACK direto atualiza ISO antes do servidor, conserva último desejo e bloqueia REC até escrita durável', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.liveControls = 1; h.data.session.deviceState!.pro = { iso: 100 };
+    const fast = vi.fn(async (id: string, patch: Record<string, unknown>) => ({ configurationConfirmed: true, liveConfigurationId: id, configuration: { ...h.data.session.configuration, ...patch }, pro: patch.pro as Record<string, unknown> }));
+    vi.mocked(h.preview).mockImplementation(async (_response, callbacks) => { callbacks.track(track); callbacks.connection('connected'); return { disconnect: h.disconnect, configure: fast }; });
+    await h.controller.prepare(); h.pending();
+    const first = h.controller.configureRemote({ pro: { autoExposure: false, iso: 20 } }); await vi.advanceTimersByTimeAsync(0);
+    expect(h.remote().session!.deviceState!.pro!.iso).toBe(20); expect(h.data.session.deviceState!.pro!.iso).toBe(100);
+    expect(h.state().videoControls?.busy).toBe(true); await expect(h.controller.remoteStart()).rejects.toMatchObject({ code: 'configuration_pending' });
+    const second = h.controller.configureRemote({ pro: { iso: 80 } }); await vi.advanceTimersByTimeAsync(0);
+    expect(h.remote().session!.deviceState!.pro!.iso).toBe(80);
+    expect(fast).toHaveBeenLastCalledWith(expect.any(String), { pro: { autoExposure: false, iso: 80 } });
+    expect(h.data.commands[0].id).toBe(fast.mock.calls[0][0]);
+    h.data.commands[0].status = 'applied'; h.data.session.deviceState!.pro = { iso: 20 }; h.applied();
+    await vi.advanceTimersByTimeAsync(210); await Promise.all([first, second]);
+    expect(h.data.commands[1].id).toBe(fast.mock.calls[1][0]); expect(h.remote().session!.deviceState!.pro!.iso).toBe(80);
+    expect(h.state().videoControls?.busy).toBe(false); expect(h.data.takes).toHaveLength(0);
+  });
+  it('pacote direto perdido conserva fallback e cancelamento não deixa uma promessa pendurada', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.liveControls = 1;
+    const fast = vi.fn(async (): Promise<StudioRemoteDeviceState> => { throw new Error('Pacote perdido'); });
+    vi.mocked(h.preview).mockImplementation(async (_response, callbacks) => { callbacks.track(track); callbacks.connection('connected'); return { disconnect: h.disconnect, configure: fast }; });
+    await h.controller.prepare(); await h.controller.configureRemote({ pro: { iso: 20 } });
+    expect(h.data.commands[0].payload).toEqual({ pro: { iso: 20 } }); expect(h.state().videoControls?.busy).toBe(false);
+    const delayed = deferred<StudioRemoteDeviceState>(); fast.mockImplementationOnce(() => delayed.promise);
+    const pending = h.controller.configureRemote({ pro: { iso: 40 } }).catch(error => error); h.controller.cancel(); delayed.resolve({ configurationConfirmed: true, pro: { iso: 40 } });
+    expect(await pending).toMatchObject({ name: 'AbortError' }); expect(h.data.commands).toHaveLength(1); expect(h.remote().session).toBeNull();
+  });
+  it('toque de foco não é repetido no pacote direto do próximo ajuste de ISO', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.liveControls = 1;
+    const fast = vi.fn(async (_id: string, patch: Record<string, unknown>) => ({ configurationConfirmed: true, pro: patch.pro as Record<string, unknown> }));
+    vi.mocked(h.preview).mockImplementation(async (_response, callbacks) => { callbacks.track(track); callbacks.connection('connected'); return { disconnect: h.disconnect, configure: fast }; });
+    await h.controller.prepare(); await h.controller.configureRemote({ pro: { focusPoint: { x: .5, y: .5, locked: false } } });
+    await h.controller.configureRemote({ pro: { autoExposure: false, iso: 34 } });
+    expect(fast.mock.calls[0][1]).toEqual({ pro: { focusPoint: { x: .5, y: .5, locked: false } } });
+    expect(fast.mock.calls[1][1]).toEqual({ pro: { autoExposure: false, iso: 34 } });
   });
   it('snapshots não permitem alterar configuração/qualidades internas e o relógio usa server midpoint', async () => {
     const h = fixture(); await h.controller.prepare(); const external = h.controller.getEnvelope()!; external.session.configuration.resolution = '720p'; expect(h.controller.getEnvelope()!.session.configuration.resolution).toBe('4k');
