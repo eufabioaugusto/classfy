@@ -64,7 +64,7 @@ function nativeHarness(options={}){
     Room:class{state='disconnected';listeners=new Map();localParticipant={publishTrack:async(_track,options)=>{calls.push({kind:'publish',options});},publishData:async(bytes,options)=>{calls.push({kind:'data-ack',value:JSON.parse(new TextDecoder().decode(bytes)),options});}};
       constructor(options){rooms.push(this);calls.push({kind:'room',options});}
       on(event,listener){this.listeners.set(event,listener);return this;}off(event,listener){if(this.listeners.get(event)===listener)this.listeners.delete(event);return this;}
-      emit(bytes,identity='studio-controller-session-controller',topic=controller.REMOTE_CAMERA_LIVE_CONTROL_TOPIC){this.listeners.get('dataReceived')?.(bytes,identity===null?undefined:{identity},0,topic);}
+      emit(bytes,identity='studio-controller-session-controller',topic=controller.REMOTE_CAMERA_LIVE_CONTROL_TOPIC,participantIdentity){this.listeners.get('dataReceived')?.(bytes,identity===null?undefined:{identity},0,topic,undefined,participantIdentity);}
       async connect(url,_token,options){calls.push({kind:'connect',url,options});this.state='connected';}async disconnect(){calls.push({kind:'disconnect'});this.state='disconnected';}},
   };
   const runtime=compile('./remoteCameraRuntime.ts',{
@@ -80,7 +80,7 @@ function nativeHarness(options={}){
   const session={id:'session',controllerId:'controller',deviceId:'device',kind:'short',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
   const port=runtime.createRemoteNativePort('owner',session,()=>77,{isCurrent:()=>current});
   return {runtime,port,session,state,calls,recording,rooms,invalidate:()=>{current=false;},
-    data:(value,identity,topic)=>rooms.at(-1).emit(value instanceof Uint8Array?value:new TextEncoder().encode(JSON.stringify(value)),identity,topic),
+    data:(value,identity,topic,participantIdentity)=>rooms.at(-1).emit(value instanceof Uint8Array?value:new TextEncoder().encode(JSON.stringify(value)),identity,topic,participantIdentity),
     async reply(id){for(let index=0;index<20;index++){const ack=calls.find(call=>call.kind==='data-ack'&&call.value.id===id);if(ack)return ack;await tick();}throw Error('ACK RTC não recebido');}};
 }
 async function linkedController(h,configuration,options={}){
@@ -372,6 +372,24 @@ test('RTC rejeita identidade ausente/errada, tópico, captura/áudio, JSON/UUID/
   for(const patch of [{resolution:'1080p'},{fps:60},{cameraFacing:'front'},{audioInputId:null},{pro:{supportsExposure:true}},{pro:{iso:-1}},{pro:{zoom:0}},{pro:{autoExposure:true,iso:200}},{pro:{focusPoint:{x:2,y:.5,locked:false}}},{imageGrade:{...model.studioGrade('natural'),intensity:2}},{imageGrade:{...model.studioGrade('natural'),audioInputId:'usb'}}])h.data({...packet,patch});
   h.data({...packet,id:'invalid'});h.data({...packet,v:2});h.data(new TextEncoder().encode('{invalid'));h.data(new Uint8Array(8193));await tick();await tick();
   assert.equal(h.calls.length,0);await linked.camera.dispose();
+});
+test('RTC aceita identidade formal do transporte antes do RemoteParticipant e confirma sensor no ACK',async()=>{
+  const h=nativeHarness(),linked=await linkedController(h,h.session.configuration);h.calls.length=0;
+  const sender='studio-controller-session-controller',requests=linked.requests.length;
+  h.data({v:1,id:liveId(11),patch:{pro:{iso:420}}},null,undefined,sender);
+  const first=await h.reply(liveId(11));assert.equal(first.value.ok,true);assert.equal(first.value.state.pro.iso,420);
+  h.data({v:1,id:liveId(12),patch:{pro:{iso:280}}},sender,undefined,sender);
+  const second=await h.reply(liveId(12));assert.equal(second.value.ok,true);assert.equal(second.value.state.pro.iso,280);
+  assert.equal(linked.requests.length,requests);await linked.camera.dispose();
+});
+test('RTC rejeita identidade formal ausente/errada, divergência e identidade alegada no JSON',async()=>{
+  const h=nativeHarness(),linked=await linkedController(h,h.session.configuration);h.calls.length=0;
+  const sender='studio-controller-session-controller',other='studio-controller-outra-session-controller';
+  const packet={v:1,id:liveId(13),patch:{pro:{iso:450}}};
+  h.data(packet,null);h.data(packet,null,undefined,other);
+  h.data(packet,other,undefined,sender);h.data(packet,sender,undefined,other);
+  h.data({...packet,participantIdentity:sender},null);h.data({...packet,participantIdentity:sender},null,undefined,sender);
+  await tick();await tick();assert.equal(h.calls.length,0);await linked.camera.dispose();
 });
 test('RTC duplica UUID sem reaplicar, rejeita novo alvo com mesmo UUID e remove listeners/ACK tardio no teardown',async()=>{
   const entered=deferred(),gate=deferred(),h=nativeHarness({proGate:pro=>{if(pro.iso===350){entered.resolve();return gate.promise;}}}),linked=await linkedController(h,{...h.session.configuration,pro:{autoExposure:false,iso:200,shutterSeconds:1/90}});

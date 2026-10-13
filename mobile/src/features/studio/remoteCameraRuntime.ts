@@ -191,8 +191,12 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
       const owned=new runtime.client.Room({adaptiveStream:false,dynacast:true,stopLocalTrackOnUnpublish:false});room=owned;
       const expectedController=`studio-controller-${session.id}-${session.controllerId}`;
       if(runtime.client.RoomEvent?.DataReceived&&typeof owned.on==='function'&&typeof owned.off==='function'&&typeof owned.localParticipant.publishData==='function'){
-        const received=(payload:Uint8Array,participant?:RemoteParticipant,_kind?:unknown,topic?:string)=>{
-          if(topic!==REMOTE_CAMERA_LIVE_CONTROL_TOPIC||participant?.identity!==expectedController||!liveHandler||room!==owned||owned.state!=='connected'||payload.byteLength>8192)return;
+        const received=(payload:Uint8Array,participant?:RemoteParticipant,_kind?:unknown,topic?:string,_encryptionType?:unknown,participantIdentity?:string)=>{
+          // LiveKit supplies the authenticated packet identity even before its
+          // RemoteParticipant exists. Neither sender value comes from the JSON.
+          if(participant?.identity!==undefined&&participantIdentity!==undefined&&participant.identity!==participantIdentity)return;
+          const sender=participant?.identity??participantIdentity;
+          if(topic!==REMOTE_CAMERA_LIVE_CONTROL_TOPIC||sender!==expectedController||!liveHandler||room!==owned||owned.state!=='connected'||payload.byteLength>8192)return;
           let value:{v?:unknown;id?:unknown;patch?:unknown};
           try{check();value=JSON.parse(new TextDecoder().decode(payload));}catch{return;}
           if(!value||typeof value!=='object'||Array.isArray(value)||value.v!==1||!remoteCameraLiveId(value.id)||!validRemoteCameraLivePatch(value.patch)||Object.keys(value).some(key=>!['v','id','patch'].includes(key)))return;
