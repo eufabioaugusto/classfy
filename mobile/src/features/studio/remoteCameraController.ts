@@ -1,4 +1,4 @@
-import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteResponse, StudioRemoteSession } from './remoteCameraProtocol';
+import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteDiscoveryResponse, StudioRemoteResponse, StudioRemoteSession } from './remoteCameraProtocol';
 import type { RemoteCameraJournal, RemoteTakeJournal } from './remoteCameraJournal';
 import {mergeRemoteCameraConfiguration} from './remoteCameraConfiguration.ts';
 
@@ -13,6 +13,7 @@ export type RemoteCameraNative = {
 export type RemoteCameraDependencies = {
   owner:string;deviceId:string;current():boolean;now?():number;
   request(action:string,body:Record<string,unknown>):Promise<StudioRemoteResponse>;
+  discover?(controllerId?:string):Promise<StudioRemoteDiscoveryResponse>;
   journal(sessionId:string):Promise<RemoteCameraJournal>;
   mutate(sessionId:string,change:(latest:RemoteCameraJournal)=>RemoteCameraJournal):Promise<RemoteCameraJournal>;
   masterUri(sessionId:string,takeId:string):string;
@@ -20,7 +21,8 @@ export type RemoteCameraDependencies = {
   saveLocal(session:StudioRemoteSession,take:RemoteTakeJournal):Promise<{projectId:string;localTakeId:string}>;
   upload(session:StudioRemoteSession,take:RemoteTakeJournal,onProgress?:(bytes:number)=>void):Promise<void>;
 };
-export type RemoteCameraSnapshot={phase:'idle'|'joining'|'preparing'|'ready'|'starting'|'recording'|'saving'|'error'|'closed';session:StudioRemoteSession|null;
+export type RemoteCameraSnapshot={phase:'idle'|'joining'|'waiting'|'unpaired'|'preparing'|'ready'|'starting'|'recording'|'saving'|'error'|'closed';session:StudioRemoteSession|null;
+  linkedControllerId?:string|null;
   state:StudioRemoteDeviceState|null;error:string|null;previewConnected:boolean;uploading:boolean;takeCount:number;syncUncertaintyMs:number|null;recordingStartedAtMs?:number;
   uploadState?:'uploading'|'paused'|'idle'|'complete';uploadProgressBytes?:number;uploadTotalBytes?:number;uploadPendingCount?:number;uploadTakeId?:string|null;uploadError?:string|null;uploadResumedAtServerMs?:number};
 const failure=(cause:unknown)=>(cause instanceof Error?cause.message:'A conexão foi interrompida. Os originais permanecem no iPhone.')
@@ -46,7 +48,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       if(Number.isFinite(bestRtt)&&Math.abs(observedOffset-offset)>Math.max(1000,bestRtt+rtt))bestRtt=Infinity;
       if(rtt<bestRtt){bestRtt=rtt;offset=observedOffset;publish({syncUncertaintyMs:rtt/2});}
     }
-    if(state.session&&response.session.id!==state.session.id)throw new Error('A resposta pertence a outra conexão.');
+    if(state.session&&response.session.id!==state.session.id&&action!=='unpair')throw new Error('A resposta pertence a outra conexão.');
     publish({session:response.session});return response;
   };
   const patchTake=(sessionId:string,id:string,patch:Partial<RemoteTakeJournal>)=>deps.mutate(sessionId,journal=>({...journal,takes:journal.takes.map(take=>take.id===id?{...take,...patch}:take)}));
@@ -193,6 +195,21 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
     async join(code:string){if(state.phase==='joining')return;publish({phase:'joining',error:null});
       try{const response=await request('join',{code,deviceId:deps.deviceId});connection=response.connection;if(!connection)throw new Error('O servidor não preparou a prévia privada.');publish({phase:'preparing'});await recover(response.session);}catch(cause){publish({phase:'error',error:failure(cause)});throw cause;}},
     async resume(sessionId:string){publish({phase:'joining',error:null});const response=await request('connect',{sessionId,role:'device',clientId:deps.deviceId});connection=response.connection;if(!connection)throw new Error('Não foi possível retomar a conexão privada.');publish({phase:'preparing'});await recover(response.session);},
+    async resumePairing(controllerId?:string){if(!deps.discover)throw new Error('Atualize o aplicativo para retomar o vínculo com o computador.');
+      if(native||active||uploadWork)throw new Error('Feche a câmera atual antes de retomar outro Studio.');
+      publish({phase:'joining',session:null,error:null,previewConnected:false});
+      try{const response=await deps.discover(controllerId);check();
+        publish({linkedControllerId:response.controllerId});
+        if(!response.paired){publish({phase:'unpaired',linkedControllerId:null});return false;}
+        if(!response.session){publish({phase:'waiting'});return false;}
+        await controller.resume(response.session.id);return true;
+      }catch(cause){if(current())publish({phase:'error',error:failure(cause)});throw cause;}},
+    async unpair(controllerId?:string){if(active)throw new Error('Finalize o take antes de desvincular o computador.');
+      const browser=controllerId||state.linkedControllerId||state.session?.controllerId;
+      if(!browser)throw new Error('Nenhum computador vinculado foi encontrado.');
+      const response=await request('unpair',{controllerId:browser});
+      if(response.unpaired!==true)throw new Error('O servidor não confirmou a desvinculação.');
+      await native?.disconnect();native=null;connection=undefined;publish({phase:'unpaired',previewConnected:false,linkedControllerId:null,error:null});},
     async recoverLocal(sessionId:string){publish({phase:'joining',error:null});const response=await request('status',{sessionId,afterSequence:0});await recover(response.session);await uploads();publish({phase:'closed'});},
     async cameraReady(port:RemoteCameraNative){if(native||!state.session||!connection||!current())return;native=port;
       try{const snapshot=await port.snapshot();publish({state:snapshot});const configured=await port.configure(state.session.configuration);check();publish({state:configured});await port.preview(connection);check();publish({phase:'ready',previewConnected:true});await controller.poll();void uploads();}

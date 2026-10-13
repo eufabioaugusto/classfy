@@ -46,3 +46,23 @@ test('upload tem deadline independente e cancela mesmo provider que ignora Abort
   const abort=new AbortController();let transportSignal;const cancelled=h.api.createRemoteUploadFetch({signal:abort.signal},(_url,init)=>{transportSignal=init.signal;return new Promise(()=>{});},1000);
   const pending=cancelled('https://private.invalid');await Promise.resolve();abort.abort();await assert.rejects(pending);assert.equal(transportSignal.aborted,true);
 });
+test('discovery aceita computador vinculado esperando e revogado, validando owner mesmo sem sessão',async()=>{
+  for(const paired of [true,false]){
+    const response={data:{ownerId:'owner',paired,controllerId:paired?'controller':null,session:null,serverAt:new Date().toISOString(),commands:[],takes:[]},error:null};
+    const h=harness({response});const value=await h.api.remoteCameraDiscoveryRequest('owner',{deviceId:'device',controllerId:'controller'},h.scope);
+    assert.equal(value.paired,paired);assert.deepEqual(h.calls.find(call=>call.name).args.body,{action:'discover',deviceId:'device',controllerId:'controller'});
+    assert.equal(h.calls.at(-1),'unsubscribe');
+    const foreign=harness({response:{data:{...response.data,ownerId:'another'},error:null}});
+    await assert.rejects(foreign.api.remoteCameraDiscoveryRequest('owner',{deviceId:'device'},foreign.scope),/vínculo/);
+  }
+});
+test('discovery rejeita sessão de outro device/browser e sessão fechada antes de emitir token connect',async()=>{
+  const session={id:'session',ownerId:'owner',controllerId:'controller',deviceId:'device',status:'ready'};
+  for(const patch of [{ownerId:'another'},{controllerId:'foreign'},{deviceId:'foreign'},{status:'closed'}]){
+    const h=harness({response:{data:{ownerId:'owner',paired:true,controllerId:'controller',session:{...session,...patch},commands:[],takes:[],serverAt:new Date().toISOString()},error:null}});
+    await assert.rejects(h.api.remoteCameraDiscoveryRequest('owner',{deviceId:'device',controllerId:'controller'},h.scope),/vínculo/);
+    assert.equal(h.calls.filter(call=>call.name).length,1);
+  }
+  const h=harness({response:{data:{ownerId:'owner',paired:true,controllerId:'controller',session,commands:[],takes:[],serverAt:new Date().toISOString()},error:null}});
+  assert.equal((await h.api.remoteCameraDiscoveryRequest('owner',{deviceId:'device'},h.scope)).session.id,'session');
+});

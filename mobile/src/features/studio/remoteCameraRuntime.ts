@@ -9,7 +9,7 @@ import {configureStudioNativeCameraAsync,getStudioNativeCameraCapabilitiesAsync,
   startStudioRemoteCameraRecordingAsync,stopStudioNativeCameraRecordingAsync,startStudioRemoteCameraPreviewAsync,stopStudioRemoteCameraPreviewAsync,
   type StudioCameraProSettings,type StudioCameraState} from '../../../modules/classfy-studio-media';
 import {createRemoteCameraController,type RemoteCameraNative} from './remoteCameraController';
-import {remoteCameraRequest,createRemoteUploadFetch,type RemoteCameraScope,assertRemoteCameraScope} from './remoteCameraApi';
+import {remoteCameraRequest,remoteCameraDiscoveryRequest,createRemoteUploadFetch,type RemoteCameraScope,assertRemoteCameraScope} from './remoteCameraApi';
 import {readRemoteCameraJournal,mutateRemoteCameraJournal,remoteMasterUri,type RemoteTakeJournal} from './remoteCameraJournal';
 import {createStudioProject,getStudioProject,loadStudioProjects,mutateStudioProject} from './store';
 import {persistStudioTake} from './media';
@@ -104,6 +104,7 @@ export function createRemoteCameraRuntime(owner:string,deviceId:string,scope:Rem
     read:async(position,length)=>decodeBase64Bytes(await FileSystem.readAsStringAsync(take.uri,{encoding:FileSystem.EncodingType.Base64,position,length})),
   });
   return createRemoteCameraController({owner,deviceId,current:()=>scope.isCurrent?.()!==false&&!scope.signal?.aborted,request,
+    discover:controllerId=>remoteCameraDiscoveryRequest(owner,{deviceId,...(controllerId?{controllerId}:{})},scope),
     journal:id=>readRemoteCameraJournal(owner,id,deviceId),mutate,masterUri:(session,take)=>remoteMasterUri(owner,session,take),inspect,upload,
     async saveLocal(session,take){check();await loadStudioProjects(owner);let journal=await readRemoteCameraJournal(owner,session.id,deviceId);
       let project=journal.projectId?getStudioProject(owner,journal.projectId):undefined;

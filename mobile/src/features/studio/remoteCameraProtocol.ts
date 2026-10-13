@@ -41,10 +41,16 @@ export type StudioRemoteEnvelope = {
 };
 export type StudioRemoteConnection = { url: string; token: string; identity: string; expiresAt: string };
 export type StudioRemoteResponse = StudioRemoteEnvelope & {
+  unpaired?:boolean;
   pairing?: { code: string; expiresAt: string };
   connection?: StudioRemoteConnection;
   upload?: { endpoint: string; bucket: string; path: string; token: string; chunkSize: number; expiresAt: string;
     partIndex: number; partOffset: number; partBytes: number; totalParts: number; mime: string; uploaded: boolean };
   download?: { url?: string; parts: {url:string;index:number;bytes:number}[];
     bytes:number;mime:string;totalParts:number;nextPartIndex:number|null;expiresAt:string };
+};
+/** Discovery confirms the saved device/browser binding without opening hardware. */
+export type StudioRemoteDiscoveryResponse = {
+  ownerId:string; paired:boolean; controllerId:string|null;
+  session:StudioRemoteSession|null;commands:StudioRemoteCommand[];takes:StudioRemoteTake[];serverAt:string;
 };

@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { createLiveFetch, withLiveDeadline } from '@/features/live/request';
-import type { StudioRemoteResponse } from './remoteCameraProtocol';
+import type { StudioRemoteDiscoveryResponse, StudioRemoteResponse } from './remoteCameraProtocol';
 
 export type RemoteCameraScope = { isCurrent?: () => boolean; signal?: AbortSignal };
 export function assertRemoteCameraScope(scope?: RemoteCameraScope) {
@@ -30,7 +30,7 @@ export function createRemoteUploadFetch(scope: RemoteCameraScope, provider: type
     finally{signals.forEach(signal=>signal.removeEventListener('abort',abort));}
   };
 }
-export async function remoteCameraRequest(owner: string, action: string, body: Record<string,unknown>, scope?: RemoteCameraScope): Promise<StudioRemoteResponse> {
+async function requestRemoteCameraResponse(owner: string, action: string, body: Record<string,unknown>, scope?: RemoteCameraScope): Promise<unknown> {
   const check=()=>assertRemoteCameraScope(scope); check();
   const {data,error}=await withLiveDeadline(()=>supabase.auth.getSession(),scope?.signal);
   if (error || data.session?.user.id!==owner || !data.session.access_token) throw new Error('Entre na mesma conta Classfy usada no computador.');
@@ -49,9 +49,21 @@ export async function remoteCameraRequest(owner: string, action: string, body: R
       try { const json=await withLiveDeadline(()=>response.error.context?.clone?.().json()) as {error?:unknown;message?:unknown}|undefined; if(typeof json?.error==='string') message=json.error; else if(typeof json?.message==='string') message=json.message; } catch {}
       throw new Error(message.replace(/(?:https?|wss?):\/\/\S+|Bearer\s+\S+|\beyJ[\w-]+\.[\w-]+\.[\w-]+\b/gi,'[credencial omitida]').slice(0,500));
     }
-    const value=response.data as StudioRemoteResponse;
-    if (!value?.session?.id || !Number.isFinite(Date.parse(value.serverAt)) || !Array.isArray(value.commands) || !Array.isArray(value.takes)
-      || (value.session as unknown as {ownerId?:string}).ownerId !== owner) throw new Error('O servidor não confirmou a conexão desta conta.');
-    return value;
+    return response.data;
   } finally { subscription.unsubscribe(); }
+}
+export async function remoteCameraRequest(owner:string,action:string,body:Record<string,unknown>,scope?:RemoteCameraScope):Promise<StudioRemoteResponse> {
+  const value=await requestRemoteCameraResponse(owner,action,body,scope) as StudioRemoteResponse;
+  if (!value?.session?.id || !Number.isFinite(Date.parse(value.serverAt)) || !Array.isArray(value.commands) || !Array.isArray(value.takes)
+    || value.session.ownerId!==owner)throw new Error('O servidor não confirmou a conexão desta conta.');
+  return value;
+}
+export async function remoteCameraDiscoveryRequest(owner:string,body:{deviceId:string;controllerId?:string},scope?:RemoteCameraScope):Promise<StudioRemoteDiscoveryResponse> {
+  const value=await requestRemoteCameraResponse(owner,'discover',body,scope) as StudioRemoteDiscoveryResponse;
+  if(value?.ownerId!==owner||typeof value.paired!=='boolean'||!Number.isFinite(Date.parse(value.serverAt))
+    ||!Array.isArray(value.commands)||!Array.isArray(value.takes)||!(value.controllerId===null||typeof value.controllerId==='string')
+    ||value.paired&&!value.controllerId||!value.paired&&(value.controllerId!==null||value.session!==null)
+    ||value.session!==null&&(!value.session?.id||value.session.ownerId!==owner||value.session.controllerId!==value.controllerId||value.session.deviceId!==body.deviceId||value.session.status==='closed'))
+    throw new Error('O servidor não confirmou o vínculo deste iPhone com a sua conta.');
+  return value;
 }

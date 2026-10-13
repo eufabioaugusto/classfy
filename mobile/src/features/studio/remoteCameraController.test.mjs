@@ -8,15 +8,18 @@ function harness(patch={}){
   let current=true,time=10000,commands=[],failAck=false,writeGate,actualRecording=false;
   let journal={version:1,owner:'owner',deviceId:'device',sessionId,sequence:0,receipts:{},takes:[],...patch.journal};
   const started=deferred(),finished=deferred(),calls=[],writes=[];
-  const session={id:sessionId,ownerId:'owner',kind:'aula',status:'ready',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
+  const session={id:sessionId,ownerId:'owner',controllerId:'controller',deviceId:'device',kind:'aula',status:'ready',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
   const clone=value=>structuredClone(value);
   const request=async(action,body)=>{
     calls.push({action,body:clone(body)});if(action==='ack'&&failAck){failAck=false;throw Error('Resposta desconhecida');}
+    if(action==='unpair'&&patch.unpairError)throw Error(patch.unpairError);
     if(action==='status')time+=20;
     return{session:clone(session),commands:clone(commands),takes:[],serverAt:new Date(time+1200).toISOString(),
+      ...(action==='unpair'?{unpaired:patch.unpaired===true}:{}),
       ...(['join','connect'].includes(action)?{connection:{url:'wss://private.invalid',token:'not-a-real-token',identity:'device'}}:{})};
   };
   const deps={owner:'owner',deviceId:'device',current:()=>current,now:()=>time,request,journal:async()=>clone(journal),
+    discover:async controllerId=>{calls.push({action:'discover',body:{deviceId:'device',...(controllerId?{controllerId}:{})}});return patch.discover?await patch.discover():{ownerId:'owner',paired:true,controllerId:'controller',session:clone(session),commands:[],takes:[],serverAt:new Date(time+1200).toISOString()};},
     mutate:async(_id,change)=>{if(writeGate){const gate=writeGate;writeGate=undefined;gate.entered.resolve();await gate.promise;}journal=change(clone(journal));writes.push(clone(journal));return clone(journal);},
     masterUri:(_session,id)=>`file:///Documents/classfy-studio-remote/owner/${sessionId}/${id}.mov`,
     inspect:async uri=>{calls.push({action:'inspect',uri});return{bytes:6291457,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4};},
@@ -31,7 +34,7 @@ function harness(patch={}){
   const controller=createRemoteCameraController(deps);
   const command=(type,id=type,sequence=1)=>({id,sequence,type,payload:type==='configure'?session.configuration:{takeId},status:'pending'});
   return{controller,calls,writes,started,finished,native,command,
-    configuration:value=>{session.configuration=value;},journal:()=>clone(journal),queue:values=>{commands=values;},invalidate:()=>{current=false;},failAck:()=>{failAck=true;},
+    configuration:value=>{session.configuration=value;},session:value=>Object.assign(session,value),journal:()=>clone(journal),queue:values=>{commands=values;},invalidate:()=>{current=false;},failAck:()=>{failAck=true;},
     blockWrite:()=>{const gate=deferred();gate.entered=deferred();writeGate=gate;return gate;},
     ready:async()=>{await controller.join('opaque-code');await controller.cameraReady(native);},
   };
@@ -48,6 +51,46 @@ test('START precisa de journal durável e didStart real; duplicate command reenv
   const stop=h.calls.find(call=>call.action==='ack'&&call.body.commandId==='stop');assert.equal(stop.body.result.metadata.width,3840);assert.equal(stop.body.result.metadata.duration,4);
   assert.equal(h.journal().takes[0].phase,'uploaded');assert.equal(h.journal().takes[0].metadata.startedAtServerMs,11250);
   assert.ok(h.calls.findIndex(call=>call.action==='save-local')<h.calls.findIndex(call=>call.action==='ack'&&call.body.commandId==='stop'));
+  await h.controller.dispose();
+});
+
+test('vínculo retoma sessão nova do mesmo navegador sem reenviar QR ou abrir hardware durante discovery',async()=>{
+  const h=harness();h.session({id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd'});
+  assert.equal(await h.controller.resumePairing('controller'),true);
+  assert.deepEqual(h.calls.filter(call=>['discover','connect'].includes(call.action)).map(call=>({action:call.action,body:call.body})),[
+    {action:'discover',body:{deviceId:'device',controllerId:'controller'}},
+    {action:'connect',body:{sessionId:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',role:'device',clientId:'device'}},
+  ]);
+  assert.equal(h.controller.getSnapshot().phase,'preparing');assert.equal(h.calls.filter(call=>['join','configure','preview','native-start'].includes(call.action)).length,0);
+  await h.controller.cameraReady(h.native);assert.equal(h.controller.getSnapshot().phase,'ready');await h.controller.dispose();
+});
+test('computador vinculado sem Studio aberto espera sem câmera; vínculo revogado solicita QR',async()=>{
+  for(const paired of [true,false]){
+    const h=harness({discover:async()=>({ownerId:'owner',paired,controllerId:paired?'controller':null,session:null,commands:[],takes:[],serverAt:new Date().toISOString()})});
+    assert.equal(await h.controller.resumePairing('controller'),false);
+    assert.equal(h.controller.getSnapshot().phase,paired?'waiting':'unpaired');assert.equal(h.controller.getSnapshot().session,null);
+    assert.equal(h.controller.getSnapshot().linkedControllerId,paired?'controller':null);
+    assert.deepEqual(h.calls.map(call=>call.action),['discover']);await h.controller.dispose();
+  }
+});
+test('cancelamento/troca de conta durante discovery não conecta a câmera ao resultado tardio',async()=>{
+  const gate=deferred(),h=harness({discover:()=>gate.promise});const pending=h.controller.resumePairing('controller');
+  h.invalidate();gate.resolve({ownerId:'owner',paired:true,controllerId:'controller',session:{id:sessionId},commands:[],takes:[],serverAt:new Date().toISOString()});
+  await assert.rejects(pending,/conexão mudou/);assert.equal(h.calls.filter(call=>call.action==='connect'||call.action==='preview').length,0);await h.controller.dispose();
+});
+test('desvincular só confirma após servidor e preserva diário/original; falha mantém preview ativo',async()=>{
+  for(const accepted of [true,false]){
+    const uri=`file:///Documents/classfy-studio-remote/owner/${sessionId}/${takeId}.mov`;
+    const h=harness({unpaired:accepted,journal:{takes:[{id:takeId,uri,phase:'reserved'}]}});await h.controller.join('opaque-code');await h.controller.cameraReady(h.native);await tick();
+    const before=h.journal();
+    if(accepted){await h.controller.unpair('controller');assert.equal(h.controller.getSnapshot().phase,'unpaired');assert.equal(h.calls.filter(call=>call.action==='disconnect-preview').length,1);}
+    else{await assert.rejects(h.controller.unpair('controller'),/não confirmou a desvinculação/);assert.equal(h.calls.filter(call=>call.action==='disconnect-preview').length,0);assert.equal(h.controller.getSnapshot().previewConnected,true);}
+    assert.deepEqual(h.journal(),before);assert.equal(h.journal().takes[0].uri,uri);await h.controller.dispose();
+  }
+});
+test('desvincular durante REC não envia mutation ou interrompe original',async()=>{
+  const h=harness({unpaired:true});await h.ready();h.queue([h.command('start')]);h.started.resolve(10050);await h.controller.poll();
+  await assert.rejects(h.controller.unpair('controller'),/Finalize o take/);assert.equal(h.calls.filter(call=>call.action==='unpair'||call.action==='disconnect-preview').length,0);
   await h.controller.dispose();
 });
 test('resposta de ACK perdida conserva receipt e cursor para retry idempotente',async()=>{
