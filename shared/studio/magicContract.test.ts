@@ -42,13 +42,30 @@ describe('contrato reversível de melhoria e retrato', () => {
       { ...identity, requiredFeatures: ['portrait-v1'] as const }]) expect(validateStudioRecipe(corrupted as typeof recipe)).not.toEqual([]);
   });
 
+  it('retoque intenso exige capacidade v2, preserva v1 e deriva recursos de clips mistos', () => {
+    const legacy = patchStudioClipPortrait(editing(), 'main', { version: 1, strength: .4 });
+    const upgraded = patchStudioClipPortrait(legacy, 'image-item', { version: 2, strength: 1 });
+    const recipe = compileStudioRecipe(project(upgraded));
+    expect(recipe.requiredFeatures).toEqual(['portrait-v1', 'portrait-v2']);
+    expect(validateStudioRecipe(recipe)).toEqual([]);
+    expect(() => assertStudioRenderFeatures(recipe, ['portrait-v1'])).toThrow('renderizador');
+    expect(() => assertStudioRenderFeatures(recipe, ['portrait-v1', 'portrait-v2'])).not.toThrow();
+    expect(legacy.main[0].portrait).toEqual({ version: 1, strength: .4 });
+    expect(upgraded.main[0].portrait).toEqual(legacy.main[0].portrait);
+    expect(timelineSignature(project(upgraded))).not.toBe(timelineSignature(project(legacy)));
+    const disabled = patchStudioClipPortrait(upgraded, 'image-item', { version: 2, strength: 0 });
+    expect(studioRequiredFeatures(disabled)).toEqual(['portrait-v1']);
+    const migrated = migrateStudioProject(project(legacy));
+    expect(migrated.editing!.main[0].portrait).toEqual({ version: 1, strength: .4 });
+  });
+
   it('valida versões, números finitos, intervalos e rejeita landmarks transitórios/props desconhecidas', () => {
-    expect(validateStudioEnhancement(enhancement())).toEqual([]); expect(validateStudioPortrait({ version: 1, strength: 0 })).toEqual([]);
+    expect(validateStudioEnhancement(enhancement())).toEqual([]); expect(validateStudioPortrait({ version: 1, strength: 0 })).toEqual([]); expect(validateStudioPortrait({ version: 2, strength: 1 })).toEqual([]);
     for (const invalid of [null, { ...enhancement(), version: 2 }, { ...enhancement(), strength: 1.1 }, { ...enhancement(), strength: -.1 },
       { ...enhancement(), exposure: 2.1 }, { ...enhancement(), tint: NaN }, { ...enhancement(), highlights: -1.1 },
       { ...enhancement(), analyzedFrames: 0 }, { ...enhancement(), analyzedFrames: 25 }, { ...enhancement(), analyzedFrames: 2.5 },
       { ...enhancement(), landmarks: [1, 2, 3] }, { ...enhancement(), exposure: undefined }]) expect(validateStudioEnhancement(invalid)).not.toEqual([]);
-    for (const invalid of [null, { version: 2, strength: .5 }, { version: 1, strength: Infinity }, { version: 1, strength: -1 },
+    for (const invalid of [null, { version: 3, strength: .5 }, { version: 1, strength: Infinity }, { version: 1, strength: -1 },
       { version: 1, strength: 1.01 }, { version: 1, strength: .5, landmarks: [] }]) expect(validateStudioPortrait(invalid)).not.toEqual([]);
   });
 

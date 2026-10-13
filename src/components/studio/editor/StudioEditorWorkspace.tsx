@@ -198,7 +198,7 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
       if (!engine.current) throw new Error('Aguarde a prévia ficar pronta para ativar o retoque.');
       await engine.current.preparePortrait(signal);
       if (!scope(token) || signal.aborted) return;
-      workspace.apply(value => patchClip(value, id, { portrait: { version: 1, strength: .4 } })); setComparing(false); setExportReady(false); await workspace.flush();
+      workspace.apply(value => patchClip(value, id, { portrait: { version: 2, strength: .45 } })); setComparing(false); setExportReady(false); await workspace.flush();
     });
   };
   const canSplit = !!selectedClip && position > studioSeconds(selectedClip.startTicks) + .1 && position < studioSeconds(selectedClip.startTicks + selectedClip.durationTicks) - .1;

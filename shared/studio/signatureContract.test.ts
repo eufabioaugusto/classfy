@@ -107,8 +107,8 @@ describe('assinatura cinematográfica persistida e versionada', () => {
     expect(split.assets).toEqual(base.assets);
   });
 
-  it('render5 muda fingerprint de todo parâmetro, preserva caminhos lógicos e não adota export legado sem tratamento', () => {
-    expect(STUDIO_RENDER_VERSION).toBe(5);
+  it('render6 muda fingerprint de todo parâmetro, preserva caminhos lógicos e não adota export legado sem tratamento', () => {
+    expect(STUDIO_RENDER_VERSION).toBe(6);
     const base = project(), treated = project(patchStudioClipSignature(base.editing!, 'main', signature()));
     expect(timelineSignature(treated)).not.toBe(timelineSignature(base));
     for (const field of ['strength', 'subjectExposure', 'backgroundExposure', 'backgroundBlur', 'temperature'] as const) {

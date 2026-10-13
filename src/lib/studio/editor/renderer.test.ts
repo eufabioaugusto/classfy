@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createStudioRenderer, StudioRenderKernel, studioClipEnvelope, studioClipPose, studioClipSourceSeconds, studioFitRect, studioGradePixel, wrapStudioText } from './renderer';
+import { createStudioRenderer, StudioRenderKernel, studioClipEnvelope, studioClipPose, studioClipSourceSeconds, studioFitRect, studioGradePixel, studioPreviewRasterSize, wrapStudioText } from './renderer';
 import { studioGrade, type StudioRecipeClip, type StudioRenderRecipe } from '../../../../shared/studio';
 const sources=vi.hoisted(()=>({audio:null as any, frames:[] as any[],dispose:vi.fn(),inputs:[] as any[],firstAudioGate:null as Promise<void>|null}));
 vi.mock('mediabunny',()=>({
@@ -94,5 +94,34 @@ describe('compositor compartilhado',()=>{
     expect(sources.inputs[0].disposed).toBe(true);
     expect(sources.dispose).toHaveBeenCalledOnce();
     add.mockRestore();remove.mockRestore();
+  });
+  it('compositor e texto usam DPR real, inclusive resize pausado, sem mudar cursor',async()=>{
+    let viewport={width:1225,height:689.0625}, nextFrame:(()=>void)|null=null;
+    const target=document.createElement('canvas');vi.spyOn(target,'getBoundingClientRect').mockImplementation(()=>viewport as DOMRect);
+    vi.stubGlobal('devicePixelRatio',2);vi.stubGlobal('requestAnimationFrame',(callback:()=>void)=>{nextFrame=callback;return 10;});vi.stubGlobal('cancelAnimationFrame',vi.fn());
+    const text=clip({id:'title',kind:'text',assetId:undefined,zIndex:1,rect:{x:.1,y:.5,width:.8,height:.2},text:{content:'IHAAAAA',fontFamily:'System',fontSize:.07,color:'#ffffff',backgroundColor:'#00000000',alignment:'center'}});
+    const input=recipe([clip(),text]);input.output.width=1920;input.output.height=1080;
+    const engine=await createStudioRenderer(input,async()=>new Blob(['original']),{canvas:target});
+    await engine.seek(.75); let state:any;engine.subscribe(value=>state=value);
+    expect([target.width,target.height]).toEqual([2450,1378]);
+    const raster=commands.filter(c=>c[0]==='draw'&&c[1] instanceof HTMLCanvasElement&&c[1]!==target).map(c=>c[1]);
+    expect(raster.some(c=>c.width===1960&&c.height===276)).toBe(true);
+    viewport={width:1280,height:720};window.dispatchEvent(new Event('resize'));expect(nextFrame).not.toBeNull();nextFrame!();
+    await vi.waitFor(()=>expect([target.width,target.height]).toEqual([2560,1440]));
+    expect(state.position).toBe(.75);expect(state.playing).toBe(false);engine.dispose();vi.unstubAllGlobals();
+    expect(studioPreviewRasterSize(input.output,{width:3000,height:2000},2)).toEqual({width:3840,height:2160});
+    expect(studioPreviewRasterSize({width:2160,height:3840},{width:390,height:844},3)).toEqual({width:1170,height:2080});
+  });
+  it('FX preview ficam1080 enquanto texto ficaDPR; export mantém4K e version2 chega àGPU',async()=>{
+    vi.stubGlobal('createImageBitmap',async()=>({width:3840,height:2160,close:vi.fn()}));
+    const calls:any[]=[],surface={prepare:async()=>{},lastFacePresent:true,dispose:vi.fn(),render:async(_source:any,width:number,height:number,strength:number,_signal:any,version=1)=>{calls.push({width,height,strength,version});const result=document.createElement('canvas');result.width=width;result.height=height;return result;}};
+    const main=clip({kind:'image',portrait:{version:2,strength:1}}),text=clip({id:'title',kind:'text',assetId:undefined,zIndex:1,text:{content:'IHAAAAA',fontFamily:'System',fontSize:.07,color:'#ffffff',backgroundColor:'#00000000',alignment:'center'}});
+    const input:StudioRenderRecipe={...recipe([main,text]),version:3,requiredFeatures:['portrait-v2']};input.assets=[{id:'asset',kind:'image',uri:'file://image',name:'image',durationTicks:0,width:3840,height:2160}];input.output.width=3840;input.output.height=2160;
+    const kernel=new StudioRenderKernel(input,async()=>new Blob(['image']),undefined,surface);
+    const preview=document.createElement('canvas');preview.width=2560;preview.height=1440;await kernel.draw(preview,0,{mediaMaxDimension:1080});
+    expect(calls).toEqual([{width:1080,height:608,strength:1,version:2}]);
+    const exported=document.createElement('canvas');exported.width=3840;exported.height=2160;await kernel.draw(exported,0);
+    expect(calls[1]).toEqual({width:3840,height:2160,strength:1,version:2});expect(calls).toHaveLength(2);
+    kernel.dispose();vi.unstubAllGlobals();
   });
 });

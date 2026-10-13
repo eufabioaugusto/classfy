@@ -18,7 +18,15 @@ export type StudioRenderer = {
   subscribe(listener: (state: StudioRendererState) => void): () => void;
 };
 const clamp = (value: number, low = 0, high = 1) => Math.max(low, Math.min(high, value));
-export const STUDIO_WEB_RENDER_FEATURES = ['enhancement-v1', 'portrait-v1', 'cinematic-signature-v1'] as const;
+export const STUDIO_WEB_RENDER_FEATURES = ['enhancement-v1', 'portrait-v1', 'portrait-v2', 'cinematic-signature-v1'] as const;
+/** O texto segue os pixels físicos do palco; o vídeo tratado tem um orçamento separado. */
+export function studioPreviewRasterSize(output: { width: number; height: number }, viewport: { width: number; height: number }, dpr = 1, fallbackMaxDimension = 1080) {
+  const physicalScale = viewport.width > 0 && viewport.height > 0 && Number.isFinite(dpr) && dpr > 0
+    ? Math.min(viewport.width / output.width, viewport.height / output.height) * dpr
+    : Math.min(1, fallbackMaxDimension / Math.max(output.width, output.height));
+  const scale = Math.min(physicalScale, 3840 / Math.max(output.width, output.height));
+  return { width: Math.max(1, Math.round(output.width * scale)), height: Math.max(1, Math.round(output.height * scale)) };
+}
 export function studioClipEnvelope(clip: StudioRecipeClip, localTicks: number) {
   const fadeIn = clip.fadeInTicks ? clamp(localTicks / clip.fadeInTicks) : 1;
   const fadeOut = clip.fadeOutTicks ? clamp((clip.durationTicks - localTicks) / clip.fadeOutTicks) : 1;
@@ -225,12 +233,12 @@ export class StudioRenderKernel {
     while (this.textCache.size > 24 || bytes > 32 * 1024 * 1024) { const first = this.textCache.keys().next().value!; const old = this.textCache.get(first)!; bytes -= old.width * old.height * 4; this.textCache.delete(first); }
     return canvas;
   }
-  async draw(canvas: HTMLCanvasElement, seconds: number): Promise<void> {
+  async draw(canvas: HTMLCanvasElement, seconds: number, options?: { mediaMaxDimension?: number }): Promise<void> {
     this.assert(); this.drawResources = this.windowResources(seconds);
     const release = this.holdResources(this.drawResources);
-    try { await this.drawFrame(canvas, seconds); } finally { release(); this.prune(); }
+    try { await this.drawFrame(canvas, seconds, options); } finally { release(); this.prune(); }
   }
-  private async drawFrame(canvas: HTMLCanvasElement, seconds: number): Promise<void> {
+  private async drawFrame(canvas: HTMLCanvasElement, seconds: number, options?: { mediaMaxDimension?: number }): Promise<void> {
     this.assert(); const ctx = canvas.getContext('2d', { alpha: false })!;
     ctx.fillStyle = this.recipe.canvas.backgroundColor; ctx.fillRect(0, 0, canvas.width, canvas.height);
     const ticks = clamp(seconds, 0, this.recipe.durationTicks / this.recipe.timebase - .000001) * this.recipe.timebase;
@@ -240,20 +248,27 @@ export class StudioRenderKernel {
       const local = ticks - clip.startTicks, pose = studioClipPose(clip, local, this.recipe.timebase); if (pose.alpha <= 0) continue;
       const width = Math.max(1, Math.round(clip.rect.width * canvas.width)), height = Math.max(1, Math.round(clip.rect.height * canvas.height));
       let source: CanvasImageSource; let sw: number, sh: number;
-      if (clip.kind === 'text' || clip.kind === 'caption') { source = this.text(clip, width, height, pose.progress); sw = width; sh = height; }
+      if (clip.kind === 'text' || clip.kind === 'caption') {
+        // Animations may enlarge glyphs: rasterize their final displayed size instead of upscaling a smaller bitmap.
+        const sampling = Math.max(1, Math.abs(pose.scale));
+        sw = Math.max(1, Math.ceil(width * sampling)); sh = Math.max(1, Math.ceil(height * sampling));
+        source = this.text(clip, sw, sh, pose.progress);
+      }
       else {
         source = await this.frame(clip, seconds); this.assert(); const resource = await this.resource(clip.assetId!); sw = resource.width; sh = resource.height;
         const grade = clip.grade ?? studioGrade(clip.effect);
-        if ((clip.signature?.strength ?? 0) > 0 || (clip.portrait?.strength ?? 0) > 0 || (clip.enhancement?.strength ?? 0) > 0 || grade.intensity > 0 && (grade.preset !== 'natural' || grade.exposure || grade.contrast || grade.saturation || grade.temperature)) {
-          const downscale = Math.min(1, Math.max(canvas.width, canvas.height) / Math.max(sw, sh));
+        const gradeActive = grade.intensity > 0 && (grade.preset !== 'natural' || !!(grade.exposure || grade.contrast || grade.saturation || grade.temperature));
+        if ((clip.signature?.strength ?? 0) > 0 || (clip.portrait?.strength ?? 0) > 0 || (clip.enhancement?.strength ?? 0) > 0 || gradeActive) {
+          const mediaDimension = Math.min(Math.max(canvas.width, canvas.height), options?.mediaMaxDimension ?? Infinity);
+          const downscale = Math.min(1, mediaDimension / Math.max(sw, sh));
           sw = Math.max(1, Math.round(sw * downscale)); sh = Math.max(1, Math.round(sh * downscale));
           const signatureFrame = (clip.signature?.strength ?? 0) > 0 ? await this.signatures.analyze(source, sw, sh, this.signal) : undefined; this.assert();
-          if ((clip.portrait?.strength ?? 0) > 0) { source = await this.portraits.render(source, sw, sh, clip.portrait!.strength, this.signal); this.assert(); }
+          if ((clip.portrait?.strength ?? 0) > 0) { source = await this.portraits.render(source, sw, sh, clip.portrait!.strength, this.signal, clip.portrait!.version); this.assert(); }
           if (signatureFrame) {
             if ((clip.enhancement?.strength ?? 0) > 0) source = this.grades.render(source, sw, sh, studioGrade(), clip.enhancement);
             source = await this.signatures.render(source, sw, sh, clip.signature!, this.signal, signatureFrame); this.assert();
-            source = this.grades.render(source, sw, sh, grade);
-          } else source = this.grades.render(source, sw, sh, grade, clip.enhancement);
+            if (gradeActive) source = this.grades.render(source, sw, sh, grade);
+          } else if (gradeActive || (clip.enhancement?.strength ?? 0) > 0) source = this.grades.render(source, sw, sh, grade, clip.enhancement);
         }
       }
       const fit = studioFitRect(sw, sh, width, height, clip.fit);
@@ -326,6 +341,7 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
   let kernel = new StudioRenderKernel(recipe, resolveAsset, undefined, portraits, signatures), bound = canvas, state: StudioRendererState = { position: 0, playing: false, loading: false, error: null };
   let epoch = 0, closed = false, raf = 0, context: AudioContext | null = null, anchorTime = 0, anchorPosition = 0, scheduled = 0, audioBusy = false, drawing = false;
   let drawWork: Promise<void> = Promise.resolve(), playWork: Promise<void> | null = null;
+  let resizeFrame = 0, resizeObserver: ResizeObserver | null = null;
   let primedAudio: { start:number; samples:Float32Array[] } | null = null;
   const nodes = new Set<AudioBufferSourceNode>(), listeners = new Set<(state: StudioRendererState) => void>();
   const publish = (patch: Partial<StudioRendererState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener({ ...state })); };
@@ -336,9 +352,9 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
     const generation = epoch, owned = kernel;
     const task = drawWork.catch(() => {}).then(async () => {
       if (closed || generation !== epoch) return;
-      const scale = Math.min(1, maxDimension / Math.max(owned.recipe.output.width, owned.recipe.output.height));
-      staging.width = Math.max(1, Math.round(owned.recipe.output.width * scale)); staging.height = Math.max(1, Math.round(owned.recipe.output.height * scale));
-      try { await owned.draw(staging, clamp(seconds,0,owned.recipe.durationTicks/owned.recipe.timebase)); }
+      const size = studioPreviewRasterSize(owned.recipe.output, target.getBoundingClientRect(), window.devicePixelRatio, maxDimension);
+      if (staging.width !== size.width || staging.height !== size.height) { staging.width = size.width; staging.height = size.height; }
+      try { await owned.draw(staging, clamp(seconds,0,owned.recipe.durationTicks/owned.recipe.timebase), { mediaMaxDimension: maxDimension }); }
       catch (error) { if (closed || generation !== epoch) return; throw error; }
       if (closed || generation !== epoch) return;
       if (target.width !== staging.width || target.height !== staging.height) { target.width = staging.width; target.height = staging.height; }
@@ -369,12 +385,25 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
     if (seconds >= duration()) { pause(); publish({ position: duration() }); return; } raf = requestAnimationFrame(tick);
   };
   const seek = async (seconds: number) => { pause(); const generation = epoch; publish({ position: clamp(seconds,0,duration()), loading: true, error: null }); try { if (bound) await draw(bound,state.position); if (generation === epoch && !closed) publish({ loading:false }); } catch (error) { if (generation === epoch && !closed) publish({ loading:false,error: String(error.message ?? error) }); throw error; } };
+  const refreshSize = () => {
+    if (closed || !bound || state.playing || resizeFrame) return;
+    const size = studioPreviewRasterSize(kernel.recipe.output, bound.getBoundingClientRect(), window.devicePixelRatio, maxDimension);
+    if (bound.width === size.width && bound.height === size.height) return;
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = 0; if (closed || !bound || state.playing) return;
+      const generation = epoch;
+      void draw(bound, state.position).catch(error => { if (!closed && generation === epoch) publish({ error: String(error.message ?? error) }); });
+    });
+  };
+  const observeCanvas = () => { resizeObserver?.disconnect(); if (bound) resizeObserver?.observe(bound); };
+  if (typeof ResizeObserver !== 'undefined') resizeObserver = new ResizeObserver(refreshSize);
+  observeCanvas(); window.addEventListener('resize', refreshSize);
   const visibility = () => { if (document.visibilityState !== 'visible') pause(); }; document.addEventListener('visibilitychange',visibility);
   const engine: StudioRenderer = {
     preparePortrait(signal) { return portraits.prepare(signal); },
     prepareSignature(signal) { return signatures.prepare(signal); },
     measureSignature(source, width, height, signal) { return measureStudioSignature(source, width, height, signal, signatures); },
-    bindCanvas(target) { bound = target; if (target) void seek(state.position).catch(() => {}); }, draw,
+    bindCanvas(target) { cancelAnimationFrame(resizeFrame); resizeFrame = 0; bound = target; observeCanvas(); if (target) void seek(state.position).catch(() => {}); }, draw,
     seek, pause,
     play() {
       if (closed || state.playing) return Promise.resolve(); if (playWork) return playWork;
@@ -392,7 +421,7 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
       playWork = task; return task;
     },
     async setRecipe(next) { const wasPlaying = state.playing, current = position(); pause(); const replacement = new StudioRenderKernel(next,resolveAsset,undefined,portraits,signatures); kernel.dispose(); kernel = replacement; const seeking = seek(Math.min(current,duration())), generation = epoch; await seeking; if (wasPlaying && !closed && generation === epoch) await engine.play(); },
-    dispose() { if (closed) return; pause(); closed=true; epoch++; kernel.dispose(); portraits.dispose(); signatures.dispose(); listeners.clear(); document.removeEventListener('visibilitychange',visibility); void context?.close(); staging.width=1; staging.height=1; },
+    dispose() { if (closed) return; pause(); closed=true; epoch++; cancelAnimationFrame(resizeFrame); resizeObserver?.disconnect(); window.removeEventListener('resize',refreshSize); kernel.dispose(); portraits.dispose(); signatures.dispose(); listeners.clear(); document.removeEventListener('visibilitychange',visibility); void context?.close(); staging.width=1; staging.height=1; },
     subscribe(listener) { listeners.add(listener); listener({ ...state }); return () => listeners.delete(listener); },
   };
   try {

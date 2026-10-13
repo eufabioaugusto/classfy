@@ -17,11 +17,52 @@ export function studioSignatureFaceBox(face:StudioPortraitFace):StudioSignatureF
 }
 /** Conservative face guard and luminance sample; the lighting key uses signatureLook's shared geometry. */
 export function studioSignatureFaceROI(face:StudioPortraitFace):StudioSignatureFaceROI|null{
-  const box=studioSignatureFaceBox(face);return box?{x:box.x-box.width*.06,y:box.y-box.height*.08,radiusX:box.width*.63,radiusY:box.height*.68}:null;
+  const box=studioSignatureFaceBox(face);return box?{x:box.x,y:box.y,radiusX:box.width*.5,radiusY:box.height*.55}:null;
 }
 export function studioSignatureFaceWeight(roi:StudioSignatureFaceROI|null,x:number,y:number){return roi?Math.exp(-2.5*(((x-roi.x)/roi.radiusX)**2+((y-roi.y)/roi.radiusY)**2)):0;}
 const smooth=(lo:number,hi:number,value:number)=>{const t=Math.max(0,Math.min(1,(value-lo)/(hi-lo)));return t*t*(3-2*t);};
 export function studioSignaturePersonWeight(alpha:number,roi:StudioSignatureFaceROI|null,x:number,y:number){return Math.max(Math.max(0,Math.min(1,alpha)),smooth(.35,.75,studioSignatureFaceWeight(roi,x,y)));}
+/** Official multiclass semantics: objects/accessories (others) and background are not human skin/hair/clothes. */
+export function studioSignatureMulticlassPerson(masks:readonly Float32Array[],width:number,height:number,labels:readonly string[]):Float32Array{
+  const expected=['background','hair','body-skin','face-skin','clothes','others'];
+  if(labels.length!==6||labels.some((label,index)=>label!==expected[index])||masks.length!==6||!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>512||height>512||masks.some(mask=>mask.length!==width*height))throw new Error('O modelo não confirmou as classes da pessoa.');
+  const person=new Float32Array(width*height);
+  for(let index=0;index<masks.length;index++)for(let pixel=0;pixel<person.length;pixel++){
+    const value=masks[index][pixel];if(!Number.isFinite(value)||value<0||value>1)throw new Error('A confiança da separação da pessoa não foi confirmada.');
+    if(index>=1&&index<=4)person[pixel]+=value;
+  }
+  for(let pixel=0;pixel<person.length;pixel++)person[pixel]=Math.max(0,Math.min(1,person[pixel]));return person;
+}
+/** Keep the creator attached to the current face, not furniture/plant islands. No history or alpha dilation. */
+export function studioSignaturePrincipalPerson(alpha:Float32Array,width:number,height:number,face:StudioPortraitFace):Float32Array{
+  if(alpha.length!==width*height||!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>512||height>512||alpha.some(value=>!Number.isFinite(value)||value<0||value>1))throw new Error('A máscara da pessoa está incompleta.');
+  const labels=new Int32Array(alpha.length),queue=new Int32Array(alpha.length),box=studioSignatureFaceBox(face),components:{size:number;faceOverlap:number}[]=[{size:0,faceOverlap:0}];
+  let serial=0;
+  for(let start=0;start<alpha.length;start++){
+    if(labels[start]||alpha[start]<.25)continue;
+    const id=++serial,stats={size:0,faceOverlap:0};components.push(stats);let first=0,last=1;queue[0]=start;labels[start]=id;
+    while(first<last){
+      const index=queue[first++],x=index%width,y=Math.floor(index/width);stats.size++;
+      if(box){const dx=((x+.5)/width-box.x)/(box.width*.45),dy=((y+.5)/height-box.y)/(box.height*.45);if(dx*dx+dy*dy<=1)stats.faceOverlap+=alpha[index];}
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+        if(!dx&&!dy)continue;const nx=x+dx,ny=y+dy;if(nx<0||nx>=width||ny<0||ny>=height)continue;const neighbor=ny*width+nx;
+        if(!labels[neighbor]&&alpha[neighbor]>=.25){labels[neighbor]=id;queue[last++]=neighbor;}
+      }
+    }
+  }
+  const result=new Float32Array(alpha.length);if(!serial)return result;
+  let principal=1;
+  for(let id=2;id<=serial;id++){const own=components[id],chosen=components[principal];if(own.faceOverlap>chosen.faceOverlap||own.faceOverlap===chosen.faceOverlap&&own.size>chosen.size)principal=id;}
+  // Only existing soft pixels within two mask pixels of the selected component are retained.
+  // This protects strands/antialiasing without retaining an entire detached object or filling a hole.
+  for(let index=0;index<alpha.length;index++){
+    if(labels[index]===principal){result[index]=alpha[index];continue;}if(alpha[index]<=0)continue;
+    const x=index%width,y=Math.floor(index/width);let near=false;
+    for(let dy=-2;dy<=2&&!near;dy++)for(let dx=-2;dx<=2;dx++){const nx=x+dx,ny=y+dy;if(nx>=0&&nx<width&&ny>=0&&ny<height&&labels[ny*width+nx]===principal){near=true;break;}}
+    if(near)result[index]=alpha[index];
+  }
+  return result;
+}
 export function validateStudioSignatureFrame(frame:StudioSignatureFrame,width:number,height:number){
   if(frame.sourceWidth!==width||frame.sourceHeight!==height||![frame.width,frame.height].every(value=>Number.isInteger(value)&&value>0&&value<=512)||frame.personAlpha.length!==frame.width*frame.height||frame.personAlpha.some(value=>!Number.isFinite(value)||value<0||value>1))throw new Error('A separação da pessoa neste quadro não foi confirmada. A assinatura não pode ser exportada.');
 }

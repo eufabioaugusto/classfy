@@ -1,7 +1,7 @@
 import type { StudioSignature } from '../../../../shared/studio';
 import { assertStudioActive, studioCanvas } from './media';
 import { createStudioSignatureDetector, type StudioSignatureDetector } from './signatureClient';
-import { measureStudioSignaturePixels, studioSignatureAnalysisSize, studioSignatureFaceBox, studioSignatureFaceROI, validateStudioSignatureFrame, type StudioSignatureFrame, type StudioSignatureMeasurement } from './signatureMask';
+import { measureStudioSignaturePixels, studioSignatureAnalysisSize, studioSignatureFaceBox, studioSignatureFaceROI, studioSignaturePrincipalPerson, validateStudioSignatureFrame, type StudioSignatureFrame, type StudioSignatureMeasurement } from './signatureMask';
 
 export type { StudioSignatureFrame, StudioSignatureMeasurement } from './signatureMask';
 export type StudioSignatureSurface = {
@@ -28,15 +28,18 @@ void main(){
   add(vec2(0.,maskStep.y),.75,center,sum,weight);add(vec2(0.,-maskStep.y),.75,center,sum,weight);
   add(maskStep,.5,center,sum,weight);add(-maskStep,.5,center,sum,weight);
   add(vec2(maskStep.x,-maskStep.y),.5,center,sum,weight);add(vec2(-maskStep.x,maskStep.y),.5,center,sum,weight);
-  float alpha=mix(original,sum/weight,.6);
+  // Refine soft confidence without expanding foreground into adjacent background.
+  float alpha=min(original,mix(original,sum/weight,.6));
   if(faceGuard.z>0.&&faceGuard.w>0.){vec2 d=(uv-faceGuard.xy)/faceGuard.zw;alpha=max(alpha,smoothstep(.35,.75,exp(-2.5*dot(d,d))));}
-  gl_FragColor=vec4(vec3(clamp(alpha,0.,1.)),1.);
+  // No erosion or confidence threshold remap: multiclass supplies the tighter semantic contour.
+  // Preserve soft hair/finger edges and exclude their mixed source pixels from the background blur.
+  float confidence=clamp(alpha,0.,1.);gl_FragColor=vec4(confidence,confidence,0.,1.);
 }`;
 const horizontalShader = `${header}
 uniform sampler2D image,person; uniform vec2 blurStep;
 float linearChannel(float v){return v<=.04045?v/12.92:pow((v+.055)/1.055,2.4);}
 vec3 linearRGB(vec3 c){return vec3(linearChannel(c.r),linearChannel(c.g),linearChannel(c.b));}
-vec4 background(vec2 at){at=bounded(at);float weight=1.-framebufferPixel(person,at).r;return vec4(linearRGB(texture2D(image,at).rgb)*weight,weight);}
+vec4 background(vec2 at){at=bounded(at);float weight=1.-smoothstep(.02,.18,framebufferPixel(person,at).g);return vec4(linearRGB(texture2D(image,at).rgb)*weight,weight);}
 void main(){
   vec4 value=background(uv)*.20416369;
   value+=(background(uv+blurStep)+background(uv-blurStep))*.18017382;
@@ -131,8 +134,8 @@ export function createStudioSignatureSurface():StudioSignatureSurface {
     const bitmap=await createImageBitmap(context.getImageData(0,0,size.width,size.height));try{active(signal);}catch(error){bitmap.close();throw error;}
     const result=await detector.analyze(bitmap,signal);active(signal);
     if(!result.personAlpha||!result.width||!result.height)throw new Error('A separação da pessoa não entregou todos os pixels.');
-    const faceLandmarks=result.faceLandmarks??[],facePresent=!!studioSignatureFaceBox(faceLandmarks),strong=result.personAlpha.reduce((count,value)=>count+(value>.6?1:0),0);
-    const frame:StudioSignatureFrame={width:result.width,height:result.height,sourceWidth:width,sourceHeight:height,personAlpha:result.personAlpha,faceLandmarks,facePresent,personPresent:facePresent||strong>Math.max(12,result.personAlpha.length*.02)};validateStudioSignatureFrame(frame,width,height);return frame;
+    const faceLandmarks=result.faceLandmarks??[],facePresent=!!studioSignatureFaceBox(faceLandmarks),personAlpha=studioSignaturePrincipalPerson(result.personAlpha,result.width,result.height,faceLandmarks),strong=personAlpha.reduce((count,value)=>count+(value>.6?1:0),0);
+    const frame:StudioSignatureFrame={width:result.width,height:result.height,sourceWidth:width,sourceHeight:height,personAlpha,faceLandmarks,facePresent,personPresent:facePresent||strong>Math.max(12,personAlpha.length*.02)};validateStudioSignatureFrame(frame,width,height);return frame;
   }
   async function renderFrame(source:CanvasImageSource,width:number,height:number,signature:StudioSignature,signal?:AbortSignal,provided?:StudioSignatureFrame):Promise<CanvasImageSource>{
     active(signal);validateSignature(signature);studioSignatureAnalysisSize(width,height);if(signature.strength===0)return source;

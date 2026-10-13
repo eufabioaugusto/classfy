@@ -90,13 +90,13 @@ describe('comparação e histórico reais do editor', () => {
     await click('Retoque natural');
     expect(io.preparePortrait).toHaveBeenCalledOnce();
     const id = saved!.editing!.layers[0].items[0].id;
-    expect(saved!.editing!.layers[0].items[0].portrait).toEqual({ version: 1, strength: .4 });
+    expect(saved!.editing!.layers[0].items[0].portrait).toEqual({ version: 2, strength: .45 });
     const writes = io.save.mock.calls.length;
     await click('Comparar com original');
     expect(host.textContent).toContain('Original · trecho selecionado');
     expect(latestRecipe().clips.find(clip => clip.id === id)!.portrait).toBeUndefined();
     expect(io.save).toHaveBeenCalledTimes(writes);
-    expect(saved!.editing!.layers[0].items[0].portrait?.strength).toBe(.4);
+    expect(saved!.editing!.layers[0].items[0].portrait?.strength).toBe(.45);
 
     await click('Desfazer'); // Remove o tratamento, sem consumir uma entrada de comparação.
     expect(latestRecipe().clips.find(clip => clip.id === id)!.portrait).toBeUndefined();
@@ -108,8 +108,8 @@ describe('comparação e histórico reais do editor', () => {
     expect(host.querySelector('[role="alert"]')).toBeNull();
 
     await click('Refazer'); await click('Refazer');
-    expect(latestRecipe().clips.find(clip => clip.id === id)!.portrait).toEqual({ version: 1, strength: .4 });
-    expect(latestRecipe().requiredFeatures).toEqual(['portrait-v1']);
+    expect(latestRecipe().clips.find(clip => clip.id === id)!.portrait).toEqual({ version: 2, strength: .45 });
+    expect(latestRecipe().requiredFeatures).toEqual(['portrait-v2']);
     expect(latestRecipe().assets.map(asset => asset.id).sort()).toEqual(['image-original', 'video-original']);
   });
 
