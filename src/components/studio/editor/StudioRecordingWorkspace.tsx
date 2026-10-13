@@ -301,9 +301,12 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     catch (cause) { report(cause, token); }
     finally { if (live(token)) setChangingDevice(false); }
   };
-  const configureRemote = (patch: Parameters<StudioRemoteCaptureController['configureRemote']>[0]) => {
-    if (confirmationOperation.current || occupied || pendingFile || exitIntent.current) return;
-    const token = epoch.current; void remoteCapture.current?.configureRemote(patch).catch(cause => { if (live(token)) setError(cause instanceof Error ? cause.message : 'O iPhone não confirmou o ajuste.'); });
+  const configureRemote = async (patch: Parameters<StudioRemoteCaptureController['configureRemote']>[0]) => {
+    const owned = remoteCapture.current, token = epoch.current;
+    if (!owned || confirmationOperation.current || remoteControlsOccupied || pendingFile || exitIntent.current || !['ready', 'error'].includes(captureSnapshot.current.phase)) throw new Error('Aguarde o iPhone estar pronto para ajustar a câmera.');
+    setError(null);
+    try { await owned.configureRemote(patch); }
+    catch (cause) { if (live(token) && remoteCapture.current === owned) setError(cause instanceof Error ? cause.message : 'O iPhone não confirmou o ajuste.'); throw cause; }
   };
   const selectRemoteMicrophone = async (audioInputId: string | null) => {
     const owned = remoteCapture.current, composite = capture.current, token = epoch.current;
@@ -441,7 +444,8 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     })(); mutationWork.current = work; void work.finally(() => { if (mutationWork.current === work) mutationWork.current = null; });
   };
   const reviewing = !!reviewURL && !captureState.stream, recording = captureState.phase === 'recording';
-  const occupied = confirmationPending || loading || !!busy || changingDevice || leaving || countdown !== null || captureState.scenes?.preparingScreen === true || captureState.videoControls?.busy === true || captureState.phase === 'preparing' || captureState.phase === 'stopping';
+  const remoteControlsOccupied = confirmationPending || loading || !!busy || changingDevice || leaving || countdown !== null || captureState.scenes?.preparingScreen === true || captureState.phase === 'preparing' || captureState.phase === 'stopping';
+  const occupied = remoteControlsOccupied || captureState.videoControls?.busy === true;
   const pendingFile = !!candidate.current || captureState.pendingRecovery === true || captureState.phase === 'error' && !!captureState.file;
   const recoveringRemote = isRemote && pendingFile && !candidate.current?.file && !captureState.file;
   const recoveryWorking = busy === 'save' || captureState.phase === 'stopping';
@@ -460,7 +464,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     const element = event.currentTarget, rect = element.getBoundingClientRect();
     const point = remoteCameraFocusPoint({ clientX: event.clientX, clientY: event.clientY, rect, imageWidth: element.videoWidth, imageHeight: element.videoHeight, fit: kind === 'short' ? 'cover' : 'contain', mirrored: guides.mirrored });
     if (!point) return;
-    configureRemote({ pro: { focusPoint: { ...point, locked: false } } });
+    void configureRemote({ pro: { focusPoint: { ...point, locked: false } } }).catch(() => undefined);
     setFocusTarget({ left: (event.clientX - rect.left) / rect.width * 100, top: (event.clientY - rect.top) / rect.height * 100 });
   };
   const displayTitle = project?.title ?? (title.trim() || defaultTitle(kind));
@@ -499,7 +503,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
           {kind !== 'podcast' && mode !== 'screen' && <><button aria-label="Ajustar zoom" title="Zoom" disabled={occupied || pendingFile} onClick={() => openTools(isRemote ? 'camera' : 'image')}><ZoomIn size={18} /><span>{displayedZoom.toFixed(1)}×</span></button><button aria-label="Filtros e imagem" title="Filtros e imagem" disabled={occupied || pendingFile} onClick={() => openTools('image')}><Palette size={18} /></button>{isRemote && <button aria-label="Controles Pro do iPhone" title="Câmera Pro" disabled={occupied || pendingFile} onClick={() => openTools('camera')}><Settings2 size={18} /></button>}</>}
           <button aria-label="Temporizador da gravação" title="Temporizador" disabled={occupied || pendingFile} onClick={() => openTools('record')}><Timer size={18} />{guides.delay > 0 && <span>{guides.delay}s</span>}</button><button aria-label="Roteiro e teleprompter" title="Roteiro" disabled={occupied || pendingFile} onClick={() => openTools('script')}><FileText size={18} /></button>
         </div>}
-        {toolsOpen && !recording && (isRemote && remoteState ? <StudioRemoteCameraControls initialTab={toolsTab} onTab={setToolsTab} state={remoteState} disabled={occupied || pendingFile} onConfigure={configureRemote} onClose={closeTools} recording={{ state: captureState, guides, onGuides: updateGuides, onVideo: configureVideo }} /> : <StudioRecordingTools initialTab={toolsTab === 'camera' ? 'image' : toolsTab} state={captureState} camera={kind !== 'podcast' && mode !== 'screen'} disabled={occupied || pendingFile} guides={guides} onGuides={updateGuides} onVideo={configureVideo} onClose={closeTools} />)}
+        {toolsOpen && !recording && (isRemote && remoteState ? <StudioRemoteCameraControls initialTab={toolsTab} onTab={setToolsTab} state={remoteState} disabled={remoteControlsOccupied || pendingFile} onConfigure={configureRemote} onClose={closeTools} recording={{ state: captureState, guides, onGuides: updateGuides, onVideo: configureVideo }} /> : <StudioRecordingTools initialTab={toolsTab === 'camera' ? 'image' : toolsTab} state={captureState} camera={kind !== 'podcast' && mode !== 'screen'} disabled={occupied || pendingFile} guides={guides} onGuides={updateGuides} onVideo={configureVideo} onClose={closeTools} />)}
         {countdown !== null && <div className="se-recording-countdown" role="status"><strong>{countdown}</strong><button className="se-recording-button" onClick={() => { countdownRef.current = null; setCountdown(null); }}>Cancelar contagem</button></div>}
         {isRemote && remoteState && permissionCard && <StudioRemoteCameraPairing state={remoteState} onReconnect={reconnectRemote} onCancel={cancelRemoteConnection} onUnpair={() => void unlinkRemote()} disabled={!!busy || leaving || confirmationPending || changingDevice} />}
         {permissionCard && !isRemote && <div className="se-recording-permission" data-permission-state={occupied ? 'preparing' : permissionError ? 'error' : 'closed'}>

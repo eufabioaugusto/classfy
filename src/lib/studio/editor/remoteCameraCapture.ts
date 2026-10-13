@@ -102,6 +102,9 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   const ownedRecoveryKeys = new Set<string>();
   type Intent = { sessionId: string; controllerId: string; takeId: string; startId?: string; stopId?: string; resumeId?: string };
   let forgotten = false, configuring = false;
+  type ConfigurationWaiter = { resolve(): void; reject(error: unknown): void };
+  let queuedConfiguration: Partial<StudioRemoteConfiguration> | null = null, configurationWaiters: ConfigurationWaiter[] = [];
+  let configurationIntent: { id: string; patch: Partial<StudioRemoteConfiguration>; uncertain: boolean } | null = null;
   let generation = 0, disposed = false, lifecycle = new AbortController(), envelope: StudioRemoteEnvelope | null = null, preview: StudioRemotePreview | null = null, cameraTrack: MediaStreamTrack | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null, heartbeatAt = 0, serverOffset = 0, bestRTT = Infinity, polling: Promise<void> | null = null, connecting: Promise<void> | null = null, prepareWork: Promise<void> | null = null, startWork: Promise<StudioRemoteStart> | null = null, stopWork: Promise<StudioRemoteMaster> | null = null;
   let pendingStart: { id: string; takeId: string } | null = null, pendingStop: { id: string; takeId: string } | null = null, pendingResume: { id: string; takeId: string } | null = null, lastStart: StudioRemoteStart | null = null, cachedMaster: StudioRemoteMaster | null = null;
@@ -109,7 +112,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   let state: StudioCaptureState = { phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true, levels: [] };
   let remote: StudioRemoteView = { pairing: null, connection: 'idle', session: null, transfer: 'idle', pendingTakeId: null, error: null };
   const snapshot = () => ({ ...state, devices: { cameras: [], microphones: [] }, levels: [], ...(state.videoControls ? { videoControls: structuredClone(state.videoControls) } : {}), ...(state.outputVideo ? { outputVideo: structuredClone(state.outputVideo) } : {}) });
-  const configurationPending = () => configuring || !!envelope?.commands.some(command => command.type === 'configure' && command.status === 'pending');
+  const configurationPending = () => configuring || !!configurationIntent || !!envelope?.commands.some(command => command.type === 'configure' && command.status === 'pending');
   const view = () => structuredClone(remote);
   const publish = (patch: Partial<StudioCaptureState>) => { if (disposed) return; state = { ...state, ...patch }; listeners.forEach(listener => listener(snapshot())); };
   const publishRemote = (patch: Partial<StudioRemoteView>) => { if (disposed) return; remote = { ...remote, ...patch }; remoteListeners.forEach(listener => listener(view())); };
@@ -124,7 +127,14 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   const adopt = (response: StudioRemoteResponse, token: number) => {
     assert(token); if (envelope && response.session.id !== envelope.session.id) throw new StudioRemoteCameraError('A sessão da câmera mudou.');
     if (envelope && response.session.sequence < envelope.session.sequence) return;
+    // A status request started before an ACK can finish after it. Terminal
+    // receipts are immutable; that older snapshot must not undo confirmation.
+    if (envelope && response.session.sequence === envelope.session.sequence && (
+      envelope.session.status === 'closed' && response.session.status !== 'closed' ||
+      envelope.commands.some(previous => previous.status !== 'pending' && response.commands.some(next => next.id === previous.id && next.status === 'pending'))
+    )) return;
     envelope = response;
+    if (configurationIntent && (response.session.status === 'closed' || response.commands.some(command => command.id === configurationIntent?.id && command.status !== 'pending'))) configurationIntent = null;
     // Retain the proven browser identity separately from per-take recovery;
     // successfully saving a take must not erase its computer pairing.
     if (options.persist !== false && response.session.controllerId === clientId && controllerUUID.test(clientId)) { try { localStorage.setItem(controllerStorageKey(options.owner), clientId); } catch { /* The server remains authoritative. */ } }
@@ -156,6 +166,13 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       try {
         if (!envelope || disposed || token !== generation) return;
         await request({ action: 'status', sessionId: envelope.session.id, afterSequence: 0 }, token); assert(token);
+        // A lost POST response is indeterminate. If status has no receipt, retry
+        // that exact UUID and payload, never a second adjustment or a new REC.
+        const intent = configurationIntent;
+        if (intent?.uncertain && !envelope.commands.some(command => command.id === intent.id)) {
+          try { await request({ action: 'command', sessionId: envelope.session.id, commandId: intent.id, type: 'configure', payload: intent.patch }, token); }
+          catch (error) { if (error instanceof StudioRemoteCameraError && error.code.startsWith('studio_camera_') && configurationIntent === intent) { configurationIntent = null; publish({ videoControls: state.videoControls ? { ...state.videoControls, busy: configurationPending() } : null }); } throw error; }
+        }
         if (Date.now() - heartbeatAt >= 8000) { await request({ action: 'heartbeat', sessionId: envelope.session.id, role: 'controller' }, token); heartbeatAt = Date.now(); }
         await connect(token);
         if (envelope.session.status === 'closed' && !stopWork) { if (!cachedMaster && (lastStart || envelope.takes.length)) publish({ phase: 'error', pendingRecovery: true, error: 'A conexão foi encerrada. O original permanece no iPhone; retome o recebimento do take.' }); else publish({ phase: 'error', error: 'A conexão com o iPhone foi encerrada.' }); }
@@ -165,7 +182,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   };
   const wait = async <T,>(find: () => T | undefined, token: number, milliseconds: number, active?: () => boolean): Promise<T> => {
     let deadline = Date.now() + milliseconds;
-    while (true) { assert(token); const result = find(); if (result !== undefined) return result; if (active?.()) deadline = Date.now() + milliseconds; if (Date.now() >= deadline) throw new StudioRemoteCameraError('A confirmação do iPhone demorou. Mantenha o app aberto e retome a transferência; o original permanece no aparelho.', 'ack_timeout'); await poll(token); await new Promise<void>((resolve, reject) => { const signal = lifecycle.signal; const abort = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(new DOMException('Conexão cancelada.', 'AbortError')); }; const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, 200); signal.addEventListener('abort', abort, { once: true }); }); }
+    while (true) { assert(token); const result = find(); if (result !== undefined) return result; if (active?.()) deadline = Date.now() + milliseconds; if (Date.now() >= deadline) throw new StudioRemoteCameraError('A confirmação do iPhone demorou. Mantenha o app aberto e retome a transferência; o original permanece no aparelho.', 'ack_timeout'); await poll(token); assert(token); const received = find(); if (received !== undefined) return received; await new Promise<void>((resolve, reject) => { const signal = lifecycle.signal; const abort = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(new DOMException('Conexão cancelada.', 'AbortError')); }; const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, 200); signal.addEventListener('abort', abort, { once: true }); }); }
   };
   const command = async (id: string, type: StudioRemoteCommand['type'], payload: Record<string, unknown>, token: number) => {
     if (!envelope) throw new StudioRemoteCameraError('Conecte seu iPhone primeiro.');
@@ -259,15 +276,51 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       } catch (error) { if (!disposed && token === generation) { const message = error instanceof Error ? error.message : 'O original ainda não foi recebido.'; publish({ phase: 'error', pendingRecovery: true, error: message }); publishRemote({ transfer: 'retry', error: message }); } throw error; }
     })(); stopWork = work; void work.finally(() => { if (stopWork === work) stopWork = null; }).catch(() => undefined); return work;
   };
-  const configureRemote = async (patch: Partial<StudioRemoteConfiguration>) => {
-    if (!envelope || !['ready', 'error'].includes(state.phase) || state.pendingRecovery || startWork || stopWork || configuring) throw new StudioRemoteCameraError('Aguarde o iPhone estar pronto para ajustar a câmera.');
-    const token = generation; configuring = true; publish({ videoControls: state.videoControls ? { ...state.videoControls, busy: true } : null });
-    try { await command(crypto.randomUUID(), 'configure', patch, token); assert(token); }
-    finally { if (!disposed && token === generation) { configuring = false; publish({ videoControls: state.videoControls ? { ...state.videoControls, busy: configurationPending() } : null }); } }
+  const configureRemote = (patch: Partial<StudioRemoteConfiguration>): Promise<void> => {
+    if (!envelope || disposed || !['ready', 'error'].includes(state.phase) || state.pendingRecovery || startWork || stopWork)
+      return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone estar pronto para ajustar a câmera.'));
+    // An uncertain timeout still owns its server command. Never enqueue a new
+    // command over that pending receipt or allow REC on unconfirmed settings.
+    if (!configuring && configurationPending()) return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone confirmar o ajuste pendente.', 'configuration_pending'));
+    const next = structuredClone(patch), previous = queuedConfiguration;
+    queuedConfiguration = { ...previous, ...next,
+      ...(previous?.pro || next.pro ? { pro: { ...previous?.pro, ...next.pro } } : {}) };
+    const pro = queuedConfiguration.pro;
+    if (pro?.autoExposure === true) { delete pro.iso; delete pro.shutterSeconds; }
+    if (pro?.autoWhiteBalance === true) for (const key of ['redGain', 'greenGain', 'blueGain', 'temperatureKelvin', 'whiteBalanceTint']) delete pro[key];
+    if (pro?.autoFocus === true) delete pro.lensPosition;
+    const result = new Promise<void>((resolve, reject) => configurationWaiters.push({ resolve, reject }));
+    if (configuring) return result;
+    const token = generation; configuring = true;
+    publish({ videoControls: state.videoControls ? { ...state.videoControls, busy: true } : null });
+    void (async () => {
+      try {
+        while (queuedConfiguration) {
+          assert(token);
+          const desired = queuedConfiguration, waiters = configurationWaiters;
+          queuedConfiguration = null; configurationWaiters = [];
+          const intent = { id: crypto.randomUUID(), patch: desired, uncertain: false }; configurationIntent = intent;
+          try { await command(intent.id, 'configure', desired, token); assert(token); if (configurationIntent === intent) configurationIntent = null; waiters.forEach(waiter => waiter.resolve()); }
+          catch (error) {
+            if (token === generation && configurationIntent === intent) {
+              if (error instanceof StudioRemoteCameraError && error.code.startsWith('studio_camera_')) configurationIntent = null;
+              else intent.uncertain = true;
+            }
+            waiters.forEach(waiter => waiter.reject(error)); throw error;
+          }
+        }
+      } catch (error) {
+        if (token === generation) { queuedConfiguration = null; const waiting = configurationWaiters; configurationWaiters = []; waiting.forEach(waiter => waiter.reject(error)); }
+      } finally {
+        if (!disposed && token === generation) { configuring = false; publish({ videoControls: state.videoControls ? { ...state.videoControls, busy: configurationPending() } : null }); }
+      }
+    })();
+    return result;
   };
   const cancel = () => {
     const previous = envelope, hadMaster = !!cachedMaster, takeId = remote.pendingTakeId ?? pendingStart?.takeId ?? previous?.session.activeTakeId; bestRTT = Infinity;
     persistIntent(); if (previous && (hadMaster || !takeId)) forgetIntent(); configuring = false;
+    queuedConfiguration = null; configurationIntent = null; const waiting = configurationWaiters; configurationWaiters = []; waiting.forEach(waiter => waiter.reject(new DOMException('Conexão cancelada.', 'AbortError')));
     const stopId = pendingStop?.id ?? crypto.randomUUID(); generation++; lifecycle.abort(); lifecycle = new AbortController(); if (pollTimer) clearTimeout(pollTimer); pollTimer = null; polling = null; connecting = null;
     const ownedPreview = preview; preview = null; void ownedPreview?.disconnect(); cameraTrack = null; envelope = null; pendingStart = null; pendingStop = null; pendingResume = null; lastStart = null; cachedMaster = null; prepareWork = null; startWork = null; stopWork = null;
     // A lost browser must not delete/close the original while the phone is still

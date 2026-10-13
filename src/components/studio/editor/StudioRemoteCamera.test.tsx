@@ -26,11 +26,11 @@ describe('câmera remota com identidade do Studio', () => {
     await act(async () => vi.advanceTimersByTime(300_001)); expect(host.textContent).toContain('Código expirado'); const retry = [...host.querySelectorAll('button')].find(button => button.textContent?.includes('Gerar novo código'))!;
     await act(async () => retry.click()); expect(reconnect).toHaveBeenCalledTimes(1); await act(async () => root.render(null)); expect(vi.getTimerCount()).toBe(0);
   });
-  it('controles nativos permanecem confirmados até ACK; slider envia uma intenção ao soltar', async () => {
+  it('slider mostra o ajuste desejado e distingue o valor confirmado pelo iPhone', async () => {
     const state = view(); state.session = { configuration: { cameraFacing: 'back' }, deviceState: { pro: { supportsExposure: true, autoExposure: false, iso: 100, minISO: 50, maxISO: 500, shutterSeconds: 1 / 60, minShutterSeconds: 1 / 1000, maxShutterSeconds: 1 / 30 } } } as unknown as StudioRemoteView['session'];
     const configure = vi.fn(); await act(async () => root.render(<StudioRemoteCameraControls state={state} disabled={false} onConfigure={configure} onClose={() => undefined} />));
     const slider = host.querySelector('[aria-label="ISO"]') as HTMLInputElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider, '200'); slider.dispatchEvent(new Event('input', { bubbles: true })); }); expect(configure).not.toHaveBeenCalled(); expect(slider.closest('label')?.querySelector('output')?.textContent).toBe('100');
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider, String(Math.round(Math.log(200 / 50) / Math.log(500 / 50) * 1000))); slider.dispatchEvent(new Event('input', { bubbles: true })); }); expect(configure).not.toHaveBeenCalled(); expect(slider.closest('.src-control')?.querySelector('output')?.textContent).toBe('200'); expect(slider.closest('.src-control')?.textContent).toContain('No iPhone: 100');
     await act(async () => slider.dispatchEvent(new Event('pointerup', { bubbles: true }))); expect(configure).toHaveBeenCalledWith({ pro: { autoExposure: false, iso: 200 } });
     await act(async () => root.render(<StudioRemoteCameraControls state={state} disabled onConfigure={configure} onClose={() => undefined} />)); expect((host.querySelector('[aria-label="ISO"]') as HTMLInputElement).disabled).toBe(true);
     expect(host.textContent).not.toContain('Distância de foco');
@@ -62,13 +62,13 @@ describe('câmera remota com identidade do Studio', () => {
     await act(async () => root.render(<StudioRemoteCameraControls initialTab="image" state={state} disabled={false} onConfigure={configure} onClose={() => undefined} />));
     const cinema = [...host.querySelectorAll('button')].find(button => button.textContent === 'Cinema')!;
     await act(async () => cinema.click()); expect(configure).toHaveBeenLastCalledWith({ imageGrade: { ...natural, preset: 'cinematic' } });
-    expect(cinema.getAttribute('aria-pressed')).toBe('false'); expect(host.textContent).toContain('Imagem confirmada no iPhone');
+    expect(cinema.getAttribute('aria-pressed')).toBe('false'); expect(host.textContent).toContain('Aguardando a confirmação da imagem');
     const confirmed = { ...natural, preset: 'cinematic' as const, temperature: .2 }; state.session!.deviceState!.imageGrade = confirmed;
     await act(async () => root.render(<StudioRemoteCameraControls initialTab="image" state={state} disabled={false} onConfigure={configure} onClose={() => undefined} />));
     expect(cinema.getAttribute('aria-pressed')).toBe('true');
     const temperature = host.querySelector<HTMLInputElement>('[aria-label="Temperatura do look"]')!;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(temperature, '.7'); temperature.dispatchEvent(new Event('input', { bubbles: true })); });
-    expect(temperature.closest('label')!.querySelector('output')!.textContent).toBe('+0.2');
+    expect(temperature.closest('.src-control')!.querySelector('output')!.textContent).toBe('+0.7'); expect(temperature.closest('.src-control')!.textContent).toContain('No iPhone: +0.2');
     await act(async () => temperature.dispatchEvent(new Event('pointerup', { bubbles: true }))); expect(configure).toHaveBeenLastCalledWith({ imageGrade: { ...confirmed, temperature: .7 } });
     await act(async () => root.render(<StudioRemoteCameraControls initialTab="image" state={state} disabled onConfigure={configure} onClose={() => undefined} />)); expect(temperature.disabled).toBe(true); expect(cinema.matches(':disabled')).toBe(true);
   });
