@@ -3,28 +3,75 @@ import type { StudioRemoteConfiguration } from '../../../../shared/studio/remote
 import { studioCaptureMime, type StudioCaptureController, type StudioCaptureState, type StudioCaptureVideoPatch } from './capture';
 import { studioCaptureGrade } from './captureVideo';
 import { inspectStudioMedia } from './media';
-import { remoteStudioProfile, type StudioRemoteCaptureController, type StudioRemoteStart } from './remoteCameraCapture';
+import { remoteStudioProfile, studioRemoteAudioReady, type StudioRemoteCaptureController, type StudioRemoteStart, type StudioRemoteView } from './remoteCameraCapture';
 import { createStudioRemoteSceneStore, recoverStudioRemoteScene, studioRemoteScreenFileName, STUDIO_REMOTE_SCREEN_DATABASE, type StudioRemoteSceneRecovery, type StudioRemoteSceneStore } from './remoteSceneRecovery';
 import { studioRemoteSceneOffset, type StudioRemoteSceneEvent } from './remoteSceneRender';
-import { createStudioSceneCapture } from './sceneCapture';
+import { createStudioSceneCapture, type StudioSceneCaptureController } from './sceneCapture';
 import { createStudioSceneRecordingBuffer, type StudioSceneRecordingBuffer } from './sceneRecordingBuffer';
 import { studioDefaultSceneConfiguration, studioSceneOutputProfile, studioSceneOutputResolutions, studioSceneVideoBitrate, type StudioSceneOutputProfile } from './sceneTypes';
 
 const cancelled = () => new DOMException('Gravação cancelada.', 'AbortError');
 const message = (error: unknown) => error instanceof Error ? error.message : 'Não foi possível concluir a gravação. Os originais foram preservados.';
 type Dependencies = { store?: StudioRemoteSceneStore; sceneFactory?: typeof createStudioSceneCapture; inspect?: typeof inspectStudioMedia; recover?: typeof recoverStudioRemoteScene; bufferFactory?: typeof createStudioSceneRecordingBuffer };
+export const studioRemoteMicrophoneId = (uid: string | null) => uid === null ? 'remote-iphone:auto' : `remote-iphone:input:${encodeURIComponent(uid)}`;
+/** undefined is an ordinary browser ID; null is the iPhone automatic route. */
+export function studioRemoteMicrophoneUID(id: string): string | null | undefined {
+  if (id === studioRemoteMicrophoneId(null)) return null;
+  if (!id.startsWith('remote-iphone:input:')) return undefined;
+  let uid: string; try { uid = decodeURIComponent(id.slice('remote-iphone:input:'.length)); } catch { throw new Error('Escolha um microfone disponível do iPhone.'); }
+  const invalidCharacter = [...uid].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+  if (!uid.trim() || uid.length > 256 || invalidCharacter) throw new Error('Escolha um microfone disponível do iPhone.');
+  return uid;
+}
 /** Program is a live monitor. The final take is always rebuilt from native and screen originals. */
 export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '16:9', ...dependencies }: { remote: StudioRemoteCaptureController; owner: string; aspectRatio?: '16:9' | '9:16' } & Dependencies): StudioRemoteCaptureController {
   const store = dependencies.store ?? createStudioRemoteSceneStore(), listeners = new Set<(state: StudioCaptureState) => void>();
   let state: StudioCaptureState = { phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true, levels: [] };
-  let local: StudioCaptureController | null = null, localState: StudioCaptureState | null = null, unsubscribeLocal: (() => void) | null = null;
+  let local: StudioSceneCaptureController | null = null, localState: StudioCaptureState | null = null, unsubscribeLocal: (() => void) | null = null;
+  let narrationSource: 'iphone' | 'browser' = 'iphone', remoteView: StudioRemoteView | null = null, selectionWork: Promise<void> | null = null;
+  let narrationMeterTimer: ReturnType<typeof setInterval> | null = null;
   let closed = false, generation = 0, prepareWork: Promise<void> | null = null, startWork: Promise<StudioRemoteStart> | null = null, stopWork: Promise<File> | null = null, cancellationWork: Promise<void> | null = null;
   let preparation: AbortController | null = null, entry: StudioRemoteSceneRecovery | null = null, buffer: StudioSceneRecordingBuffer | null = null, raw: MediaRecorder | null = null;
   let rawResult: Promise<File> | null = null, rawStarted = 0, journal = Promise.resolve(), failure: Error | null = null, recording = false;
+  let narrationWarning: string | null = null;
   let grade = studioGrade(), zoom = 1, profile: StudioSceneOutputProfile = { width: aspectRatio === '9:16' ? 1080 : 1920, height: aspectRatio === '9:16' ? 1920 : 1080, frameRate: 30 };
   const snapshot = () => ({ ...state, devices: structuredClone(state.devices), levels: state.levels.map(value => ({ ...value })), scenes: state.scenes ? structuredClone(state.scenes) : undefined, videoControls: state.videoControls ? structuredClone(state.videoControls) : state.videoControls, outputVideo: state.outputVideo ? structuredClone(state.outputVideo) : state.outputVideo });
   const publish = (patch: Partial<StudioCaptureState>) => { if (closed) return; state = { ...state, ...patch }; for (const listener of listeners) listener(snapshot()); };
   const assert = (expected: number) => { if (closed || generation !== expected) throw cancelled(); };
+  const narrationState = () => {
+    const envelope = remote.getEnvelope(), device = envelope?.session.deviceState, audio = device?.audioInput, monitor = device?.audioMonitor;
+    const liveStage = !!localState?.stream;
+    const capable = device?.capabilities?.audioInputSelection === true;
+    const confirmed = studioRemoteAudioReady(device), current = capable ? confirmed ? audio?.current : null : monitor?.input;
+    const deviceSeen = Date.parse(envelope?.session.deviceSeenAt ?? '');
+    const fresh = Number.isFinite(deviceSeen) && Date.now() - deviceSeen <= 6000;
+    const matching = !capable || monitor?.input?.id === current?.id;
+    const levels = confirmed && fresh && matching && monitor?.status === 'live' && remoteView?.connection === 'connected' ? monitor.channels.filter(value => Number.isFinite(value.averageDb) && Number.isFinite(value.peakDb)).slice(0, 2) : [];
+    const devices = { cameras: localState?.devices.cameras ?? [], microphones: [
+      { id: studioRemoteMicrophoneId(null), name: 'Automático · iPhone' },
+      ...(audio?.available ?? []).map(port => ({ id: studioRemoteMicrophoneId(port.id), name: `${port.name} · iPhone` })),
+      ...(localState?.devices.microphones ?? []),
+    ] };
+    return { devices, input: !liveStage ? null : narrationSource === 'iphone' ? current ? { id: studioRemoteMicrophoneId(capable ? audio!.preferredId : null), name: `${current.name} · iPhone` } : null : localState?.input ?? null,
+      levels: !liveStage ? [] : narrationSource === 'iphone' ? localState?.microphoneEnabled === false ? [] : levels : localState?.levels ?? [],
+      ...(state.scenes ? { scenes: { ...state.scenes, narrationSource } } : {}) };
+  };
+  const syncNarration = () => publish(narrationState());
+  const stopNarrationMeter = () => { if (narrationMeterTimer) clearInterval(narrationMeterTimer); narrationMeterTimer = null; };
+  const startNarrationMeter = () => {
+    stopNarrationMeter();
+    narrationMeterTimer = setInterval(() => {
+      if (closed || !local || narrationSource !== 'iphone' || !['ready', 'recording'].includes(state.phase)) return;
+      const levels = narrationState().levels;
+      if (JSON.stringify(levels) !== JSON.stringify(state.levels)) publish({ levels });
+    }, 1000);
+  };
+  const requireNativeReady = () => {
+    const envelope = remote.getEnvelope();
+    if (selectionWork || envelope?.commands.some(command => command.type === 'configure' && command.status === 'pending')) throw new Error('Aguarde o iPhone confirmar o microfone antes de gravar.');
+    if (!studioRemoteAudioReady(envelope?.session.deviceState)) throw new Error(envelope?.session.deviceState?.audioInput?.warning || 'Confirme o microfone do iPhone antes de gravar.');
+    if (envelope?.session.deviceState?.configurationConfirmed === false || envelope?.session.deviceState?.imageGradeConfirmed === false) throw new Error('Confirme os ajustes do iPhone antes de gravar.');
+  };
   const authoritative = () => {
     const screen = localState?.scenes?.selected !== 'camera' ? local?.getScreenOriginalStream?.()?.getVideoTracks()[0]?.getSettings() : undefined;
     const envelope = remote.getEnvelope(), native = envelope ? remoteStudioProfile(envelope, aspectRatio === '9:16' ? 'short' : 'aula') : profile;
@@ -36,7 +83,7 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
     if (!entry) return Promise.resolve(); const copy = structuredClone(entry);
     const work = journal.then(() => store.save(copy)); journal = work.catch(error => { failure ??= new Error(`Não foi possível preservar o histórico das cenas. ${message(error)}`); }); return work;
   };
-  const event = (atSeconds: number): StudioRemoteSceneEvent => { const value = localState?.scenes; return { atSeconds, scene: value?.selected ?? 'camera', configuration: value ? { position: { ...value.position }, size: value.size, transition: value.transition } : studioDefaultSceneConfiguration(), grade: { ...grade }, zoom }; };
+  const event = (atSeconds: number): StudioRemoteSceneEvent => { const value = localState?.scenes; return { atSeconds, scene: value?.selected ?? 'camera', microphoneEnabled: localState?.microphoneEnabled !== false, configuration: value ? { position: { ...value.position }, size: value.size, transition: value.transition } : studioDefaultSceneConfiguration(), grade: { ...grade }, zoom }; };
   const recordEvent = () => {
     if (!recording || !entry) return;
     const next = event(Math.max(0, (performance.now() - rawStarted) / 1000)), previous = entry.events.at(-1);
@@ -52,6 +99,11 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
     publish({ ...value, file: null, ...(value.phase === 'ready' ? { phase: 'preparing' as const } : {}) });
   });
   const unsubscribeRemoteView = remote.subscribeRemote(value => {
+    remoteView = value; if (local) syncNarration();
+    if (recording && narrationSource === 'iphone' && !studioRemoteAudioReady(value.session?.deviceState)) {
+      narrationWarning = value.session?.deviceState?.audioInput?.warning || 'O microfone do iPhone foi interrompido. O trecho capturado foi preservado.';
+      publish({ error: narrationWarning }); void controller.stop().catch(() => undefined);
+    }
     // The server reserves the take before native START is acknowledged. Save
     // that proven association while activeTakeId exists, even if ACK is lost
     // and a later STOP clears it. An unknown start clock remains unknown.
@@ -103,29 +155,31 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
       prepareWork = (async () => {
         await remote.prepare(); assert(expected);
         const track = await waitForCamera(preparation!.signal); assert(expected); syncProfile();
-        local = (dependencies.sceneFactory ?? createStudioSceneCapture)({ aspectRatio, externalCamera: { track, name: 'Câmera do iPhone' } });
+        local = (dependencies.sceneFactory ?? createStudioSceneCapture)({ aspectRatio, externalCamera: { track, name: 'Câmera do iPhone' }, externalNarration: narrationSource });
+        startNarrationMeter();
         unsubscribeLocal = local.subscribe(value => {
           localState = value;
           // Do not publish a preview recorder file, even during its finalization/error callbacks.
           const { phase: _phase, file: _file, pendingRecovery: _pending, ...preview } = value;
-          publish({ ...preview, ...authoritative(), camera: { id: 'remote-iphone', name: 'Câmera do iPhone' } }); recordEvent();
+          publish({ ...preview, ...authoritative(), camera: { id: 'remote-iphone', name: 'Câmera do iPhone' } }); syncNarration(); recordEvent();
         });
         await local.prepare(); assert(expected); await local.configureVideo({ output: profile }); assert(expected);
-        publish({ phase: 'ready', file: null, ...authoritative(), error: null });
-      })().catch(error => { if (!closed && expected === generation) { local?.dispose(); local = null; publish({ phase: 'error', error: message(error) }); } throw error; }).finally(() => { prepareWork = null; });
+        syncNarration(); publish({ phase: 'ready', file: null, ...authoritative(), error: null });
+      })().catch(error => { if (!closed && expected === generation) { stopNarrationMeter(); local?.dispose(); local = null; publish({ phase: 'error', error: message(error) }); } throw error; }).finally(() => { prepareWork = null; });
       return prepareWork;
     },
     async prepareScreen() { if (!local?.prepareScreen || state.phase !== 'ready') throw new Error('Conecte o iPhone antes de compartilhar a tela.'); await local.prepareScreen(); },
-    start() { if (closed || state.phase !== 'ready' || !localState?.scenes?.screenReady || entry) throw new Error('Prepare o compartilhamento de tela e o iPhone antes de gravar com cenas.'); void controller.remoteStart().catch(() => undefined); },
+    start() { if (closed || state.phase !== 'ready' || !localState?.scenes?.screenReady || entry) throw new Error('Prepare o compartilhamento de tela e o iPhone antes de gravar com cenas.'); requireNativeReady(); void controller.remoteStart().catch(() => undefined); },
     remoteStart() {
       if (startWork) return startWork;
       const stream = local?.getScreenOriginalStream?.();
       if (closed || state.phase !== 'ready' || !localState?.scenes?.screenReady || !stream || entry) return Promise.reject(new Error('Prepare o compartilhamento de tela e o iPhone antes de gravar com cenas.'));
+      try { requireNativeReady(); } catch (error) { return Promise.reject(error); }
       const expected = generation; publish({ phase: 'preparing', error: null });
       startWork = (async () => {
         const session = remote.getEnvelope()?.session; if (!session) throw new Error('A sessão do iPhone não está disponível.');
         const mime = studioCaptureMime('scenes'); if (!mime) throw new Error('Este navegador não oferece gravação da tela.');
-        const localId = crypto.randomUUID(); entry = { version: 1, key: `${owner}:${session.id}:${localId}`, owner, sessionId: session.id, controllerId: session.controllerId, takeId: null, bufferId: `${owner}-${localId}`, screenMime: mime, title: session.title, createdAt: Date.now(), status: 'preparing', output: { ...profile }, events: [event(0)], startedAtServerMs: null, screenStartedAtServerMs: null, cameraOffsetSeconds: null };
+        const localId = crypto.randomUUID(); entry = { version: 1, key: `${owner}:${session.id}:${localId}`, owner, sessionId: session.id, controllerId: session.controllerId, takeId: null, bufferId: `${owner}-${localId}`, screenMime: mime, title: session.title, createdAt: Date.now(), status: 'preparing', narrationSource, output: { ...profile }, events: [event(0)], startedAtServerMs: null, screenStartedAtServerMs: null, cameraOffsetSeconds: null };
         buffer = (dependencies.bufferFactory ?? createStudioSceneRecordingBuffer)({ databaseName: STUDIO_REMOTE_SCREEN_DATABASE, id: entry.bufferId }); await buffer.prepare(); await save(); assert(expected);
         const acknowledgement = await remote.remoteStart(); assert(expected);
         entry.takeId = acknowledgement.takeId; entry.startedAtServerMs = acknowledgement.startedAtServerMs; await save(); assert(expected);
@@ -161,7 +215,7 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
         await journal; if (failure) throw failure; assert(expected);
         const file = await (dependencies.recover ?? recoverStudioRemoteScene)(owner, entry!.key, { store, remote, inspect: dependencies.inspect }); assert(expected);
         entry = await store.get(owner, entry!.key) ?? { ...entry!, status: 'complete', outputFile: file }; await save(); assert(expected);
-        publish({ phase: 'recorded', stream: null, cameraPreviewStream: null, file, pendingRecovery: false, error: null }); return file;
+        publish({ phase: 'recorded', stream: null, cameraPreviewStream: null, file, pendingRecovery: false, error: narrationWarning }); return file;
       })().catch(async error => {
         if (entry) { entry.status = 'recoverable'; entry.error = message(error); await save().catch(() => undefined); }
         if (!closed && expected === generation) publish({ phase: 'error', file: null, pendingRecovery: true, error: message(error) }); throw error;
@@ -181,8 +235,30 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
     },
     async configureRemote(patch) { if (state.phase !== 'ready' || !local || entry) throw new Error('Ajuste o iPhone antes de gravar.'); await remote.configureRemote(patch); syncProfile(); await local.configureVideo({ output: profile }); publish(authoritative()); },
     async flip() { await controller.configureRemote({ cameraFacing: remote.getEnvelope()?.session.configuration.cameraFacing === 'back' ? 'front' : 'back' }); },
-    async selectDevices(selection) { if (selection.cameraId !== undefined) throw new Error('Escolha a câmera nos controles do iPhone.'); if (!local) throw new Error('Conecte o iPhone primeiro.'); await local.selectDevices(selection); },
-    setMicrophoneEnabled(value) { if (!local) throw new Error('Conecte o iPhone primeiro.'); local.setMicrophoneEnabled(value); },
+    selectDevices(selection) {
+      if (selection.cameraId !== undefined) return Promise.reject(new Error('Escolha a câmera nos controles do iPhone.'));
+      if (!local || state.phase !== 'ready' || entry || selectionWork || startWork || stopWork || localState?.scenes?.preparingScreen) return Promise.reject(new Error('Escolha o microfone antes de iniciar a gravação.'));
+      if (selection.microphoneId === undefined) return Promise.resolve();
+      let uid: string | null | undefined; try { uid = studioRemoteMicrophoneUID(selection.microphoneId); } catch (error) { return Promise.reject(error); }
+      const expected = generation, owned = local, nextSource = uid === undefined ? 'browser' : 'iphone';
+      publish({ phase: 'preparing', error: null });
+      const work = (async () => {
+        if (uid !== undefined) { await remote.configureRemote({ audioInputId: uid }); assert(expected); await owned.setExternalNarration('iphone'); }
+        else {
+          const device = remote.getEnvelope()?.session.deviceState;
+          // The unused camera original still needs a healthy physical audio route.
+          // Restore native Auto only after the user explicitly chooses a Mac mic.
+          if (device?.capabilities?.audioInputSelection === true && !studioRemoteAudioReady(device)) {
+            await remote.configureRemote({ audioInputId: null }); assert(expected);
+            if (!studioRemoteAudioReady(remote.getEnvelope()?.session.deviceState)) throw new Error(remote.getEnvelope()?.session.deviceState?.audioInput?.warning || 'O iPhone não confirmou o microfone automático.');
+          }
+          await owned.setExternalNarration('browser', selection.microphoneId);
+        }
+        assert(expected); if (local !== owned) throw cancelled(); narrationSource = nextSource; syncNarration(); publish({ phase: 'ready', error: null });
+      })().catch(error => { if (!closed && expected === generation && local === owned) { syncNarration(); publish({ phase: 'ready', error: message(error) }); } throw error; }).finally(() => { if (selectionWork === work) selectionWork = null; });
+      selectionWork = work; return work;
+    },
+    setMicrophoneEnabled(value) { if (!local) throw new Error('Conecte o iPhone primeiro.'); local.setMicrophoneEnabled(value); syncNarration(); recordEvent(); },
     getMicrophoneTrack: () => local?.getMicrophoneTrack() ?? null,
     getScreenOriginalStream: () => local?.getScreenOriginalStream?.() ?? null,
     selectScene(scene) { if (!local || !['ready', 'recording'].includes(state.phase)) throw new Error('Prepare as cenas antes de alternar.'); local.selectScene?.(scene); recordEvent(); },
@@ -192,7 +268,7 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
     async unlinkRemote() { if (entry || recording || startWork || stopWork) throw new Error('Finalize e salve o take antes de desvincular o iPhone.'); await remote.unlinkRemote(); controller.cancel(); },
     cancel() {
       if (cancellationWork) return;
-      generation++; preparation?.abort(); recording = false;
+      generation++; preparation?.abort(); recording = false; selectionWork = null; stopNarrationMeter();
       // This is salvage, not deletion. The native adapter queues STOP and retains its master.
       const salvage = rawResult ? finishRaw().catch(() => undefined) : Promise.resolve(), completed = state.phase === 'recorded' && !!state.file;
       remote.cancel();
@@ -201,7 +277,7 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
         local?.cancel();
         if (entry) { entry.status = completed ? 'complete' : 'recoverable'; await save().catch(() => undefined); }
         unsubscribeLocal?.(); unsubscribeLocal = null; local?.dispose(); local = null; localState = null;
-        entry = null; buffer = null; raw = null; rawResult = null; failure = null; grade = studioGrade(); zoom = 1;
+        entry = null; buffer = null; raw = null; rawResult = null; failure = null; narrationWarning = null; grade = studioGrade(); zoom = 1;
         publish({ pendingRecovery: false });
       })(); cancellationWork = work; void work.finally(() => { if (cancellationWork === work) cancellationWork = null; });
       publish({ phase: 'idle', stream: null, file: null, pendingRecovery: !!entry && !completed });

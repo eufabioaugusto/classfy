@@ -20,12 +20,19 @@ function view(): StudioRemoteView {
 let host: HTMLDivElement, root: Root;
 const select = vi.fn<(_: string | null) => Promise<void>>();
 const button = (name: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find(value => value.getAttribute('aria-label') === name || value.textContent?.includes(name))!;
-async function render(state = view(), disabled = false) { await act(async () => root.render(<StudioRemoteMicrophoneMonitor state={state} disabled={disabled} onSelect={select} />)); }
+async function render(state = view(), disabled = false, microphoneEnabled = true) { await act(async () => root.render(<StudioRemoteMicrophoneMonitor state={state} disabled={disabled} microphoneEnabled={microphoneEnabled} onSelect={select} />)); }
 async function click(name: string) { await act(async () => button(name).click()); }
 beforeEach(() => { vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.useFakeTimers(); vi.setSystemTime(NOW); select.mockReset().mockResolvedValue(undefined); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('microfone do original no iPhone', () => {
+  it('mute da narração oculta o sinal final e conserva a seleção e a rota física', async () => {
+    const state = view(); await render(state, false, false);
+    expect(host.querySelector('[role="meter"]')).toBeNull(); expect(host.textContent).toContain('Microfone desativado');
+    await click('Selecionar microfone do iPhone'); expect(button('Automático').getAttribute('aria-pressed')).toBe('true');
+    await click('Microfone USB externo'); expect(select).toHaveBeenCalledWith(usb.id);
+    await render(state, false, true); expect(host.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).toBe('-30');
+  });
   it('medidor abre entradas nativas e mantém Auto até o ACK da seleção USB', async () => {
     const state = view(), reply = deferred(); select.mockImplementation(() => reply.promise); await render(state);
     expect(host.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).toBe('-30'); await click('Selecionar microfone do iPhone');

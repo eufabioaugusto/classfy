@@ -4,6 +4,8 @@ export type StudioSceneConfiguration = { position: StudioScenePosition; size: nu
 export type StudioCaptureScenes = StudioSceneConfiguration & {
   selected: StudioCaptureScene; cameraReady: boolean; screenReady: boolean; screenName: string | null;
   preparingScreen: boolean; backgroundSupported: boolean; error: string | null;
+  /** iPhone narration is rendered from its native original, outside the browser audio graph. */
+  narrationSource?: 'iphone' | 'browser';
 };
 export type StudioSceneConfigurationPatch = Partial<Omit<StudioSceneConfiguration, 'position'>> & { position?: StudioScenePosition };
 export const studioDefaultSceneConfiguration = (): StudioSceneConfiguration => ({ position: { x: .82, y: .78 }, size: .26, transition: 'cut' });

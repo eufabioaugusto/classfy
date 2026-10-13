@@ -7,11 +7,12 @@ type ReadingStatus = SpeechFollowerStatus | { state: 'idle' | 'paused' | 'comple
 type Props = {
   guides: RecordingGuides; recording: boolean; active: boolean; microphoneEnabled: boolean; inputKey: string;
   getMicrophoneTrack(): MediaStreamTrack | null;
+  voiceUnavailableReason?: string;
   onGuides(patch: Partial<RecordingGuides>): void;
 };
 
 /** A reading aid only: neither the overlay nor the recognition service owns the recorded media. */
-export const RecordingTeleprompter = memo(function RecordingTeleprompter({ guides, recording, active, microphoneEnabled, inputKey, getMicrophoneTrack, onGuides }: Props) {
+export const RecordingTeleprompter = memo(function RecordingTeleprompter({ guides, recording, active, microphoneEnabled, inputKey, getMicrophoneTrack, voiceUnavailableReason, onGuides }: Props) {
   const matcher = useMemo(() => createScriptMatcher(guides.script), [guides.script]);
   const support = useMemo(() => speechFollowerSupport(), []);
   const [cursor, setCursor] = useState(0), [playing, setPlaying] = useState(false), [attempt, setAttempt] = useState(0);
@@ -76,7 +77,7 @@ export const RecordingTeleprompter = memo(function RecordingTeleprompter({ guide
     if (!playing || !allowed || guides.scriptMode !== 'voice') return;
     const track = getMicrophoneTrack();
     if (!track || track.kind !== 'audio' || track.readyState !== 'live' || track.enabled === false) {
-      setStatus({ state: 'error', reason: 'O microfone selecionado não está pronto. Confira a entrada e tente novamente.' }); setPlaying(false); return;
+      setStatus({ state: 'error', reason: voiceUnavailableReason || 'O microfone selecionado não está pronto. Confira a entrada e tente novamente.' }); setPlaying(false); return;
     }
     matcher.reset(position.current);
     const ownedGeneration = ++generation.current;
@@ -101,7 +102,7 @@ export const RecordingTeleprompter = memo(function RecordingTeleprompter({ guide
     speech.current = owned;
     owned.start();
     return () => { if (speech.current === owned) stopSpeech(); else owned.dispose(); };
-  }, [playing, allowed, guides.scriptMode, matcher, inputKey, getMicrophoneTrack, attempt, recording, advance, stopSpeech]);
+  }, [playing, allowed, guides.scriptMode, matcher, inputKey, getMicrophoneTrack, voiceUnavailableReason, attempt, recording, advance, stopSpeech]);
 
   useEffect(() => {
     if (!playing || !allowed || guides.scriptMode !== 'timed') return;
@@ -145,7 +146,7 @@ export const RecordingTeleprompter = memo(function RecordingTeleprompter({ guide
         <button aria-label="Reiniciar leitura" title="Reiniciar leitura" disabled={!allowed} onClick={() => { rewind(); setHasStarted(true); setPlaying(true); setAttempt(value => value + 1); }}><RotateCcw size={14} /></button>
       </div>
     </header>
-    {failure ? <div className="se-recording-reading-notice"><p>{reason}</p><div>{!unsupported && <button disabled={!allowed} onClick={play}>Tentar voz novamente</button>}<button onClick={() => { pause(); onGuides({ scriptMode: 'timed' }); }}>Usar rolagem automática</button></div></div> : reason && !playing ? <p className="se-recording-reading-hint">{reason}</p> : null}
+    {failure ? <div className="se-recording-reading-notice"><p>{reason}</p><div>{!unsupported && !voiceUnavailableReason && <button disabled={!allowed} onClick={play}>Retomar leitura por voz</button>}<button onClick={() => { pause(); onGuides({ scriptMode: 'timed' }); }}>Usar rolagem automática</button></div></div> : reason && !playing ? <p className="se-recording-reading-hint">{reason}</p> : null}
     <div ref={text} className="se-recording-script" aria-label="Texto do roteiro">{words}{guides.script.slice(end)}</div>
   </section>;
 });

@@ -20,11 +20,16 @@ const errorMessage = (error: unknown) => {
 };
 type Buffer = ReturnType<typeof createStudioSceneRecordingBuffer>;
 type Finalization = { buffer: Buffer; expected: number; mime: string; name: string };
+export type StudioSceneCaptureController = StudioCaptureController & {
+  /** Choose one narration source before REC without replacing Program or the screen audio graph. */
+  setExternalNarration(source: 'iphone' | 'browser', microphoneId?: string): Promise<void>;
+};
 /** One Program video track and one AudioContext destination live for the entire take. Scene changes never replace them. */
-export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user', cameraId, deviceId, externalCamera }: {
+export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user', cameraId, deviceId, externalCamera, externalNarration = 'browser' }: {
   aspectRatio?: '16:9' | '9:16'; facing?: 'user' | 'environment'; cameraId?: string; deviceId?: string;
   externalCamera?: { track: MediaStreamTrack; name: string };
-}): StudioCaptureController {
+  externalNarration?: 'iphone' | 'browser';
+}): StudioSceneCaptureController {
   let width = aspectRatio === '9:16' ? 1080 : 1920, height = aspectRatio === '9:16' ? 1920 : 1080, frameRate = 30;
   let config = normalizeStudioSceneConfiguration(studioDefaultSceneConfiguration(), {}, width, height), grade: StudioGrade = studioGrade(), zoom = 1;
   let state: StudioCaptureState = { phase: 'idle', stream: null, file: null, elapsed: 0, error: null, input: null, camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true, levels: [],
@@ -108,13 +113,14 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
       const values = new Float32Array(analyser.fftSize); if (state.microphoneEnabled && !microphone.muted && microphone.readyState === 'live') analyser.getFloatTimeDomainData(values);
       let sum = 0, peak = 0; for (const value of values) { sum += value * value; peak = Math.max(peak, Math.abs(value)); }
       const db = (value: number) => Math.max(-120, 20 * Math.log10(Math.max(value, 1e-6)));
-      publish({ levels: [{ averageDb: db(Math.sqrt(sum / Math.max(1, values.length))), peakDb: db(peak) }], ...(recorder?.state === 'recording' ? { elapsed: (performance.now() - started) / 1000 } : {}) });
+      publish({ levels: [{ averageDb: db(Math.sqrt(sum / Math.max(1, values.length))), peakDb: db(peak) }] });
     }
+    if (recorder?.state === 'recording') publish({ elapsed: (performance.now() - started) / 1000 });
   };
   const refreshDevices = async () => {
     if (!authorized || closed || !media?.enumerateDevices) return; const expected = generation, request = ++enumeration;
     try { const list = await media.enumerateDevices(); if (closed || expected !== generation || request !== enumeration) return;
-      const inputs = (kind: MediaDeviceKind) => list.filter(value => value.kind === kind && value.deviceId).map(value => ({ id: value.deviceId, name: value.label || (kind === 'videoinput' ? 'Câmera autorizada' : 'Microfone autorizado') }));
+      const inputs = (kind: MediaDeviceKind) => list.filter(value => value.kind === kind && value.deviceId).map(value => ({ id: value.deviceId, name: value.label || (kind === 'videoinput' ? 'Câmera autorizada' : externalNarration === 'iphone' ? 'Microfone do computador' : 'Microfone autorizado') }));
       publish({ devices: { cameras: inputs('videoinput'), microphones: inputs('audioinput') } });
     } catch { /* The live physical tracks are authoritative. */ }
   };
@@ -146,7 +152,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
     pendingFinalization = pendingRecovery ? entry : null;
     publish({ phase: 'error', file: candidate, pendingRecovery, error: errorMessage(error) });
   };
-  const controller: StudioCaptureController = {
+  const controller: StudioSceneCaptureController = {
     async prepare() {
       assertInputsEditable(); const support = getStudioSceneCapabilities(); if (!support.available) { publish({ phase: 'error', error: support.reason! }); throw new Error(support.reason); }
       if (!media?.getUserMedia || typeof MediaRecorder === 'undefined') throw new Error('Este navegador não oferece gravação local. Use Chrome ou Edge atualizado em HTTPS.');
@@ -155,17 +161,18 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
         // Confirm the worker, transferable streams, GPU/2D surface and local disk before requesting physical inputs.
         composition = newComposition({ width, height, frameRate }, expected).engine; own(new MediaStream([composition.track]), expected);
         await composition.ready(); assert(expected); buffer = createStudioSceneRecordingBuffer(); await buffer.prepare(); assert(expected);
-        const incoming = await media.getUserMedia({ video: externalCamera ? false : videoConstraints(), audio: audioConstraints() });
+        if (externalNarration === 'iphone' && !externalCamera) throw new Error('Conecte a câmera do iPhone para usar o áudio do aparelho.');
+        const incoming = externalNarration === 'iphone' ? null : await media.getUserMedia({ video: externalCamera ? false : videoConstraints(), audio: audioConstraints() });
         // Own only a clone of the transport track; stopping this engine cannot stop the phone preview.
-        const source = own(externalCamera ? new MediaStream([externalCamera.track.clone(), ...incoming.getAudioTracks()]) : incoming, expected);
+        const source = own(externalCamera ? new MediaStream([externalCamera.track.clone(), ...(incoming?.getAudioTracks() ?? [])]) : incoming!, expected);
         camera = source.getVideoTracks()[0] ?? null; microphone = source.getAudioTracks()[0] ?? null;
-        if (!camera || !microphone) throw new Error('Autorize câmera e microfone para preparar as cenas.'); microphone.enabled = state.microphoneEnabled;
+        if (!camera || externalNarration !== 'iphone' && !microphone) throw new Error('Autorize câmera e microfone para preparar as cenas.'); if (microphone) microphone.enabled = state.microphoneEnabled;
         context = new AudioContext(); await resumeStudioCaptureAudio(context, () => assert(expected)); assert(expected); destination = context.createMediaStreamDestination(); own(destination.stream, expected);
-        analyser = context.createAnalyser(); analyser.fftSize = 2048; micSource = context.createMediaStreamSource(new MediaStream([microphone])); micSource.connect(destination); micSource.connect(analyser);
+        analyser = context.createAnalyser(); analyser.fftSize = 2048; if (microphone) { micSource = context.createMediaStreamSource(new MediaStream([microphone])); micSource.connect(destination); micSource.connect(analyser); }
         await composition.setSource('camera', camera); assert(expected);
         scenes({ ...config, selected: 'camera', cameraReady: true, screenReady: false, preparingScreen: false, backgroundSupported: true, error: null });
         publish({ videoControls: controls() }); await updateComposition(); assert(expected);
-        wireCamera(camera, expected); wireMic(microphone, expected);
+        wireCamera(camera, expected); if (microphone) wireMic(microphone, expected);
         publish({ phase: 'ready', stream: new MediaStream([composition.track, ...destination.stream.getAudioTracks()]), cameraPreviewStream: new MediaStream([camera]), camera: identity(camera, 'Câmera autorizada'), input: identity(microphone, 'Microfone autorizado'), width, height, frameRate, videoControls: controls(), outputVideo: outputVideo(), error: null });
         meterTimer = setInterval(meter, 100); authorized = true; void refreshDevices();
         const owned = context; owned.onstatechange = () => { if (context !== owned || generation !== expected || closed || state.phase !== 'recording' || owned.state === 'running') return; void owned.resume().catch(error => fail(new Error(`O áudio das cenas foi interrompido. ${errorMessage(error)}`), expected)); };
@@ -194,6 +201,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
     configureScene(patch) { assertSceneEditable(); config = normalizeStudioSceneConfiguration(config, patch, width, height); scenes(config); const expected = generation; void updateComposition().catch(error => { if ((error as Error).name !== 'AbortError') fail(error as Error, expected); }); },
     async selectDevices(selection) {
       if (externalCamera && selection.cameraId !== undefined) throw new Error('Escolha a câmera do iPhone nos controles da conexão.');
+      if (externalNarration === 'iphone' && selection.microphoneId !== undefined) throw new Error('Escolha o microfone do iPhone pela conexão remota.');
       assertInputsEditable(); const nextCamera = selection.cameraId !== undefined ? selection.cameraId || undefined : cameraId, nextMic = selection.microphoneId !== undefined ? selection.microphoneId || undefined : deviceId;
       if (state.phase !== 'ready' || !composition || !context) { cameraId = nextCamera; deviceId = nextMic; return; }
       const changeCamera = selection.cameraId !== undefined, changeMic = selection.microphoneId !== undefined, expected = generation, owned = composition;
@@ -206,6 +214,25 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
         if (changeCamera) { camera = cam; zoom = 1; release(oldCamera); wireCamera(cam, expected); publish({ cameraPreviewStream: new MediaStream([cam]) }); scenes({ cameraReady: true, error: null }); }
         cameraId = nextCamera; deviceId = nextMic; publish({ phase: 'ready', camera: identity(camera, 'Câmera autorizada'), input: identity(microphone, 'Microfone autorizado'), videoControls: controls(), outputVideo: outputVideo() }); await updateComposition(); assert(expected); void refreshDevices();
       } catch (error) { incoming?.getTracks().forEach(track => { if (track !== camera && track !== microphone) release(track); }); if (!closed && expected === generation) publish({ phase: 'ready', error: errorMessage(error) }); throw error; }
+    },
+    async setExternalNarration(source, microphoneId) {
+      assertInputsEditable(); if (!externalCamera || state.phase !== 'ready' || !context || !destination || !analyser) throw new Error('Prepare o iPhone e as cenas antes de escolher a narração.');
+      if (source === externalNarration && source === 'iphone') return;
+      if (source === 'browser' && externalNarration === 'browser') { if (microphoneId !== undefined) await controller.selectDevices({ microphoneId }); return; }
+      const expected = generation, previous = microphone; let incoming: MediaStream | null = null, nextSource: MediaStreamAudioSourceNode | null = null;
+      publish({ phase: 'preparing', error: null });
+      try {
+        if (source === 'browser') {
+          incoming = own(await media.getUserMedia({ video: false, audio: audioConstraints(microphoneId || undefined) }), expected);
+          const next = incoming.getAudioTracks()[0]; if (!next || next.readyState !== 'live') throw new Error('O microfone do computador não está disponível.');
+          next.enabled = state.microphoneEnabled; nextSource = context!.createMediaStreamSource(new MediaStream([next])); nextSource.connect(destination!); nextSource.connect(analyser!); assert(expected);
+          micSource?.disconnect(); micSource = nextSource; nextSource = null; microphone = next; deviceId = microphoneId || undefined; wireMic(next, expected);
+        } else { micSource?.disconnect(); micSource = null; microphone = null; }
+        release(previous); externalNarration = source; publish({ phase: 'ready', input: identity(microphone, 'Microfone autorizado'), levels: [], error: null }); meter(); void refreshDevices();
+      } catch (error) {
+        nextSource?.disconnect(); incoming?.getTracks().forEach(track => { if (track !== microphone) release(track); });
+        if (!closed && expected === generation) publish({ phase: 'ready', error: errorMessage(error) }); throw error;
+      }
     },
     async configureVideo(patch: StudioCaptureVideoPatch) {
       assertInputsEditable(); if (state.phase !== 'ready' || !composition) throw new Error('Prepare as cenas antes de ajustar a gravação.');
@@ -286,7 +313,7 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
     start() {
       if (closed || state.phase !== 'ready' || !state.stream || !buffer || state.pendingRecovery || pendingFinalization || state.scenes!.preparingScreen) throw new Error('Prepare a cena antes de iniciar a gravação.');
       if (document.visibilityState === 'hidden') throw new Error('Volte à aba do Studio para iniciar a gravação.');
-      if (!microphone || microphone.readyState !== 'live') throw new Error('O microfone foi desconectado.');
+      if (externalNarration !== 'iphone' && (!microphone || microphone.readyState !== 'live')) throw new Error('O microfone foi desconectado.');
       const selected = state.scenes!.selected; if (selected !== 'screen' && !state.scenes!.cameraReady || selected !== 'camera' && !state.scenes!.screenReady) throw new Error('Uma fonte desta cena não está disponível.');
       // Let the browser negotiate H.264 profile/level; pinning level 3.0 excludes legitimate 4K encoders.
       const mimeType = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(type => MediaRecorder.isTypeSupported(type)); if (!mimeType) throw new Error('O navegador não oferece um formato de vídeo compatível.');
