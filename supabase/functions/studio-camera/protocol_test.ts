@@ -73,3 +73,11 @@ Deno.test('resume-upload requires the original take and preserves a bounded fres
   }
   rejects(() => validateRequest({ action: 'heartbeat', sessionId: id, role: 'device', clientId: id, state: { uploadProgressBytes: -1 } }));
 });
+
+Deno.test('image look and focus point validate exact bounded sensor-independent intent', () => {
+  const grade = {preset:'cinematic',intensity:.8,exposure:.5,contrast:.2,saturation:-.1,temperature:.3};
+  assert(JSON.stringify(configuration({imageGrade:grade}).imageGrade) === JSON.stringify(grade));
+  assert(JSON.stringify(configuration({pro:{focusPoint:{x:.3,y:.4,locked:false}}}).pro) === JSON.stringify({focusPoint:{x:.3,y:.4,locked:false}}));
+  for (const patch of [{preset:'fake'},{intensity:2},{exposure:NaN},{contrast:-2},{temperature:Infinity},{saturation:'0'},{uri:'file:///private'}]) rejects(() => configuration({imageGrade:{...grade,...patch}}));
+  for (const point of [{x:-.1,y:.5,locked:false},{x:.5,y:1.1,locked:false},{x:.5,y:.5,locked:'true'},{x:.5,y:.5,locked:false,z:1}]) rejects(() => configuration({pro:{focusPoint:point}}));
+});

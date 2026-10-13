@@ -123,11 +123,11 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     if (options.persist !== false && response.session.controllerId === clientId && controllerUUID.test(clientId)) { try { localStorage.setItem(controllerStorageKey(options.owner), clientId); } catch { /* The server remains authoritative. */ } }
     publishRemote({ session: response.session, error: typeof response.session.deviceState?.error === 'string' ? response.session.deviceState.error : null }); persistIntent();
     const profile = remoteStudioProfile(response, options.kind);
-    const confirmed = response.session.deviceState?.configurationConfirmed !== false && Number(response.session.deviceState?.width) > 0 && Number(response.session.deviceState?.height) > 0 && Number(response.session.deviceState?.fps) > 0;
+    const confirmed = response.session.deviceState?.configurationConfirmed !== false && response.session.deviceState?.imageGradeConfirmed !== false && Number(response.session.deviceState?.width) > 0 && Number(response.session.deviceState?.height) > 0 && Number(response.session.deviceState?.fps) > 0;
     publish({ width: confirmed ? profile.width : undefined, height: confirmed ? profile.height : undefined, frameRate: confirmed ? profile.frameRate : undefined, camera: response.session.deviceId ? { id: response.session.deviceId, name: response.session.deviceState?.deviceName || 'iPhone · Câmera remota' } : null,
       videoControls: confirmed ? { busy: configuring, processed: false, effects: false, grade: studioGrade(), zoom: { mode: 'none', min: 1, max: 1, step: 1, value: 1 }, resolutions: profile.resolutions, frameRates: profile.frameRates } : null, outputVideo: confirmed ? { resolutions: profile.resolutions, frameRates: profile.frameRates, sourceWidth: profile.width, sourceHeight: profile.height, sourceFrameRate: profile.frameRate, scaled: false } : null });
     if (response.session.deviceState?.error) publishRemote({ error: String(response.session.deviceState.error) });
-    if (!confirmed && response.session.deviceState?.configurationConfirmed === false && !remote.pendingTakeId && !pendingStart) publish({ phase: 'error', pendingRecovery: false, error: 'O iPhone não confirmou os ajustes. Restaure o modo Auto ou ajuste novamente antes de gravar.' });
+    if (!confirmed && (response.session.deviceState?.configurationConfirmed === false || response.session.deviceState?.imageGradeConfirmed === false) && !remote.pendingTakeId && !pendingStart) publish({ phase: 'error', pendingRecovery: false, error: 'O iPhone não confirmou os ajustes. Restaure o modo Auto ou ajuste novamente antes de gravar.' });
     if (confirmed && response.session.status === 'ready' && cameraTrack && (state.phase === 'preparing' || state.phase === 'error' && !state.pendingRecovery) && !pendingStart) publish({ phase: 'ready', error: null });
     if (lastStart && state.phase === 'recording') publish({ elapsed: Math.max(0, (Date.parse(response.serverAt) - lastStart.startedAtServerMs) / 1000) });
   };
@@ -163,12 +163,17 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   const command = async (id: string, type: StudioRemoteCommand['type'], payload: Record<string, unknown>, token: number) => {
     if (!envelope) throw new StudioRemoteCameraError('Conecte seu iPhone primeiro.');
     await request({ action: 'command', sessionId: envelope.session.id, commandId: id, type, payload }, token);
-    return wait(() => { const receipt = envelope?.commands.find(value => value.id === id); if (receipt?.status === 'failed') throw new StudioRemoteCameraError(typeof receipt.result?.error === 'string' ? receipt.result.error : 'O iPhone não confirmou essa ação.', 'command_failed'); return receipt?.status === 'applied' ? receipt : undefined; }, token, options.commandTimeoutMs ?? 30_000);
+    let processingProgress = -1;
+    return wait(() => { const receipt = envelope?.commands.find(value => value.id === id); if (receipt?.status === 'failed') throw new StudioRemoteCameraError(typeof receipt.result?.error === 'string' ? receipt.result.error : 'O iPhone não confirmou essa ação.', 'command_failed'); return receipt?.status === 'applied' ? receipt : undefined; }, token, options.commandTimeoutMs ?? 30_000, ['stop','resume_upload'].includes(type) ? () => {
+      const device = envelope?.session.deviceState, progress = Number(device?.processingProgress);
+      if (device?.processing === true && Number.isFinite(progress) && progress > processingProgress && progress >= 0 && progress <= 1) { processingProgress = progress; return true; }
+      return false;
+    } : undefined);
   };
   const remoteStart = () => {
     if (startWork) return startWork; if (state.phase === 'recording' && lastStart) return Promise.resolve(lastStart);
     if (!envelope || remote.connection !== 'connected' || !cameraTrack || !['ready', 'preparing', 'error'].includes(state.phase) || remote.pendingTakeId) return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone ficar pronto antes de gravar.'));
-    if (envelope.session.deviceState?.configurationConfirmed === false) return Promise.reject(new StudioRemoteCameraError('Confirme os ajustes no iPhone antes de gravar.'));
+    if (envelope.session.deviceState?.configurationConfirmed === false || envelope.session.deviceState?.imageGradeConfirmed === false) return Promise.reject(new StudioRemoteCameraError('Confirme os ajustes no iPhone antes de gravar.'));
     const token = generation; pendingStart ??= { id: crypto.randomUUID(), takeId: crypto.randomUUID() }; const intent = pendingStart;
     forgotten = false; persistIntent();
     publish({ phase: 'preparing', error: null });
@@ -202,7 +207,15 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
         if (recovering && paused && existing?.status !== 'uploaded') {
           pendingResume ??= { id: crypto.randomUUID(), takeId };
           persistIntent();
-          const receipt = await command(pendingResume.id, 'resume_upload', { takeId }, token);
+          const resumeIntent = pendingResume;
+          let receipt: StudioRemoteCommand;
+          try { receipt = await command(resumeIntent.id, 'resume_upload', { takeId }, token); }
+          catch (error) {
+            // A failed ACK is a settled outcome: the next explicit recovery
+            // gesture needs a new command. Keep the ID for uncertain timeouts.
+            if (error instanceof StudioRemoteCameraError && error.code === 'command_failed' && !disposed && token === generation && pendingResume?.id === resumeIntent.id) { pendingResume = null; persistIntent(); }
+            throw error;
+          }
           if (receipt.result?.takeId !== takeId || !Number.isFinite(Number(receipt.result?.uploadResumedAtServerMs)) || Number(receipt.result?.uploadResumedAtServerMs) <= 0 || !['uploading', 'complete'].includes(String(receipt.result?.uploadState))) throw new StudioRemoteCameraError('O iPhone não confirmou a retomada deste original. Mantenha o app aberto e retome a transferência.', 'invalid_resume');
           resumedAtServerMs = Number(receipt.result.uploadResumedAtServerMs); pendingResume = null; persistIntent();
         }

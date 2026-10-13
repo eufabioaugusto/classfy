@@ -8,9 +8,10 @@ import { StudioCameraHardwareControls } from './StudioCameraHardwareControls';
 
 export type RecordingGuides = { grid: boolean; mirrored: boolean; delay: number; script: string; scriptEnabled: boolean; scriptSpeed: number; scriptMode: 'voice' | 'timed' };
 
-export function StudioRecordingTools({ state, camera, disabled, guides, onGuides, onVideo, onClose, initialTab, guidesAvailable = true }: {
+export function StudioRecordingTools({ state, camera, disabled, guides, onGuides, onVideo, onClose, initialTab, guidesAvailable = true, embedded = false }: {
   initialTab: 'image' | 'record' | 'script'; state: StudioCaptureState; camera: boolean; disabled: boolean; guides: RecordingGuides;
   guidesAvailable?: boolean;
+  embedded?: boolean;
   onGuides(patch: Partial<RecordingGuides>): void; onVideo(patch: StudioCaptureVideoPatch): void; onClose(): void;
 }) {
   const visibleInitialTab = initialTab === 'image' && !camera || initialTab === 'script' && !guidesAvailable ? 'record' : initialTab;
@@ -18,23 +19,24 @@ export function StudioRecordingTools({ state, camera, disabled, guides, onGuides
   const panel = useRef<HTMLElement>(null);
   useEffect(() => setTab(visibleInitialTab), [visibleInitialTab]);
   useEffect(() => {
+    if (embedded) return;
     panel.current?.querySelector<HTMLButtonElement>('button')?.focus();
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } };
     document.addEventListener('keydown', escape);
     return () => document.removeEventListener('keydown', escape);
-  }, [onClose]);
+  }, [onClose, embedded]);
   const controls = state.videoControls, grade = controls?.grade ?? studioGrade('natural');
   const quality = studioRecordingQuality(state);
   const voiceSupport = speechFollowerSupport();
   const imageDisabled = disabled || state.phase !== 'ready' || !controls?.effects;
-  return <aside ref={panel} className="se-recording-tools" aria-label="Configurações da gravação">
-    <header><div><small>SEU ENQUADRAMENTO</small><h2>Configurações</h2></div><button className="se-recording-icon" aria-label="Fechar configurações" onClick={onClose}><X size={18} /></button></header>
+  return <aside ref={panel} className={embedded ? 'src-embedded-tools' : 'se-recording-tools'} aria-label="Configurações da gravação">
+    {!embedded && <><header><div><small>SEU ENQUADRAMENTO</small><h2>Configurações</h2></div><button className="se-recording-icon" aria-label="Fechar configurações" onClick={onClose}><X size={18} /></button></header>
     <div className="se-recording-tools-tabs" role="tablist" aria-label="Ajustes da gravação">
       {camera && <button role="tab" aria-selected={tab === 'image'} onClick={() => setTab('image')}><Palette size={15} />Imagem</button>}
       <button role="tab" aria-selected={tab === 'record'} onClick={() => setTab('record')}><SlidersHorizontal size={15} />Gravação</button>
       {guidesAvailable && <button role="tab" aria-selected={tab === 'script'} onClick={() => setTab('script')}><FileText size={15} />Roteiro</button>}
-    </div>
-    <div className="se-recording-tools-body" role="tabpanel">
+    </div></>}
+    <div className="se-recording-tools-body" role={embedded ? undefined : 'tabpanel'}>
       {tab === 'image' && <>
         {!controls && <p className="se-recording-tools-note">Abra a câmera para conferir os controles disponíveis.</p>}
         {controls && !controls.effects && <p className="se-recording-tools-note">Filtros e ajustes de cor não estão disponíveis neste navegador.</p>}
