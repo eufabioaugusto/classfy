@@ -78,7 +78,29 @@ try {
   IF EXISTS(SELECT 1 FROM studio_camera_sessions WHERE id=s AND configuration#>'{pro,focusPoint}' IS NOT NULL) OR
    NOT EXISTS(SELECT 1 FROM studio_camera_sessions WHERE id=s AND configuration#>>'{pro,iso}'='200' AND configuration#>>'{imageGrade,preset}'='studio') THEN RAISE EXCEPTION 'focus intent replayed or image grade lost'; END IF;
  END $$;`);
- console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency and durable pairings.');
+ const handoffMigration=await readFile(new URL('../../migrations/20261013020000_studio_remote_camera_handoff.sql',import.meta.url),'utf8');
+ await sql(handoffMigration);await sql(handoffMigration);
+ await sql(await readFile(new URL('handoff_test.sql',import.meta.url),'utf8'));
+ // Two reloads of the same paired browser have one last committed authority.
+ const controller='20000000-0000-4000-8000-0000000000f0',device='30000000-0000-4000-8000-0000000000f0';
+ await sql(`INSERT INTO studio_camera_pairings(owner_id,controller_id,device_id) VALUES('${user}','${controller}','${device}');`);
+ const simultaneousCreates=await Promise.all([1,2].map(n=>sql(`SELECT set_config('request.jwt.claim.role','service_role',false); SELECT studio_camera_action('${user}','create','{"kind":"aula","controllerId":"${controller}","pairingHash":"${String(n).repeat(64)}"}');`)));
+ assert.equal(simultaneousCreates.length,2);
+ assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_sessions WHERE owner_id='${user}' AND controller_id='${controller}' AND status<>'closed';`)).stdout.trim()),1);
+ assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_sessions WHERE owner_id='${user}' AND controller_id='${controller}' AND status='closed';`)).stdout.trim()),1);
+ // START competes for the same session row: either REC wins and CREATE refuses,
+ // or the handoff wins and an old browser can no longer start its retired room.
+ const current=(await sql(`SELECT id FROM studio_camera_sessions WHERE owner_id='${user}' AND controller_id='${controller}' AND status='ready';`)).stdout.trim();
+ await sql(`UPDATE studio_camera_sessions SET device_seen_at=now() WHERE id='${current}';`);
+ const racing=await Promise.allSettled([
+  sql(`SELECT set_config('request.jwt.claim.role','service_role',false); SELECT studio_camera_action('${user}','create','{"kind":"aula","controllerId":"${controller}","pairingHash":"${'8'.repeat(64)}"}');`),
+  sql(`SELECT set_config('request.jwt.claim.role','service_role',false); SELECT studio_camera_action('${user}','command','{"sessionId":"${current}","commandId":"40000000-0000-4000-8000-0000000000f0","type":"start","payload":{"takeId":"50000000-0000-4000-8000-0000000000f0"}}');`),
+ ]);
+ assert.equal(racing.filter(value=>value.status==='fulfilled').length,1);
+ assert.match(racing.find(value=>value.status==='rejected').reason.stderr,/studio_camera_busy|studio_camera_not_ready/);
+ assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_sessions WHERE owner_id='${user}' AND controller_id='${controller}' AND status<>'closed';`)).stdout.trim()),1);
+ if(racing[1].status==='fulfilled')assert.equal((await sql(`SELECT status FROM studio_camera_sessions WHERE id='${current}';`)).stdout.trim(),'starting');
+ console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency, durable pairings and safe camera handoff.');
 } finally {
  if (started) await command('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']).catch(() => undefined);
  await rm(temporary, { recursive: true, force: true });

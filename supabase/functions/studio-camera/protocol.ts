@@ -183,6 +183,7 @@ export const errors: Record<string, { status: number; message: string }> = {
   studio_camera_rate_limited: { status: 429, message: 'Aguarde antes de gerar outra conexão.' },
   studio_camera_device_offline: { status: 409, message: 'Reconecte o iPhone antes de gravar.' },
   studio_camera_busy: { status: 409, message: 'Aguarde a confirmação do iPhone.' },
+  studio_camera_pending_upload: { status: 409, message: 'Há um envio pausado no iPhone. Retome o envio no app antes de abrir uma nova sessão.' },
   studio_camera_not_recording: { status: 409, message: 'Não há uma gravação em andamento.' },
   studio_camera_stop_required: { status: 409, message: 'Pare a gravação antes de encerrar a conexão.' },
   studio_camera_original_incomplete: { status: 409, message: 'O envio ainda não foi concluído. O original continua no iPhone.' },

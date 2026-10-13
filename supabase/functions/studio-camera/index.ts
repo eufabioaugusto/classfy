@@ -73,11 +73,13 @@ export async function handleCameraRequest(req: Request): Promise<Response> {
       response.download = { ...(count === 1 ? { url: parts[0].url } : {}), parts, bytes: original.bytes, mime: original.mime,
         totalParts: count, nextPartIndex: end < count ? end : null, expiresAt: new Date(Date.now() + seconds * 1000).toISOString() };
     }
-    if (action === 'close' || action === 'unpair') {
+    if (action === 'close' || action === 'unpair' || (action === 'create' || action === 'join') && Array.isArray(roomsToClose) && roomsToClose.length > 0) {
       // Connection and its preview room have no Mux stream, live, or egress.
       try {
         const { url, key, secret } = rtcConfig();
-        const rooms = action === 'unpair' && Array.isArray(roomsToClose) ? roomsToClose : [session.id];
+        // IDs come only from the owner-scoped RPC, after authority has moved.
+        // Never tear down the newly created/joined session on provider failure.
+        const rooms = action === 'close' ? [session.id] : Array.isArray(roomsToClose) ? roomsToClose : [];
         const service = new RoomServiceClient(url.replace(/^ws/, 'http'), key, secret);
         await Promise.allSettled(rooms.map(id => service.deleteRoom(`classfy-studio-camera-${id}`)));
       } catch { /* The durable session is closed even if the provider is offline. */ }
