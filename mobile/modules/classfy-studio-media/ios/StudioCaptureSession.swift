@@ -70,8 +70,8 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   var onEvent: ((String, [String: Any]) -> Void)?
   private var frameCallback: ((CVPixelBuffer, Int, Bool) -> Void)?
-  private var remoteFrameCallback: ((CVPixelBuffer, CMTime) -> Void)?
-  var onRemoteFrame: ((CVPixelBuffer, CMTime) -> Void)? {
+  private var remoteFrameCallback: ((CVPixelBuffer, CMTime, Int, Bool) -> Void)?
+  var onRemoteFrame: ((CVPixelBuffer, CMTime, Int, Bool) -> Void)? {
     get { frameLock.lock(); defer { frameLock.unlock() }; return remoteFrameCallback }
     set { frameLock.lock(); remoteFrameCallback = newValue; frameLock.unlock() }
   }
@@ -723,7 +723,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     let callback = frameEnabled ? frameCallback : nil
     let remote = frameEnabled ? remoteFrameCallback : nil
     frameLock.unlock()
-    remote?(buffer, CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+    remote?(buffer, CMSampleBufferGetPresentationTimeStamp(sampleBuffer), token, cinematic)
     callback?(buffer, token, cinematic)
   }
 

@@ -45,5 +45,19 @@ import Foundation
     assert(!nextFormat.acceptFrame(revision: 5, generation: 7))
     assert(nextFormat.acceptFrame(revision: 5, generation: 8))
     print("StudioCaptureEffectConfirmation: 6 regressões passaram")
+    for remoteFirst in [true, false] {
+      let both = StudioCaptureEffectConfirmation(revision: 9, generation: 10, requiresRemote: true)
+      assert(!both.acceptFrame(revision: 9, generation: 10, remote: remoteFirst))
+      assert(!both.settled)
+      assert(both.acceptFrame(revision: 9, generation: 10, remote: !remoteFirst))
+      assert(!both.acceptFrame(revision: 9, generation: 10))
+    }
+    let staleRemote = StudioCaptureEffectConfirmation(revision: 10, generation: 11, requiresRemote: true)
+    assert(!staleRemote.acceptFrame(revision: 10, generation: 11))
+    assert(!staleRemote.acceptFrame(revision: 9, generation: 11, remote: true))
+    assert(!staleRemote.acceptFrame(revision: 10, generation: 10, remote: true))
+    assert(staleRemote.cancel())
+    assert(!staleRemote.acceptFrame(revision: 10, generation: 11, remote: true))
+    print("StudioCaptureEffectConfirmation remote: 3 regressões passaram")
   }
 }

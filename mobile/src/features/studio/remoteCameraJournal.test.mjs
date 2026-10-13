@@ -39,3 +39,12 @@ test('saída 2K ao lado do raw em Documents é aceita e recuperada após mudanç
   await h.write(value=>({...value,takes:value.takes.map(item=>({...item,phase:'uploading',partUrls:{0:'https://storage.invalid/resumable/part'}}))}));
   assert.equal((await h.read()).takes[0].uri,reopened.takes[0].uri);
 });
+
+test('derivado tratado e clean separados rebaseiam, outro take ou traversal são recusados',async()=>{
+  const h=harness(),root=`file:///old/Documents/classfy-studio-remote/${owner}/${session}/`;
+  await h.write(value=>({...value,takes:[{id:take,uri:`${root}${take}-grade-12345678.mp4`,sourceUri:`${root}${take}.mov`,phase:'local_ready'}]}));
+  const entry=(await h.read()).takes[0];assert.equal(entry.uri,`${root.replace('/old/','/current/')}${take}-grade-12345678.mp4`);assert.equal(entry.sourceUri,h.journal.remoteMasterUri(owner,session,take));
+  for(const patch of [{uri:`${root}${device}-grade-12345678.mp4`},{sourceUri:`${root}../${take}.mov`},{uri:`${root}${take}-grade-private.mp4`}]){
+    const bad=harness();await bad.write(value=>({...value,takes:[{id:take,uri:entry.uri,sourceUri:entry.sourceUri,phase:'local_ready',...patch}]}));await assert.rejects(bad.read());
+  }
+});

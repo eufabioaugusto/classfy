@@ -28,6 +28,7 @@ struct StudioCameraFocusRecord: Record {
   @Field var x: Double = 0.5
   @Field var y: Double = 0.5
   @Field var locked: Bool = false
+  @Field var imageCoordinates: Bool = false
 }
 struct StudioCameraProRecord: Record {
   @Field var autoExposure: Bool?
@@ -195,7 +196,7 @@ public final class ClassfyStudioMediaModule: Module {
       self.withNativeCamera(tag, promise) { view in view.startRecording(operationId) { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)
     AsyncFunction("startStudioRemoteCameraRecordingAsync") { (tag: Int, takeId: String, owner: String, session: String, promise: Promise) in
-      self.withNativeCamera(tag, promise) { view in view.capture.startRecording(takeId, durableOwner: owner, durableSession: session) { self.settleCamera($0, promise: promise) } }
+      self.withNativeCamera(tag, promise) { view in view.startRemoteRecording(takeId, owner: owner, session: session) { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)
     AsyncFunction("stopStudioNativeCameraRecordingAsync") { (tag: Int, operationId: String, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.stopRecording(operationId) { self.settleCamera($0, promise: promise) } }
@@ -218,7 +219,7 @@ public final class ClassfyStudioMediaModule: Module {
       }
     }.runOnQueue(.main)
     AsyncFunction("setStudioNativeCameraFocusAsync") { (tag: Int, options: StudioCameraFocusRecord, promise: Promise) in
-      self.withNativeCamera(tag, promise) { view in view.focus(x: options.x, y: options.y, locked: options.locked) { self.settleCamera($0, promise: promise) } }
+      self.withNativeCamera(tag, promise) { view in view.focus(x: options.x, y: options.y, locked: options.locked, imageCoordinates: options.imageCoordinates) { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)
     AsyncFunction("seekStudioCompositionAsync") { (tag: Int, seconds: Double, token: Int, promise: Promise) in
       Task { @MainActor in

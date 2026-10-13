@@ -6,13 +6,19 @@ final class StudioCaptureEffectConfirmation {
   let revision: Int
   let generation: Int
   private(set) var settled = false
+  private let requiresRemote: Bool
+  private var localReady = false
+  private var remoteReady = false
 
-  init(revision: Int, generation: Int) {
+  init(revision: Int, generation: Int, requiresRemote: Bool = false) {
     self.revision = revision; self.generation = generation
+    self.requiresRemote = requiresRemote
   }
 
-  func acceptFrame(revision: Int, generation: Int) -> Bool {
+  func acceptFrame(revision: Int, generation: Int, remote: Bool = false) -> Bool {
     guard !settled, revision == self.revision, generation == self.generation else { return false }
+    if remote { remoteReady = true } else { localReady = true }
+    guard localReady, !requiresRemote || remoteReady else { return false }
     settled = true
     return true
   }

@@ -22,11 +22,18 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   private var renderer: StudioEffectRenderer?
   private var grade: StudioImageGrade = .identity
   private var gradeRevision = 0
+  private var lastEffectPropJSON: String?
   private var confirmedGradeRevision: Int?
   private var confirmedGradeGeneration: Int?
+  private var confirmedRemoteGradeRevision: Int?
+  private var confirmedRemoteGradeGeneration: Int?
   private var processedConfiguration = false
   private var recordingEffectLocked = false
-  private var pendingEffect: (request: StudioCaptureEffectConfirmation, completion: StudioCaptureSession.Completion)?
+  private struct PendingEffect {
+    let request: StudioCaptureEffectConfirmation
+    let completion: StudioCaptureSession.Completion
+  }
+  private var pendingEffect: PendingEffect?
   private var effectTimeout: DispatchWorkItem?
   private var requestedActive = false
   private var speechEnabled = false
@@ -62,13 +69,15 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
         self.frameLock.unlock()
         self.processedConfiguration = processed
         self.confirmedGradeRevision = nil; self.confirmedGradeGeneration = nil
+        self.confirmedRemoteGradeRevision = nil; self.confirmedRemoteGradeGeneration = nil
         self.finishPendingEffect(.failure(StudioCaptureError.invalid("O enquadramento mudou. Aguarde a imagem e escolha o tratamento novamente.")))
         self.previewLayer.opacity = 1
         self.metalView?.layer.opacity = 0
         self.applyPreviewConfiguration(configuration)
         let source = configuration.quality == "720p" ? (1280, 720) : (1920, 1080)
         self.remotePreview?.setProfile(sourceWidth: source.0, sourceHeight: source.1,
-          portrait: configuration.orientation == "portrait", fps: configuration.fps)
+          portrait: configuration.orientation == "portrait", fps: configuration.fps, generation: generation)
+        self.remotePreview?.setGrade(self.grade, revision: self.gradeRevision, generation: generation)
         if !processed { self.metalView?.isPaused = true }
       }
     }
@@ -113,7 +122,25 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
           let preview = try StudioCameraRemotePreview(module: module, width: dimensions.width,
             height: dimensions.height, fps: min(StudioCapturePreviewProfile.maxFPS, state["fps"] as? Int ?? 30))
           self.remotePreview = preview
-          self.capture.onRemoteFrame = { [weak preview] buffer, timestamp in preview?.receive(buffer, timestamp: timestamp) }
+          self.confirmedRemoteGradeRevision = nil; self.confirmedRemoteGradeGeneration = nil
+          preview.setGrade(self.grade, revision: self.gradeRevision, generation: self.currentGeneration)
+          preview.onRendered = { [weak self, weak preview] revision, generation in
+            DispatchQueue.main.async { [weak self, weak preview] in
+              guard let self, let preview, self.remotePreview === preview else { return }
+              self.confirmGradeFrame(revision: revision, generation: generation, remote: true)
+            }
+          }
+          preview.onFailure = { [weak self, weak preview] in
+            DispatchQueue.main.async { [weak self, weak preview] in
+              guard let self, let preview, self.remotePreview === preview else { return }
+              self.confirmedRemoteGradeRevision = nil; self.confirmedRemoteGradeGeneration = nil
+              self.finishPendingEffect(.failure(StudioCaptureError.unavailable("A prévia remota não confirmou o tratamento. Reconecte a prévia antes de gravar.")))
+              self.onInterruption(["reason": "remotePreviewUnavailable", "message": "A prévia remota do tratamento foi interrompida. O original permanece no iPhone."])
+            }
+          }
+          self.capture.onRemoteFrame = { [weak preview] buffer, timestamp, generation, cinematic in
+            preview?.receive(buffer, timestamp: timestamp, generation: generation, cinematic: cinematic)
+          }
           preview.register { [weak self] descriptor in
             DispatchQueue.main.async { [weak self] in
               guard let self, self.remotePreviewEpoch == epoch, self.remotePreview === preview, !descriptor.isEmpty else { completion(.failure(StudioCaptureError.unavailable("A prévia remota foi fechada."))); return }
@@ -129,6 +156,7 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
     remotePreviewEpoch += 1; remotePreviewPreparing = false
     capture.onRemoteFrame = nil
     remotePreview?.dispose(); remotePreview = nil
+    confirmedRemoteGradeRevision = nil; confirmedRemoteGradeGeneration = nil
   }
 
   private func prepareMetal() {
@@ -198,6 +226,8 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
     guard decoded.isValid else { throw StudioCaptureError.invalid("Escolha ajustes de imagem válidos.") }
     grade = decoded; gradeRevision += 1
     confirmedGradeRevision = nil; confirmedGradeGeneration = nil
+    confirmedRemoteGradeRevision = nil; confirmedRemoteGradeGeneration = nil
+    remotePreview?.setGrade(decoded, revision: gradeRevision, generation: currentGeneration)
     return effectState(processed: false)
   }
 
@@ -213,8 +243,8 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
       guard renderer != nil, processedConfiguration, !previewFailed else {
         completion(.success(effectState(processed: false))); return
       }
-      let request = StudioCaptureEffectConfirmation(revision: gradeRevision, generation: currentGeneration)
-      pendingEffect = (request, completion)
+      let request = StudioCaptureEffectConfirmation(revision: gradeRevision, generation: currentGeneration, requiresRemote: remotePreview != nil)
+      pendingEffect = PendingEffect(request: request, completion: completion)
       let timeout = DispatchWorkItem { [weak self] in
         guard let self, self.pendingEffect?.request === request else { return }
         self.finishPendingEffect(.failure(StudioCaptureError.unavailable("A câmera não confirmou a prévia do tratamento. Tente novamente ou use Natural.")))
@@ -227,7 +257,17 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   private func effectState(processed: Bool) -> [String: Any] {
     ["effectRevision": gradeRevision, "previewProcessed": processed, "generation": currentGeneration,
      "grade": ["preset": grade.preset, "intensity": grade.intensity, "exposure": grade.exposure,
-               "contrast": grade.contrast, "saturation": grade.saturation, "temperature": grade.temperature]]
+               "contrast": grade.contrast, "saturation": grade.saturation, "temperature": grade.temperature],
+     "remotePreviewProcessed": confirmedRemoteGradeRevision == gradeRevision && confirmedRemoteGradeGeneration == currentGeneration]
+  }
+
+  private func confirmGradeFrame(revision: Int, generation: Int, remote: Bool) {
+    guard revision == gradeRevision, generation == currentGeneration, requestedActive, !inBackground, window != nil else { return }
+    if remote { confirmedRemoteGradeRevision = revision; confirmedRemoteGradeGeneration = generation }
+    else { confirmedGradeRevision = revision; confirmedGradeGeneration = generation }
+    guard let pending = pendingEffect,
+      pending.request.acceptFrame(revision: revision, generation: generation, remote: remote) else { return }
+    finishPendingEffect(.success(effectState(processed: true)))
   }
 
   private func finishPendingEffect(_ result: Result<[String: Any], Error>) {
@@ -238,22 +278,46 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   }
 
   func applyEffectRecipeJSON(_ json: String) {
-    do { _ = try setEffectRecipeJSON(json) }
+    // Expo can replay an unchanged prop alongside other updates. It must not
+    // replace a newer imperative grade or invalidate its real frame receipt.
+    guard lastEffectPropJSON != json else { return }
+    do { _ = try setEffectRecipeJSON(json); lastEffectPropJSON = json }
     catch { onError(["code": "E_STUDIO_GRADE", "message": error.localizedDescription]) }
   }
 
-  func capabilities(completion: @escaping StudioCaptureSession.Completion) { capture.capabilities(completion: completion) }
+  func capabilities(completion: @escaping StudioCaptureSession.Completion) {
+    capture.capabilities { [weak self] result in DispatchQueue.main.async { [weak self] in
+      guard let self else { completion(.failure(StudioCaptureError.unavailable("A câmera foi fechada."))); return }
+      completion(result.map { state in var state = state
+        state["imageGrade"] = self.effectState(processed: false)["grade"]
+        state["imageGradeConfirmed"] = self.confirmedGradeRevision == self.gradeRevision && self.confirmedGradeGeneration == self.currentGeneration
+        state["remoteGradeConfirmed"] = self.confirmedRemoteGradeRevision == self.gradeRevision && self.confirmedRemoteGradeGeneration == self.currentGeneration
+        state["supportsImageGrade"] = self.renderer != nil && self.processedConfiguration && !self.previewFailed
+        return state
+      })
+    } }
+  }
   func configure(_ configuration: StudioCaptureConfiguration, completion: @escaping StudioCaptureSession.Completion) {
     capture.configure(configuration, completion: completion)
   }
   func startRecording(_ operationId: String, completion: @escaping StudioCaptureSession.Completion) {
+    startOwnedRecording(operationId, durableOwner: nil, durableSession: nil, completion: completion)
+  }
+  func startRemoteRecording(_ operationId: String, owner: String, session: String, completion: @escaping StudioCaptureSession.Completion) {
+    startOwnedRecording(operationId, durableOwner: owner, durableSession: session, completion: completion)
+  }
+  private func startOwnedRecording(_ operationId: String, durableOwner: String?, durableSession: String?, completion: @escaping StudioCaptureSession.Completion) {
     guard !recordingEffectLocked, pendingEffect == nil else { completion(.failure(StudioCaptureError.busy)); return }
-    let treated = grade.preset != "natural" || grade.exposure != 0 || grade.contrast != 0 || grade.saturation != 0 || grade.temperature != 0
+    let treated = !grade.isIdentity
     guard !treated || (processedConfiguration && !previewFailed && confirmedGradeRevision == gradeRevision && confirmedGradeGeneration == currentGeneration) else {
       completion(.failure(StudioCaptureError.unavailable("Confirme o tratamento na prévia ou escolha Natural antes de gravar."))); return
     }
+    guard !treated || durableOwner == nil || remotePreview == nil ||
+      (confirmedRemoteGradeRevision == gradeRevision && confirmedRemoteGradeGeneration == currentGeneration) else {
+      completion(.failure(StudioCaptureError.unavailable("Aguarde o tratamento aparecer na prévia remota antes de gravar."))); return
+    }
     recordingEffectLocked = true
-    capture.startRecording(operationId) { [weak self] result in
+    capture.startRecording(operationId, durableOwner: durableOwner, durableSession: durableSession) { [weak self] result in
       DispatchQueue.main.async { [weak self] in
         self?.recordingEffectLocked = false
         completion(result)
@@ -270,11 +334,16 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
 
   /// Uses the same aspect-fit geometry, rotation and mirroring as the Metal
   /// canvas. Ignore black rails instead of focusing a point outside the frame.
-  func focus(x: Double, y: Double, locked: Bool, completion: @escaping StudioCaptureSession.Completion) {
+  func focus(x: Double, y: Double, locked: Bool, imageCoordinates: Bool = false, completion: @escaping StudioCaptureSession.Completion) {
     guard x.isFinite, y.isFinite, (0...1).contains(x), (0...1).contains(y), bounds.width > 0, bounds.height > 0 else {
       completion(.failure(StudioCaptureError.invalid("Toque dentro da imagem para escolher o foco."))); return
     }
-    let point = CGPoint(x: bounds.width * CGFloat(x), y: bounds.height * CGFloat(y))
+    let videoRect = previewLayer.layerRectConverted(fromMetadataOutputRect: CGRect(x: 0, y: 0, width: 1, height: 1))
+    guard !imageCoordinates || videoRect.width > 0 && videoRect.height > 0 else {
+      completion(.failure(StudioCaptureError.unavailable("Aguarde a imagem da câmera antes de escolher o foco."))); return
+    }
+    let point = imageCoordinates ? CGPoint(x: videoRect.minX + videoRect.width * CGFloat(x), y: videoRect.minY + videoRect.height * CGFloat(y))
+      : CGPoint(x: bounds.width * CGFloat(x), y: bounds.height * CGFloat(y))
     let metadataRect = previewLayer.metadataOutputRectConverted(fromLayerRect: CGRect(origin: point, size: CGSize(width: 1, height: 1)))
     guard metadataRect.minX >= 0, metadataRect.minY >= 0, metadataRect.maxX <= 1.01, metadataRect.maxY <= 1.01 else {
       completion(.failure(StudioCaptureError.invalid("Toque dentro da imagem, fora das margens pretas."))); return
@@ -385,11 +454,7 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
         if command.status != .completed { self.restoreOriginalPreview(); return }
         self.previewLayer.opacity = 0
         self.metalView?.layer.opacity = 1
-        if self.gradeRevision == renderedGradeRevision,
-           self.pendingEffect?.request.acceptFrame(revision: renderedGradeRevision, generation: pending.generation) == true {
-          self.confirmedGradeRevision = renderedGradeRevision; self.confirmedGradeGeneration = pending.generation
-          self.finishPendingEffect(.success(self.effectState(processed: true)))
-        }
+        self.confirmGradeFrame(revision: renderedGradeRevision, generation: pending.generation, remote: false)
       }
     }
     commands.present(drawable)

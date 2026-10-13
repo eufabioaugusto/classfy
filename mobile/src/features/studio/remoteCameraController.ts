@@ -5,6 +5,7 @@ import {mergeRemoteCameraConfiguration} from './remoteCameraConfiguration.ts';
 export type RemoteCameraNative = {
   configure(configuration:StudioRemoteConfiguration):Promise<StudioRemoteDeviceState>;
   snapshot():Promise<StudioRemoteDeviceState>;
+  focus?(point:{x:number;y:number;locked:boolean}):Promise<StudioRemoteDeviceState>;
   begin(takeId:string):{started:Promise<number>;finished:Promise<{uri:string}>};
   stop(takeId:string):Promise<void>;
   preview(connection:NonNullable<StudioRemoteResponse['connection']>):Promise<void>;
@@ -18,12 +19,14 @@ export type RemoteCameraDependencies = {
   mutate(sessionId:string,change:(latest:RemoteCameraJournal)=>RemoteCameraJournal):Promise<RemoteCameraJournal>;
   masterUri(sessionId:string,takeId:string):string;
   inspect(uri:string):Promise<NonNullable<RemoteTakeJournal['metadata']>>;
+  prepareMaster?(session:StudioRemoteSession,take:RemoteTakeJournal,onProgress?:(progress:number,stage:string)=>void):Promise<{uri:string;metadata:NonNullable<RemoteTakeJournal['metadata']>;signature?:string}>;
   saveLocal(session:StudioRemoteSession,take:RemoteTakeJournal):Promise<{projectId:string;localTakeId:string}>;
   upload(session:StudioRemoteSession,take:RemoteTakeJournal,onProgress?:(bytes:number)=>void):Promise<void>;
 };
 export type RemoteCameraSnapshot={phase:'idle'|'joining'|'waiting'|'unpaired'|'preparing'|'ready'|'starting'|'recording'|'saving'|'error'|'closed';session:StudioRemoteSession|null;
   linkedControllerId?:string|null;
   state:StudioRemoteDeviceState|null;error:string|null;previewConnected:boolean;uploading:boolean;takeCount:number;syncUncertaintyMs:number|null;recordingStartedAtMs?:number;
+  processing?:boolean;processingProgress?:number;processingStage?:string;
   uploadState?:'uploading'|'paused'|'idle'|'complete';uploadProgressBytes?:number;uploadTotalBytes?:number;uploadPendingCount?:number;uploadTakeId?:string|null;uploadError?:string|null;uploadResumedAtServerMs?:number};
 const failure=(cause:unknown)=>(cause instanceof Error?cause.message:'A conexão foi interrompida. Os originais permanecem no iPhone.')
   .replace(/(?:https?|wss?|file):\/\/\S+|Bearer\s+\S+|\beyJ[\w-]+\.[\w-]+\.[\w-]+\b/gi,'[dado privado omitido]').slice(0,500);
@@ -49,21 +52,38 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       if(rtt<bestRtt){bestRtt=rtt;offset=observedOffset;publish({syncUncertaintyMs:rtt/2});}
     }
     if(state.session&&response.session.id!==state.session.id&&action!=='unpair')throw new Error('A resposta pertence a outra conexão.');
-    publish({session:response.session});return response;
+    if(!state.session||!Number.isFinite(state.session.sequence)||!Number.isFinite(response.session.sequence)||response.session.sequence>=state.session.sequence)publish({session:response.session});return response;
   };
   const patchTake=(sessionId:string,id:string,patch:Partial<RemoteTakeJournal>)=>deps.mutate(sessionId,journal=>({...journal,takes:journal.takes.map(take=>take.id===id?{...take,...patch}:take)}));
   const transferState=()=>({uploadState:state.uploadState||'idle',uploadProgressBytes:state.uploadProgressBytes||0,
     uploadTotalBytes:state.uploadTotalBytes||0,uploadTakeId:state.uploadTakeId||null,uploadError:state.uploadError||null,uploading:state.uploading,
+    processing:state.processing===true,processingProgress:state.processingProgress||0,processingStage:state.processingStage||null,
     ...(state.uploadResumedAtServerMs!==undefined?{uploadResumedAtServerMs:state.uploadResumedAtServerMs}:{})});
   let lastTransferHeartbeat=0;
   async function transferHeartbeat(force=false){if(native||!current()||!state.session||!force&&now()-lastTransferHeartbeat<1500)return;
     lastTransferHeartbeat=now();await request('heartbeat',{sessionId:state.session.id,role:'device',clientId:deps.deviceId,
       state:{recording:false,cameraConnected:false,...transferState()}}).catch(()=>undefined);}
+  let lastProcessingHeartbeat=0;
+  async function processingHeartbeat(){
+    if(!current()||!state.session||now()-lastProcessingHeartbeat<1500)return;
+    lastProcessingHeartbeat=now();await request('heartbeat',{sessionId:state.session.id,role:'device',clientId:deps.deviceId,
+      state:{...state.state,...transferState()}}).catch(()=>undefined);
+  }
   async function localReady(session:StudioRemoteSession,id:string,uri:string) {
-    const metadata=await deps.inspect(uri);
     const journal=await deps.journal(session.id), existing=journal.takes.find(take=>take.id===id);
     if(!existing)throw new Error('O original não possui diário local.');
-    const take={...existing,uri,metadata:{...metadata,...(existing.startedAtServerMs!==undefined?{startedAtServerMs:existing.startedAtServerMs}:{})},phase:'local_ready' as const};
+    const sourceUri=existing.sourceUri||uri,sourceMetadata=await deps.inspect(sourceUri);
+    const original={...existing,sourceUri,sourceMetadata};
+    // Persist the clean source and frozen look before any derived encoding.
+    // An interrupted export never makes the ungraded source upload-ready.
+    await patchTake(session.id,id,original);
+    let prepared:{uri:string;metadata:NonNullable<RemoteTakeJournal['metadata']>;signature?:string}={uri:sourceUri,metadata:sourceMetadata};
+    if(deps.prepareMaster){
+      publish({processing:true,processingProgress:0,processingStage:'rendering'});void processingHeartbeat();
+      try{prepared=await deps.prepareMaster(session,original,(progress,stage)=>{if(current()){publish({processingProgress:Math.max(0,Math.min(1,progress)),processingStage:stage});void processingHeartbeat();}});}
+      finally{publish({processing:false,processingProgress:undefined,processingStage:undefined});lastProcessingHeartbeat=0;void processingHeartbeat();}
+    }
+    const take={...original,uri:prepared.uri,...(prepared.signature?{gradeSignature:prepared.signature}:{}),metadata:{...prepared.metadata,...(existing.startedAtServerMs!==undefined?{startedAtServerMs:existing.startedAtServerMs}:{})},phase:'local_ready' as const};
     // Durability survives blur/sign-out; UI/network work still requires current().
     await patchTake(session.id,id,take);
     if(current()) {
@@ -79,9 +99,9 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
         if(!take.localTakeId&&current())try {await patchTake(session.id,take.id,await deps.saveLocal(session,take));}catch(cause){publish({error:`Original preservado. ${failure(cause)}`});}
         continue;
       }
-      try {await localReady(session,take.id,take.uri);}catch {/* Empty/incomplete originals remain in the journal; never overwrite them. */}
+      try {await localReady(session,take.id,take.sourceUri||take.uri);}catch(cause){if(take.sourceMetadata&&current())publish({uploadState:'paused',uploadTakeId:take.id,uploadError:failure(cause),error:failure(cause)});/* The clean source is never replaced or uploaded without its chosen look. */}
     }
-    const preserved=(await deps.journal(session.id)).takes.filter(take=>take.metadata);
+    const preserved=(await deps.journal(session.id)).takes.filter(take=>take.metadata||take.sourceMetadata);
     publish({takeCount:preserved.length,uploadPendingCount:preserved.filter(take=>take.phase!=='uploaded').length});
   }
   async function uploads(takeId?:string) {
@@ -151,7 +171,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       }else if(command.type==='configure') {
         if(active)throw new Error('Finalize o take antes de alterar a câmera.');
         const patch=command.payload as Partial<StudioRemoteConfiguration>;
-        const configured=await native.configure(mergeRemoteCameraConfiguration(session.configuration,patch));check();
+        const configured=await native.configure(mergeRemoteCameraConfiguration(state.state?.configuration||session.deviceState?.configuration||session.configuration,patch));check();
         if(!state.previewConnected&&connection){await native.preview(connection);check();publish({previewConnected:true});}
         publish({state:configured,phase:'ready',error:null});result={ok:true,state:configured};
       }else if(command.type==='start') {
@@ -160,7 +180,10 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
         if(journal.takes.some(take=>take.id===takeId))throw new Error('Este take já foi iniciado. Recupere o original em vez de gravar novamente.');
         if(active)throw new Error('A câmera já está gravando outro take.');
         const uri=deps.masterUri(session.id,takeId);
-        await deps.mutate(session.id,value=>({...value,takes:[...value.takes,{id:takeId,uri,phase:'reserved'}]}));check();
+        const beforeTake=await native.snapshot();check();
+        if(beforeTake.imageGradeConfirmed===false)throw new Error('Confirme o tratamento da imagem antes de gravar.');
+        const imageGrade=beforeTake.imageGrade ?? beforeTake.configuration?.imageGrade ?? session.configuration.imageGrade;
+        await deps.mutate(session.id,value=>({...value,takes:[...value.takes,{id:takeId,uri,phase:'reserved',...(imageGrade?{imageGrade:structuredClone(imageGrade) as StudioRemoteConfiguration['imageGrade']}:{})}]}));check();
         const recording=native.begin(takeId);
         let owned:ActiveTake;
         const finished=recording.finished.then(file=>localReady(session,takeId,file.uri));
@@ -179,15 +202,22 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       }else if(command.type==='stop') {
         const takeId=String(command.payload.takeId||'');
         let take:RemoteTakeJournal|undefined;
-        if(active?.id===takeId){active.stopping=true;publish({phase:'saving'});const owned=active;await native.stop(takeId);take=await owned.finished;}
-        else take=(await deps.journal(session.id)).takes.find(value=>value.id===takeId&&value.metadata);
-        if(!take?.metadata)throw new Error('Não foi possível encontrar o original deste take. Os arquivos permanecem no iPhone.');
-        check();publish({phase:'ready'});result={ok:true,takeId,metadata:take.metadata,state:await native.snapshot()};
+        let preparationError:unknown;
+        if(active?.id===takeId){active.stopping=true;publish({phase:'saving'});const owned=active;await native.stop(takeId);try{take=await owned.finished;}catch(cause){preparationError=cause;}}
+        if(!take)take=(await deps.journal(session.id)).takes.find(value=>value.id===takeId);
+        if(!take?.metadata){
+          if(!take?.sourceMetadata)throw new Error('Não foi possível encontrar o original deste take. Os arquivos permanecem no iPhone.');
+          const message=failure(preparationError||state.uploadError||'Retome a preparação da imagem com o app aberto. O original está preservado.');
+          check();publish({phase:'ready',recordingStartedAtMs:undefined,processing:false,uploadState:'paused',uploadTakeId:takeId,uploadError:message,error:message,takeCount:(await deps.journal(session.id)).takes.filter(value=>value.metadata||value.sourceMetadata).length});
+          // STOP succeeded physically. Do not pretend it is still recording when
+          // a later image export failed; metadata becomes final only after retry.
+          result={ok:true,takeId,state:{...await native.snapshot(),...transferState()}};
+        }else{check();publish({phase:'ready'});result={ok:true,takeId,metadata:take.metadata,state:await native.snapshot()};}
       }else throw new Error('O comando não é compatível com este aplicativo.');
     }catch(cause){result={ok:false,error:failure(cause)};if(current())publish({error:failure(cause)});}
     check();await ack(command,result);
     if(startedTake&&result.ok){startedTake.acknowledged=true;if((await deps.journal(session.id)).takes.find(take=>take.id===startedTake!.id)?.metadata)void uploads(startedTake.id);}
-    if(command.type==='stop'&&result.ok)void uploads(String(result.takeId));
+    if(command.type==='stop'&&result.ok&&result.metadata)void uploads(String(result.takeId));
     if(command.type==='resume_upload'&&result.ok&&result.uploadState!=='complete')void uploads(String(result.takeId));
   }
   const controller={
@@ -212,7 +242,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       await native?.disconnect();native=null;connection=undefined;publish({phase:'unpaired',previewConnected:false,linkedControllerId:null,error:null});},
     async recoverLocal(sessionId:string){publish({phase:'joining',error:null});const response=await request('status',{sessionId,afterSequence:0});await recover(response.session);await uploads();publish({phase:'closed'});},
     async cameraReady(port:RemoteCameraNative){if(native||!state.session||!connection||!current())return;native=port;
-      try{const snapshot=await port.snapshot();publish({state:snapshot});const configured=await port.configure(state.session.configuration);check();publish({state:configured});await port.preview(connection);check();publish({phase:'ready',previewConnected:true});await controller.poll();void uploads();}
+      try{const snapshot=await port.snapshot();publish({state:snapshot});const configured=await port.configure(state.session.deviceState?.configuration||state.session.configuration);check();publish({state:configured});await port.preview(connection);check();publish({phase:'ready',previewConnected:true});await controller.poll();void uploads();}
       catch(cause){publish({phase:'error',error:failure(cause)});if(current()&&state.session)void request('heartbeat',{sessionId:state.session.id,role:'device',clientId:deps.deviceId,state:{...state.state,error:failure(cause)}}).catch(()=>undefined);}},
     async poll(){if(polling||!state.session||!native||!current())return polling;
       const work=(async()=>{const session=state.session!,journal=await deps.journal(session.id);const response=await request('status',{sessionId:session.id,afterSequence:journal.sequence});
@@ -225,10 +255,18 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
     async retryUploads(){if(!state.session)throw new Error('Conecte ao Studio para enviar os originais.');
       publish({error:null,uploadError:null});await recover(state.session);check();
       const takes=(await deps.journal(state.session.id)).takes;
-      if(!takes.some(take=>take.metadata))throw new Error('Nenhum original concluído está disponível para envio neste aparelho.');
+      if(!takes.some(take=>take.metadata))throw new Error(state.uploadError||(takes.some(take=>take.sourceMetadata)?'Retome a preparação da imagem. O original limpo está preservado.':'Nenhum original concluído está disponível para envio neste aparelho.'));
       if(!takes.some(take=>take.metadata&&take.phase!=='uploaded')){publish({uploadState:'complete',uploading:false,uploadPendingCount:0});return;}
       publish({uploadResumedAtServerMs:now()+offset});await uploads();},
     async reconnectPreview(){if(!native||!state.session)return;const response=await request('connect',{sessionId:state.session.id,role:'device',clientId:deps.deviceId});if(!response.connection)throw new Error('A prévia privada não foi renovada.');await native.disconnect();await native.preview(response.connection);connection=response.connection;publish({previewConnected:true,error:null});},
+    async focusLocal(point:{x:number;y:number;locked:boolean}){
+      check();if(!native?.focus||!state.session||!['ready','recording'].includes(state.phase))throw new Error('Aguarde a câmera estar pronta para focar.');
+      const owned=native;
+      const work=commandWork.catch(()=>undefined).then(async()=>{check();if(native!==owned)throw new Error('A câmera mudou.');
+        const focused=await owned.focus!(point);check();publish({state:focused,error:null});
+        await request('heartbeat',{sessionId:state.session!.id,role:'device',clientId:deps.deviceId,state:{...focused,...transferState()}}).catch(cause=>{check();publish({error:failure(cause)});});check();return focused;});
+      commandWork=work.then(()=>undefined,()=>undefined);return work;
+    },
     async stopLocal(){if(active&&native){active.stopping=true;const owned=active;publish({phase:'saving'});await native.stop(owned.id);await owned.finished;publish({phase:'ready'});void uploads(owned.id);}},
     async disconnect(){if(active&&native)await controller.stopLocal();await native?.disconnect();native=null;connection=undefined;publish({phase:'closed',previewConnected:false});},
     async dispose(){closed=true;listeners.clear();if(active&&native){const owned=active;owned.stopping=true;await native.stop(owned.id).catch(()=>undefined);await owned.finished.catch(()=>undefined);}await native?.disconnect().catch(()=>undefined);native=null;},

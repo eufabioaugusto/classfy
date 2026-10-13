@@ -44,6 +44,61 @@ struct StudioImageGrade: Codable, Equatable {
       && exposure.isFinite && (-2...2).contains(exposure)
       && [contrast, saturation, temperature].allSatisfy { $0.isFinite && (-1...1).contains($0) }
   }
+  var isIdentity: Bool {
+    intensity == 0 || (preset == "natural" && exposure == 0 && contrast == 0 && saturation == 0 && temperature == 0)
+  }
+}
+
+enum StudioRemoteFrameRenderError: Error { case busy, invalid }
+
+/// Separate serial-queue context: one remote frame is rendered at a time.
+/// The capture delegate only replaces its bounded mailbox, never waits on GPU.
+final class StudioRemoteFrameRenderer {
+  private let renderer: StudioEffectRenderer
+  private var pool: CVPixelBufferPool?
+  private var size = CGSize.zero
+  init(renderer: StudioEffectRenderer = StudioEffectRenderer()) { self.renderer = renderer }
+
+  func render(_ buffer: CVPixelBuffer, grade: StudioImageGrade, width: Int, height: Int,
+              sourceStage: StudioSourceStage = .standard) throws -> CVPixelBuffer {
+    guard grade.isValid, width > 0, height > 0, max(width, height) <= 1920,
+      min(width, height) <= 1080, sourceStage != .cinematicRaw else { throw StudioRemoteFrameRenderError.invalid }
+    if size != CGSize(width: width, height: height) || pool == nil {
+      pool = nil
+      let attributes: [String: Any] = [kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferMetalCompatibilityKey as String: true, kCVPixelBufferIOSurfacePropertiesKey as String: [:]]
+      guard CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attributes as CFDictionary, &pool) == kCVReturnSuccess else {
+        throw StudioRemoteFrameRenderError.invalid
+      }
+      size = CGSize(width: width, height: height)
+    }
+    guard let pool else { throw StudioRemoteFrameRenderError.invalid }
+    var output: CVPixelBuffer?
+    let status = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault, pool,
+      [kCVPixelBufferPoolAllocationThresholdKey as String: 3] as CFDictionary, &output)
+    if status == kCVReturnWouldExceedAllocationThreshold { throw StudioRemoteFrameRenderError.busy }
+    guard status == kCVReturnSuccess, let output else { throw StudioRemoteFrameRenderError.invalid }
+    CVBufferSetAttachment(output, kCVImageBufferCGColorSpaceKey, StudioEffectRenderer.outputColorSpace, .shouldPropagate)
+    CVBufferSetAttachment(output, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
+    CVBufferSetAttachment(output, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
+    CVBufferSetAttachment(output, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
+    let input = CIImage(cvPixelBuffer: buffer), treated = renderer.outputImage(input, grade: grade, sourceStage: sourceStage)
+    guard treated.extent.width > 0, treated.extent.height > 0 else { throw StudioRemoteFrameRenderError.invalid }
+    let scale = min(CGFloat(width) / treated.extent.width, CGFloat(height) / treated.extent.height)
+    let transform = CGAffineTransform(translationX: -treated.extent.minX, y: -treated.extent.minY)
+      .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+      .concatenating(CGAffineTransform(translationX: (CGFloat(width) - treated.extent.width * scale) / 2,
+        y: (CGFloat(height) - treated.extent.height * scale) / 2))
+    let bounds = CGRect(origin: .zero, size: size)
+    let image = treated.transformed(by: transform).composited(over: CIImage(color: .black).cropped(to: bounds)).cropped(to: bounds)
+    let destination = CIRenderDestination(pixelBuffer: output)
+    destination.colorSpace = StudioEffectRenderer.outputColorSpace
+    destination.alphaMode = .none
+    let task = try renderer.context.startTask(toRender: image, to: destination)
+    _ = try task.waitUntilCompleted()
+    return output
+  }
 }
 
 // One color pipeline for capture preview, composition preview, source-frame

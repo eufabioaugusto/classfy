@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
+import * as model from './model.ts';
 import * as controller from './remoteCameraController.ts';
 import * as upload from './remoteCameraUpload.ts';
 import * as transfer from './uploadTransport.ts';
@@ -16,6 +17,9 @@ function nativeHarness(options={}){
     minZoom:1,maxZoom:7.5,zoom:1,generation:2,proConfirmed:true,pro:{supportsExposure:true,iso:100,shutterSeconds:1/60}};
   const native={getStudioNativeCameraCapabilitiesAsync:async()=>state,
     configureStudioNativeCameraAsync:async(tag,config)=>{calls.push({kind:'configure',tag,config});return state;},
+    isStudioNativeCameraEffectsAvailable:()=>true,isStudioCompositionAvailable:()=>true,
+    setStudioNativeCameraEffectAsync:async(tag,json)=>{calls.push({kind:'grade',tag,grade:JSON.parse(json)});if(options.failGrade?.())throw Error('Imagem recusada');state.imageGrade=JSON.parse(json);state.imageGradeConfirmed=true;return {previewProcessed:true,grade:state.imageGrade,generation:state.generation,effectRevision:1};},
+    setStudioNativeCameraFocusAsync:async(tag,point)=>{calls.push({kind:'focus',tag,point});return {...state,supportsFocus:true,focusLocked:point.locked};},
     setStudioNativeCameraProSettingsAsync:async(tag,pro)=>{calls.push({kind:'pro',tag,pro});if(options.failPro?.())throw Error('Ajuste recusado');return state;},
     setStudioNativeCameraZoomAsync:async(tag,value)=>{calls.push({kind:'zoom',tag,value});state.zoom=Math.min(state.maxZoom,Math.max(state.minZoom,value));return state;},
     startStudioRemoteCameraRecordingAsync:(...args)=>{calls.push({kind:'REC',args});return recording.promise;},
@@ -33,6 +37,7 @@ function nativeHarness(options={}){
     'react-native':{NativeModules:{WebRTCModule:{audioDeviceModuleSetAutomaticAudioSessionConfiguration:value=>calls.push({kind:'audio-policy',value})}}},
     '@/features/live/request':{withLiveDeadline:run=>run()},'../../../modules/classfy-studio-media':native,
     './remoteCameraController':controller,'./remoteCameraUpload':upload,'./remoteCameraApi':{assertRemoteCameraScope:()=>{if(!current)throw Error('stale');}},
+    './model':model,'./remoteCameraGrade':{prepareRemoteCameraGradedMaster:async()=>{throw Error('unused');}},
     './remoteCameraJournal':{},'./store':{},'./media':{},'./uploadTransport':transfer,
     'livekit-client':sdk,'@livekit/react-native-webrtc':{MediaStream:class{constructor(descriptor){calls.push({kind:'stream',descriptor});}getVideoTracks(){return [{id:'native-track'}];}release(){calls.push({kind:'release-stream'});}}},
     '@livekit/react-native':{registerGlobals:options=>calls.push({kind:'register',options}),setupIOSAudioManagement:()=>calls.push({kind:'restore-audio-policy'})},
@@ -84,4 +89,19 @@ test('falha PRO após mudar formato não libera REC com configuração não conf
   failed=false;await h.port.port.configure({...h.session.configuration,pro:{autoExposure:true}});const operation=h.port.port.begin('take');
   h.port.onRecordingState({phase:'recording',operationId:'take',startedAtEpochMs:123});assert.equal(await operation.started,123);
   h.recording.resolve({uri:'file:///private/master.mov'});await operation.finished;
+});
+
+test('grade esperaACK e falha não liberaREC; prévia reaplica mesma grade sem alterar master',async()=>{
+  let fail=true;const h=nativeHarness({failGrade:()=>fail});const grade=model.studioGrade('cinematic');
+  await assert.rejects(h.port.port.configure({...h.session.configuration,imageGrade:grade}),/Imagem recusada/);
+  assert.equal((await h.port.port.snapshot()).configurationConfirmed,false);assert.throws(()=>h.port.port.begin('take'),/Reconfirme/);
+  fail=false;await h.port.port.configure({...h.session.configuration,imageGrade:grade});await h.port.port.preview({url:'wss://private.invalid',token:'not-real',identity:'device'});
+  assert.deepEqual(h.calls.filter(x=>x.kind==='grade').at(-1).grade,grade);assert.deepEqual((await h.port.port.snapshot()).imageGrade,grade);assert.equal(h.calls.filter(x=>x.kind==='REC').length,0);await h.port.port.disconnect();
+});
+test('ponto remoto usa imagem orientada; toque local usa view e não reenvia manual antigo',async()=>{
+  const h=nativeHarness();await h.port.port.configure({...h.session.configuration,pro:{autoFocus:false,lensPosition:.2,autoExposure:false,iso:200,shutterSeconds:.01,focusPoint:{x:.3,y:.7,locked:false}}});
+  const remote=h.calls.find(x=>x.kind==='focus');assert.deepEqual(remote.point,{x:.3,y:.7,locked:false,imageCoordinates:true});
+  const configured=(await h.port.port.snapshot()).configuration;assert.equal(configured.pro.focusPoint,undefined);assert.equal(configured.pro.autoFocus,true);assert.equal(configured.pro.lensPosition,undefined);
+  await h.port.port.focus({x:.4,y:.6,locked:false});assert.deepEqual(h.calls.filter(x=>x.kind==='focus').at(-1).point,{x:.4,y:.6,locked:false});
+  await assert.rejects(h.port.port.focus({x:Infinity,y:.5,locked:false}),/Toque/);await h.port.port.disconnect();
 });

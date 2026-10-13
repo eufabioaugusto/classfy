@@ -53,6 +53,7 @@ export type StudioCameraState = {
   isRecording: boolean;
   pro?: StudioCameraProState; proConfirmed?: boolean; sourceWidth?: number; sourceHeight?: number; downsampled?: boolean;
   generation?: number; revision?: number; phase?: string;
+  supportsImageGrade?: boolean; imageGrade?: StudioGrade; imageGradeConfirmed?: boolean; remoteGradeConfirmed?: boolean;
   supportsCinematicCapture?: boolean; cinematic?: boolean; cinematicUnavailableReason?: string; previewProcessed?: boolean;
 };
 export type StudioExportOptions = {
@@ -258,7 +259,7 @@ export function startStudioRemoteCameraRecordingAsync(tag: number, takeId: strin
 export function stopStudioNativeCameraRecordingAsync(tag: number, operationId: string) { return studioNativeModule().stopStudioNativeCameraRecordingAsync(tag, operationId); }
 export function setStudioNativeCameraZoomAsync(tag: number, factor: number) { return studioNativeModule().setStudioNativeCameraZoomAsync(tag, factor); }
 export function setStudioNativeCameraExposureAsync(tag: number, bias: number) { return studioNativeModule().setStudioNativeCameraExposureAsync(tag, bias); }
-export function setStudioNativeCameraFocusAsync(tag: number, options: { x: number; y: number; locked: boolean }) { return studioNativeModule().setStudioNativeCameraFocusAsync(tag, options); }
+export function setStudioNativeCameraFocusAsync(tag: number, options: { x: number; y: number; locked: boolean; imageCoordinates?: boolean }) { return studioNativeModule().setStudioNativeCameraFocusAsync(tag, options); }
 export function setStudioNativeCameraTorchAsync(tag: number, enabled: boolean) { return studioNativeModule().setStudioNativeCameraTorchAsync(tag, enabled); }
 export function setStudioNativeCameraEffectAsync(tag: number, recipeJSON: string) {
   if (!isStudioNativeCameraEffectsAvailable()) throw new Error('Atualize o Classfy Dev para pré-visualizar tratamentos na câmera.');

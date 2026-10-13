@@ -14,11 +14,18 @@ final class StudioCameraRemotePreview {
   private let stream: LKRTCMediaStream
   private let lock = NSLock()
   private let deliveryQueue = DispatchQueue(label: "br.com.classfy.studio.remote-preview", qos: .userInteractive)
-  private var mailbox = StudioRemotePreviewMailbox<(buffer: CVPixelBuffer, timestamp: Int64)>()
+  private var mailbox = StudioRemotePreviewMailbox<(buffer: CVPixelBuffer, timestamp: Int64, generation: Int, cinematic: Bool)>()
   private var pendingProfile: (width: Int, height: Int, fps: Int, epoch: Int)?
   private var deliveryScheduled = false
   private var frameGate: StudioRemotePreviewFrameGate
   private var closed = false
+  private let renderer = StudioRemoteFrameRenderer()
+  private var grade = StudioImageGrade.identity
+  private var gradeRevision = 0
+  private var generation = 0
+  private var renderFailed = false
+  var onRendered: ((Int, Int) -> Void)?
+  var onFailure: (() -> Void)?
   private(set) var width: Int
   private(set) var height: Int
   private(set) var fps: Int
@@ -36,17 +43,26 @@ final class StudioCameraRemotePreview {
     stream = module.peerConnectionFactory.mediaStream(withStreamId: UUID().uuidString)
     stream.addVideoTrack(track)
   }
-  func setProfile(sourceWidth: Int, sourceHeight: Int, portrait: Bool, fps: Int) {
+  func setProfile(sourceWidth: Int, sourceHeight: Int, portrait: Bool, fps: Int, generation: Int) {
     lock.lock()
     guard !closed else { lock.unlock(); return }
     let dimensions = StudioCapturePreviewProfile.dimensions(sourceWidth: sourceWidth, sourceHeight: sourceHeight, portrait: portrait)
     width = dimensions.width; height = dimensions.height
     self.fps = max(1, min(StudioCapturePreviewProfile.maxFPS, fps))
+    self.generation = generation
+    renderFailed = false
     frameGate.setFPS(self.fps); mailbox.clear()
     pendingProfile = (width, height, self.fps, mailbox.epoch)
     let schedule = !deliveryScheduled; deliveryScheduled = true
     lock.unlock()
     if schedule { deliveryQueue.async { [weak self] in self?.deliverLatestFrame() } }
+  }
+  func setGrade(_ grade: StudioImageGrade, revision: Int, generation: Int) {
+    lock.lock(); defer { lock.unlock() }
+    guard !closed, grade.isValid else { return }
+    self.grade = grade; gradeRevision = revision; self.generation = generation
+    renderFailed = false
+    mailbox.clear()
   }
   func register(_ completion: @escaping ([String: Any]) -> Void) {
     module.workerQueue.async {
@@ -63,12 +79,12 @@ final class StudioCameraRemotePreview {
           "settings": ["width": dimensions.0, "height": dimensions.1, "frameRate": dimensions.2]]]])
     }
   }
-  func receive(_ buffer: CVPixelBuffer, timestamp: CMTime) {
+  func receive(_ buffer: CVPixelBuffer, timestamp: CMTime, generation: Int, cinematic: Bool) {
     guard timestamp.isNumeric else { return }
     guard let time = StudioCapturePreviewProfile.timestampNanoseconds(seconds: CMTimeGetSeconds(timestamp)) else { return }
     lock.lock()
-    guard !closed else { lock.unlock(); return }
-    mailbox.replace(with: (buffer, time))
+    guard !closed, !renderFailed, self.generation == generation else { lock.unlock(); return }
+    mailbox.replace(with: (buffer, time, generation, cinematic))
     let schedule = !deliveryScheduled; deliveryScheduled = true
     lock.unlock()
     if schedule { deliveryQueue.async { [weak self] in self?.deliverLatestFrame() } }
@@ -90,11 +106,30 @@ final class StudioCameraRemotePreview {
     lock.lock()
     let latest = !closed && mailbox.isCurrent(epoch) ? mailbox.takeTicket() : nil
     let accepted = latest.map { mailbox.isCurrent($0.epoch) && frameGate.accept($0.frame.timestamp) } ?? false
+    let recipe = (grade, gradeRevision, generation, width, height)
     lock.unlock()
     // Source adaptation/encoding cannot hold up AVCapture's video delegate.
     if accepted, let latest {
-      let frame = LKRTCVideoFrame(buffer: LKRTCCVPixelBuffer(pixelBuffer: latest.frame.buffer), rotation: LKRTCVideoRotation(rawValue: 0)!, timeStampNs: latest.frame.timestamp)
-      source.capturer(capturer, didCapture: frame)
+      do {
+        let rendered = try renderer.render(latest.frame.buffer, grade: recipe.0, width: recipe.3, height: recipe.4,
+          sourceStage: latest.frame.cinematic ? .cinematicRendered : .standard)
+        lock.lock()
+        let current = !closed && mailbox.isCurrent(latest.epoch) && recipe.1 == gradeRevision && recipe.2 == generation
+        lock.unlock()
+        if current {
+          let frame = LKRTCVideoFrame(buffer: LKRTCCVPixelBuffer(pixelBuffer: rendered), rotation: LKRTCVideoRotation(rawValue: 0)!, timeStampNs: latest.frame.timestamp)
+          source.capturer(capturer, didCapture: frame)
+          onRendered?(recipe.1, recipe.2)
+        }
+      } catch StudioRemoteFrameRenderError.busy {
+        // Bounded pool is still owned by WebRTC; skip instead of allocating.
+      } catch {
+        lock.lock()
+        let current = !closed && recipe.1 == gradeRevision && recipe.2 == generation && !renderFailed
+        if current { renderFailed = true; mailbox.clear() }
+        lock.unlock()
+        if current { onFailure?() }
+      }
     }
     lock.lock()
     let pending = !closed && (!mailbox.isEmpty || pendingProfile != nil)

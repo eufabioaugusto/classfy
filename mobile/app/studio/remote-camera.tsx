@@ -4,20 +4,20 @@ import {useIsFocused,usePreventRemove} from '@react-navigation/native';
 import {useLocalSearchParams,useRouter,useNavigation} from 'expo-router';
 import {CameraView,useCameraPermissions,useMicrophonePermissions} from 'expo-camera';
 import {requireNativeViewManager} from 'expo-modules-core';
-import {Camera,Monitor,Square,X} from 'lucide-react-native';
+import {Camera,X} from 'lucide-react-native';
 import {activateKeepAwakeAsync,deactivateKeepAwake} from 'expo-keep-awake';
 import {AppScreen} from '@/components/AppScreen';
 import {NavigationHeader} from '@/components/NavigationHeader';
 import {useAuth} from '@/features/auth/authContext';
 import {useStudioOrientation} from '@/features/studio/useStudioOrientation';
-import {StudioAccess,StudioButton,studioStyles} from '@/features/studio/StudioUI';
+import {StudioAccess,StudioButton} from '@/features/studio/StudioUI';
 import {readRemotePairingCode} from '@/features/studio/remoteCameraApi';
 import {createRemoteCameraRuntime,createRemoteNativePort,remoteCameraDeviceId,restoreStudioRemoteAudioPolicy,type RemoteNativeEvent} from '@/features/studio/remoteCameraRuntime';
 import type {RemoteCameraSnapshot} from '@/features/studio/remoteCameraController';
 import {readRememberedRemoteBrowser,rememberRemoteBrowser,forgetRemoteBrowser,mayResumeRemoteCameraAutomatically} from '@/features/studio/remoteCameraPairing';
 import {reserveNativeCaptureForStudioCamera} from '@/features/live/transport';
 import {useStudioCaptureAudioMonitor} from '@/features/studio/StudioCaptureAudio';
-import {StudioCaptureAudioMonitor} from '@/features/studio/StudioCaptureAudioMonitor';
+import {StudioRemoteCameraMonitor} from '@/features/studio/StudioRemoteCameraMonitor';
 import {isStudioRemoteCameraAvailable,isStudioNativeCameraAudioMonitorAvailable,type StudioCaptureAudioEvent} from '../../modules/classfy-studio-media';
 import {colors} from '@/theme/colors';
 
@@ -115,29 +115,21 @@ export default function StudioRemoteCameraScreen(){
     else void leave(data.action);
   });
   const error=failure||state.error||orientationError;
-  const uploadPercent=state.uploadTotalBytes?Math.min(100,Math.floor((state.uploadProgressBytes||0)/state.uploadTotalBytes*100)):0;
-  const transferLabel=state.uploading?`Enviando original · ${uploadPercent}%`:state.uploadState==='complete'?`Original enviado ao Studio${state.uploadPendingCount?` · ${state.uploadPendingCount} ${state.uploadPendingCount===1?'envio pendente':'envios pendentes'}`:''}`:null;
   const waiting=state.phase==='waiting'||state.phase==='joining'&&!!lastControllerId&&automaticAllowed&&!explicitPairingPending;
-  return <StudioAccess><AppScreen scroll={false} header={connected?undefined:<NavigationHeader title="Conectar ao computador" back/>}>
-    {connected?<View style={s.stage}>
-      {NativeCamera&&cameraActive?<NativeCamera ref={nativeRef} active style={s.camera} effectRecipeJSON={JSON.stringify({preset:'natural',intensity:0,exposure:0,contrast:0,saturation:0,temperature:0})}
-        onReady={nativeReady} onState={()=>{}} onError={(event:{nativeEvent?:{message?:string}})=>setFailure(event.nativeEvent?.message||'A câmera foi interrompida.')}
+  return <StudioAccess>{connected?<StudioRemoteCameraMonitor state={state} active={cameraActive}
+    captureScope={`${user?.id}:${state.session?.id}:${state.state?.generation}`} elapsed={elapsed} error={error} canUnpair={!!lastControllerId}
+    audio={{input:audioMonitor.input,channels:audioMonitor.channels,status:audioMonitor.status,message:audioMonitor.message}}
+    onClose={()=>void leave()} onStop={()=>void controller.current?.stopLocal().catch(cause=>setFailure(cause.message))}
+    onUpload={()=>{setFailure('');void controller.current?.retryUploads().catch(cause=>setFailure(cause.message));}}
+    onReconnect={()=>{setFailure('');void controller.current?.reconnectPreview().catch(cause=>setFailure(cause.message));}}
+    onUnpair={()=>setConfirmUnpair(true)} onFocus={async point=>{
+      const current=controller.current;if(!current)throw new Error('Aguarde a câmera preparar o foco.');return current.focusLocal(point);
+    }} onFocusError={setFailure}>
+      {NativeCamera&&cameraActive?<NativeCamera ref={nativeRef} active style={s.camera}
+        onReady={nativeReady} onState={()=>{}} onInterruption={(event:{nativeEvent?:{message?:string}})=>{if(event.nativeEvent?.message)setFailure(event.nativeEvent.message);}} onError={(event:{nativeEvent?:{message?:string}})=>setFailure(event.nativeEvent?.message||'A câmera foi interrompida.')}
         onAudioMonitor={(event:{nativeEvent:StudioCaptureAudioEvent})=>audioMonitor.onAudioMonitor(event.nativeEvent)}
         onRecordingState={(event:{nativeEvent:RemoteNativeEvent})=>port.current?.onRecordingState(event.nativeEvent)}/>:<Text style={s.hint}>Preparando o enquadramento…</Text>}
-      <View style={s.overlay}><View style={s.pill}><Monitor size={17} color={colors.text}/><Text style={s.label}>{state.phase==='starting'?'Preparando REC…':isRecording?`${Math.floor(elapsed/60)}:${String(Math.floor(elapsed%60)).padStart(2,'0')} · Gravando original`:'Câmera conectada ao Studio'}</Text></View>
-        {!isRecording&&<Pressable accessibilityLabel="Fechar câmera" onPress={()=>void leave()} style={s.close}><X size={22} color={colors.text}/></Pressable>}</View>
-      <View style={s.bottom}>{error?<Text accessibilityLiveRegion="polite" style={s.error}>{error}</Text>:null}
-        <StudioCaptureAudioMonitor input={audioMonitor.input} channels={audioMonitor.channels} status={audioMonitor.status} message={audioMonitor.message} compact/>
-        <Text style={s.hint}>{state.state?.width}×{state.state?.height} · {state.state?.fps} FPS · {state.takeCount} takes preservados</Text>
-        {transferLabel?<Text accessibilityLiveRegion="polite" style={s.hint}>{transferLabel}</Text>:null}
-        {isRecording?<StudioButton label="Encerrar e salvar take" icon={<Square size={17} color="#fff"/>} disabled={state.phase==='saving'} onPress={()=>void controller.current?.stopLocal().catch(cause=>setFailure(cause.message))}/>:<View style={s.actions}>
-          <StudioButton label={state.uploading?'Enviando original…':state.uploadState==='paused'||state.uploadPendingCount?'Retomar envio':state.uploadState==='complete'?'Original enviado':'Enviar original'} loading={state.uploading} disabled={!state.takeCount||state.uploadState==='complete'&&!state.uploadPendingCount}
-            onPress={()=>{setFailure('');void controller.current?.retryUploads().catch(cause=>setFailure(cause.message));}}/>
-          <StudioButton label="Reconectar prévia" secondary onPress={()=>{setFailure('');void controller.current?.reconnectPreview().catch(cause=>setFailure(cause.message));}}/>
-        </View>}
-        {!isRecording&&lastControllerId?<Pressable accessibilityRole="button" disabled={state.uploading} onPress={()=>setConfirmUnpair(true)}><Text style={s.unlink}>Desvincular computador</Text></Pressable>:null}
-      </View>
-    </View>:<View style={s.setup}><View style={s.icon}><Camera size={34} color={colors.accent}/></View><Text style={s.title}>{waiting?'Aguardando seu Studio.':'Seu iPhone, a câmera do Studio.'}</Text>
+    </StudioRemoteCameraMonitor>:<AppScreen scroll={false} header={<NavigationHeader title="Conectar ao computador" back/>}><View style={s.setup}><View style={s.icon}><Camera size={34} color={colors.accent}/></View><Text style={s.title}>{waiting?'Aguardando seu Studio.':'Seu iPhone, a câmera do Studio.'}</Text>
       <Text style={s.hint}>{waiting?'Este computador continua vinculado. Abra Gravar no Studio dele e escolha iPhone; a câmera se conecta sem outro QR.':'Abra Gravar no computador e escolha iPhone. Use a mesma conta Premium ativa. O original com áudio fica preservado neste aparelho.'}</Text>
       {!available?<Text style={s.error}>Atualize o Classfy Dev no iPhone para conectar a câmera ao computador.</Text>:<>
         {waiting&&!scanning?<StudioButton label="Cancelar espera" secondary onPress={cancelWaiting}/>:scanning&&focused&&foreground?<View style={s.scanner}><CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{barcodeTypes:['qr']}}
@@ -154,7 +146,7 @@ export default function StudioRemoteCameraScreen(){
       </>}
       {error?<Text accessibilityLiveRegion="polite" style={s.error}>{error}</Text>:null}
       <Text style={s.hint}>{state.phase==='unpaired'?'Leia o QR para vincular este iPhone ao computador. Seus originais continuam preservados.':'O vínculo fica salvo na sua conta. Fechar a câmera pausa a sessão; desvincular exige um novo QR.'}</Text>
-    </View>}
+    </View></AppScreen>}
     <Modal transparent visible={confirmUnpair} animationType="fade" onRequestClose={()=>{if(!unpairing)setConfirmUnpair(false);}}>
       <View style={s.dialogBackdrop}><View accessibilityViewIsModal style={s.dialog}>
         <View style={s.dialogHeader}><Text style={s.dialogTitle}>Desvincular computador?</Text><Pressable accessibilityLabel="Fechar confirmação" disabled={unpairing} onPress={()=>setConfirmUnpair(false)} style={s.close}><X size={20} color={colors.text}/></Pressable></View>
@@ -163,6 +155,6 @@ export default function StudioRemoteCameraScreen(){
         <View style={s.actions}><StudioButton label="Manter vínculo" secondary disabled={unpairing} style={{flex:1}} onPress={()=>setConfirmUnpair(false)}/><StudioButton label="Desvincular" loading={unpairing} style={{flex:1}} onPress={()=>void unlinkComputer()}/></View>
       </View></View>
     </Modal>
-  </AppScreen></StudioAccess>;
+  </StudioAccess>;
 }
-const s=StyleSheet.create({setup:{padding:24,gap:18,flex:1,justifyContent:'center'},icon:{alignSelf:'flex-start',padding:16,borderRadius:24,backgroundColor:'#291420'},title:{color:colors.text,fontSize:28,fontWeight:'600'},hint:{color:colors.muted,fontSize:13,lineHeight:20},input:{minHeight:52,borderRadius:14,borderWidth:1,borderColor:colors.border,color:colors.text,padding:14},error:{color:'#FFA1AE',fontSize:13,lineHeight:18},scanner:{height:300,borderRadius:20,overflow:'hidden',justifyContent:'flex-end'},stage:{flex:1,backgroundColor:'#000',justifyContent:'center'},camera:{...StyleSheet.absoluteFillObject},overlay:{position:'absolute',top:18,left:20,right:20,flexDirection:'row',justifyContent:'space-between',alignItems:'center'},pill:{backgroundColor:'#181818DD',padding:12,borderRadius:18,flexDirection:'row',gap:8,alignItems:'center'},label:{color:colors.text,fontSize:13,fontWeight:'600'},close:{padding:12,backgroundColor:'#181818DD',borderRadius:24},bottom:{position:'absolute',left:20,right:20,bottom:20,gap:10,backgroundColor:'#141414E8',padding:14,borderRadius:18},actions:{flexDirection:'row',gap:10},unlink:{color:colors.muted,fontSize:12,paddingVertical:4},dialogBackdrop:{flex:1,backgroundColor:'#000B',justifyContent:'center',alignItems:'center',padding:24},dialog:{width:'100%',maxWidth:480,backgroundColor:'#141416',borderColor:colors.border,borderWidth:1,borderRadius:24,padding:24,gap:20},dialogHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:12},dialogTitle:{fontSize:22,fontWeight:'600',color:colors.text,flex:1}});
+const s=StyleSheet.create({setup:{padding:24,gap:18,flex:1,justifyContent:'center'},icon:{alignSelf:'flex-start',padding:16,borderRadius:24,backgroundColor:'#291420'},title:{color:colors.text,fontSize:28,fontWeight:'600'},hint:{color:colors.muted,fontSize:13,lineHeight:20},input:{minHeight:52,borderRadius:14,borderWidth:1,borderColor:colors.border,color:colors.text,padding:14},error:{color:'#FFA1AE',fontSize:13,lineHeight:18},scanner:{height:300,borderRadius:20,overflow:'hidden',justifyContent:'flex-end'},camera:{...StyleSheet.absoluteFillObject},close:{width:44,height:44,alignItems:'center',justifyContent:'center',backgroundColor:'#181818DD',borderRadius:22},actions:{flexDirection:'row',gap:10},dialogBackdrop:{flex:1,backgroundColor:'#000B',justifyContent:'center',alignItems:'center',padding:24},dialog:{width:'100%',maxWidth:480,backgroundColor:'#141416',borderColor:colors.border,borderWidth:1,borderRadius:24,padding:24,gap:20},dialogHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:12},dialogTitle:{fontSize:22,fontWeight:'600',color:colors.text,flex:1}});

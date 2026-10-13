@@ -58,7 +58,7 @@ function harness(options={}){
     '@/features/studio/remoteCameraPairing':pairing,
     '@/features/live/transport':{reserveNativeCaptureForStudioCamera:()=>{calls.push({action:'reserve-camera'});return {current:()=>true,release:()=>{}};}},
     '@/features/studio/StudioCaptureAudio':{useStudioCaptureAudioMonitor:()=>({status:'idle',input:null,channels:[],onAudioMonitor:()=>{}})},
-    '@/features/studio/StudioCaptureAudioMonitor':{StudioCaptureAudioMonitor:'audio'},
+    '@/features/studio/StudioRemoteCameraMonitor':{StudioRemoteCameraMonitor:'remote-monitor'},
     '../../modules/classfy-studio-media':{isStudioRemoteCameraAvailable:()=>true,isStudioNativeCameraAudioMonitorAvailable:()=>true},
     '@/theme/colors':{colors:{text:'#fff',accent:'#f06',muted:'#aaa',border:'#333'}},
   },globals).default;
@@ -69,7 +69,7 @@ function harness(options={}){
   render();return {calls,data,pump,advance,nodes,press:async label=>{const node=nodes('studio-button').find(value=>value.props.label===label);assert.ok(node,`Missing ${label}`);node.props.onPress();await pump();},
     app:async value=>{appState.currentState=value;listeners.forEach(listener=>listener(value));await pump();},
     focus:async value=>{focused=value;dirty=true;await pump();},owner:async value=>{account=value;dirty=true;await pump();},
-    close:async()=>{const node=nodes('pressable').find(value=>value.props.accessibilityLabel==='Fechar câmera');assert.ok(node);node.props.onPress();await pump();},
+    close:async()=>{const node=nodes('remote-monitor')[0];assert.ok(node);node.props.onClose();await pump();},
     unmount:()=>{slots.forEach(slot=>slot?.cleanup?.());},
   };
 }

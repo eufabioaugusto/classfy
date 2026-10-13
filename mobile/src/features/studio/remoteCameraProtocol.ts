@@ -1,3 +1,4 @@
+import type {StudioGrade} from './model';
 /** Private same-account DTO, copied from shared/studio/remoteCamera.ts and
  * extended to the deployed studio-camera wire. No native imports. */
 export type StudioRemoteResolution = '720p' | '1080p' | '2k' | '4k';
@@ -6,6 +7,7 @@ export type StudioRemoteConfiguration = {
   fps: 24 | 30 | 60;
   cameraFacing: 'front' | 'back';
   pro?: Record<string, unknown>;
+  imageGrade?: StudioGrade;
 };
 export type StudioRemoteMetadata = {
   bytes: number; mime: string; width: number; height: number; fps: number; duration: number;

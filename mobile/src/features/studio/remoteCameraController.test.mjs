@@ -21,6 +21,7 @@ function harness(patch={}){
   const deps={owner:'owner',deviceId:'device',current:()=>current,now:()=>time,request,journal:async()=>clone(journal),
     discover:async controllerId=>{calls.push({action:'discover',body:{deviceId:'device',...(controllerId?{controllerId}:{})}});return patch.discover?await patch.discover():{ownerId:'owner',paired:true,controllerId:'controller',session:clone(session),commands:[],takes:[],serverAt:new Date(time+1200).toISOString()};},
     mutate:async(_id,change)=>{if(writeGate){const gate=writeGate;writeGate=undefined;gate.entered.resolve();await gate.promise;}journal=change(clone(journal));writes.push(clone(journal));return clone(journal);},
+    ...(patch.prepareMaster?{prepareMaster:async(session,take,progress)=>{calls.push({action:'prepare-master',take:clone(take)});return patch.prepareMaster(session,take,progress);}}:{}),
     masterUri:(_session,id)=>`file:///Documents/classfy-studio-remote/owner/${sessionId}/${id}.mov`,
     inspect:async uri=>{calls.push({action:'inspect',uri});return{bytes:6291457,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4};},
     saveLocal:async(_session,take)=>{calls.push({action:'save-local',take:clone(take)});if(patch.saveFail?.())throw Error('Disco indisponível');return{projectId:'project',localTakeId:'local-take'};},
@@ -28,6 +29,7 @@ function harness(patch={}){
   };
   const native={configure:async configuration=>{calls.push({action:'configure',configuration});return{width:3840,height:2160,fps:30,recording:false};},
     snapshot:async()=>({width:3840,height:2160,fps:30,recording:actualRecording}),
+    focus:async point=>{calls.push({action:'focus',point});await patch.focus?.(point);return {width:3840,height:2160,fps:30,recording:actualRecording,focusLocked:point.locked};},
     begin:id=>{calls.push({action:'native-start',id});actualRecording=true;return{started:started.promise,finished:finished.promise};},
     stop:async id=>{calls.push({action:'native-stop',id});actualRecording=false;finished.resolve({uri:`file:///Documents/classfy-studio-remote/owner/${sessionId}/${id}.mov`});},
     preview:async()=>{calls.push({action:'preview'});},disconnect:async()=>{calls.push({action:'disconnect-preview'});}};
@@ -223,4 +225,30 @@ test('Manual→Auto não envia ISO/obturador, WB/gains ou foco manual incompatí
   const h=harness();h.configuration({resolution:'4k',fps:30,cameraFacing:'back',pro:{autoExposure:false,iso:400,shutterSeconds:1/60,autoWhiteBalance:false,temperatureKelvin:4000,whiteBalanceTint:10,redGain:2,greenGain:1,blueGain:2,autoFocus:false,lensPosition:0.6,zoom:2}});
   await h.ready();h.queue([{...h.command('configure'),payload:{pro:{autoExposure:true,autoWhiteBalance:true,autoFocus:true}}}]);await h.controller.poll();
   assert.deepEqual(h.calls.filter(call=>call.action==='configure').at(-1).configuration.pro,{autoExposure:true,autoWhiteBalance:true,autoFocus:true,zoom:2});await h.controller.dispose();
+});
+
+test('toque local foca durante REC sem encerrar take; blur descarta ACK tardio',async()=>{
+  const h=harness();await h.ready();await h.controller.focusLocal({x:.3,y:.5,locked:false});
+  h.queue([h.command('start')]);const start=h.controller.poll();await tick();h.started.resolve(10050);await start;
+  await h.controller.focusLocal({x:.4,y:.6,locked:true});assert.equal(h.controller.getSnapshot().phase,'recording');assert.equal(h.controller.getSnapshot().state.focusLocked,true);
+  assert.equal(h.calls.filter(x=>x.action==='native-stop').length,0);await h.controller.dispose();
+  const gate=deferred(),late=harness({focus:()=>gate.promise});await late.ready();const pending=late.controller.focusLocal({x:.5,y:.5,locked:false});await tick();late.invalidate();gate.resolve();await assert.rejects(pending,/conexão mudou/);await late.controller.dispose();
+});
+test('look congelado antesREC conserva clean e só envia derivado preparado commetadatafinal',async()=>{
+  const grade={preset:'cinematic',intensity:1,exposure:.5,contrast:.2,saturation:0,temperature:.3},gate=deferred();
+  const h=harness({prepareMaster:async(_session,take,onProgress)=>{onProgress(.4,'rendering');await gate.promise;return {uri:take.uri.replace('.mov','-grade-12345678.mp4'),metadata:{bytes:7000000,mime:'video/mp4',width:3840,height:2160,fps:30,duration:4},signature:'12345678'};}});
+  h.configuration({resolution:'4k',fps:30,cameraFacing:'back',imageGrade:grade});await h.ready();h.queue([h.command('start')]);const start=h.controller.poll();await tick();h.started.resolve(10050);await start;
+  h.configuration({resolution:'4k',fps:30,cameraFacing:'back',imageGrade:{...grade,preset:'natural'}});
+  h.queue([h.command('stop','stop',2)]);const stop=h.controller.poll();await tick();await tick();
+  assert.deepEqual(h.journal().takes[0].imageGrade,grade);assert.ok(h.journal().takes[0].sourceMetadata);assert.equal(h.journal().takes[0].metadata,undefined);
+  assert.equal(h.calls.filter(x=>x.action==='upload').length,0);assert.equal(h.controller.getSnapshot().processing,true);
+  gate.resolve();await stop;await tick();const uploaded=h.calls.find(x=>x.action==='upload').take;
+  assert.match(uploaded.uri,/-grade-12345678.mp4$/);assert.match(uploaded.sourceUri,/\.mov$/);assert.equal(uploaded.metadata.mime,'video/mp4');assert.equal(uploaded.metadata.width,3840);await h.controller.dispose();
+});
+test('falha preparando imagem confirmaSTOPfísico semenviarclean e Retomar prepara o mesmo take',async()=>{
+  let fail=true;const h=harness({prepareMaster:async(_session,take)=>{if(fail)throw Error('Encoder pausado');return {uri:take.uri.replace('.mov','-grade-12345678.mp4'),metadata:{bytes:7000000,mime:'video/mp4',width:3840,height:2160,fps:30,duration:4}};}});
+  await h.ready();h.queue([h.command('start')]);const start=h.controller.poll();await tick();h.started.resolve(10050);await start;h.queue([h.command('stop','stop',2)]);await h.controller.poll();await tick();
+  const ack=h.calls.find(x=>x.action==='ack'&&x.body.commandId==='stop').body.result;
+  assert.equal(ack.ok,true);assert.equal(ack.metadata,undefined);assert.equal(ack.state.uploadState,'paused');assert.equal(h.controller.getSnapshot().phase,'ready');assert.equal(h.calls.filter(x=>x.action==='upload').length,0);
+  fail=false;await h.controller.retryUploads();assert.equal(h.journal().takes.length,1);assert.equal(h.journal().takes[0].phase,'uploaded');assert.match(h.calls.find(x=>x.action==='upload').take.uri,/\.mp4$/);await h.controller.dispose();
 });
