@@ -80,6 +80,8 @@ try {
  END $$;`);
  const handoffMigration=await readFile(new URL('../../migrations/20261013020000_studio_remote_camera_handoff.sql',import.meta.url),'utf8');
  await sql(handoffMigration);await sql(handoffMigration);
+ const priorityMigration=await readFile(new URL('../../migrations/20261013021000_studio_remote_camera_recovery_priority.sql',import.meta.url),'utf8');
+ await sql(priorityMigration);await sql(priorityMigration);
  await sql(await readFile(new URL('handoff_test.sql',import.meta.url),'utf8'));
  // Two reloads of the same paired browser have one last committed authority.
  const controller='20000000-0000-4000-8000-0000000000f0',device='30000000-0000-4000-8000-0000000000f0';
@@ -100,7 +102,8 @@ try {
  assert.match(racing.find(value=>value.status==='rejected').reason.stderr,/studio_camera_busy|studio_camera_not_ready/);
  assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_sessions WHERE owner_id='${user}' AND controller_id='${controller}' AND status<>'closed';`)).stdout.trim()),1);
  if(racing[1].status==='fulfilled')assert.equal((await sql(`SELECT status FROM studio_camera_sessions WHERE id='${current}';`)).stdout.trim(),'starting');
- console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency, durable pairings and safe camera handoff.');
+ await sql(await readFile(new URL('recovery_priority_test.sql',import.meta.url),'utf8'));
+ console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency, durable pairings, safe camera handoff and protected original recovery priority.');
 } finally {
  if (started) await command('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']).catch(() => undefined);
  await rm(temporary, { recursive: true, force: true });

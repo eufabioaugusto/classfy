@@ -318,7 +318,11 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       if (options.persist !== false) { try { if (localStorage.getItem(controllerStorageKey(options.owner)) === clientId) localStorage.removeItem(controllerStorageKey(options.owner)); } catch { /* Server revocation is authoritative. */ } }
       clientId = studioRemoteControllerId(options.owner, options.persist !== false);
     },
-    async reconnect() { const token = generation; const current = preview; preview = null; await current?.disconnect(); assert(token); await poll(token); },
+    async reconnect() {
+      const token = generation; assert(token);
+      if (!envelope) return controller.prepare();
+      const current = preview; preview = null; await current?.disconnect(); assert(token); await poll(token);
+    },
     subscribe(listener) { listeners.add(listener); listener(snapshot()); return () => listeners.delete(listener); },
     subscribeRemote(listener) { remoteListeners.add(listener); listener(view()); return () => remoteListeners.delete(listener); },
     cancel, dispose() { if (disposed) return; cancel(); disposed = true; listeners.clear(); remoteListeners.clear(); },
