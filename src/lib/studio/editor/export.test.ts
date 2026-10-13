@@ -8,7 +8,7 @@ vi.mock('mediabunny',()=>({Quality:class{},Mp4OutputFormat:class{},BufferTarget:
   CanvasSource:class{async add(at:number){mocks.order.push(`video:${at}`);if(mocks.onVideo)await mocks.onVideo();}close(){mocks.order.push('video-close');}},
   AudioBufferSource:class{async add(){mocks.order.push('audio');}close(){mocks.order.push('audio-close');}},
 }));
-vi.mock('./renderer',()=>({studioBrowserFont:()=> 'Arial',StudioRenderKernel:class{constructor(recipe:any){mocks.recipes.push(recipe);}draw=async()=>{};mixAudio=async(_start:number,length:number)=>[new Float32Array(Math.round(length*48000)),new Float32Array(Math.round(length*48000))];dispose=vi.fn();}}));
+vi.mock('./renderer',()=>({STUDIO_WEB_RENDER_FEATURES:['enhancement-v1','portrait-v1'],studioBrowserFont:()=> 'Arial',StudioRenderKernel:class{constructor(recipe:any){mocks.recipes.push(recipe);}draw=async()=>{};mixAudio=async(_start:number,length:number)=>[new Float32Array(Math.round(length*48000)),new Float32Array(Math.round(length*48000))];dispose=vi.fn();}}));
 vi.mock('./exportAudio',()=>({getStudioAACDelay:async()=>2400,StudioAACSource:class{source={};async add(){mocks.order.push('audio');}async close(){mocks.order.push('audio-close');}dispose(){}}}));
 vi.mock('./media',async(importOriginal)=>({...await importOriginal<any>(),inspectStudioMedia:mocks.inspect}));
 const recipe=():StudioRenderRecipe=>({version:2,timebase:120000,durationTicks:120000,mediaType:'video',canvas:{aspectRatio:'landscape',backgroundColor:'#000000'},output:{profile:'standard',width:320,height:180,frameRateNumerator:30,frameRateDenominator:1,colorSpace:'rec709'},assets:[{id:'a',kind:'video',uri:'file://original',name:'original',durationTicks:120000,width:320,height:180,hasAudio:true}],clips:[{id:'c',kind:'video',assetId:'a',startTicks:0,durationTicks:120000,sourceStartTicks:0,sourceEndTicks:120000,zIndex:0,rect:{x:0,y:0,width:1,height:1},rotationDegrees:0,fit:'contain',opacity:1,gain:1,fadeInTicks:0,fadeOutTicks:0,effect:'natural'}]});
@@ -29,4 +29,10 @@ it('kernel de originais alimenta encoder e AAC existentes e é liberado após re
   const kernel={draw:vi.fn(async()=>undefined),mixAudio:vi.fn(async(_start:number,length:number)=>[new Float32Array(Math.round(length*48000)),new Float32Array(Math.round(length*48000))]),dispose:vi.fn()};
   await exportStudioRecipe(recipe(),async()=>new Blob(),{kernelFactory:()=>kernel});
   expect(kernel.draw).toHaveBeenCalledTimes(30);expect(kernel.mixAudio).toHaveBeenCalledTimes(4);expect(kernel.dispose).toHaveBeenCalledOnce();expect(mocks.recipes).toEqual([]);expect(mocks.inspect).toHaveBeenCalledOnce();
+});
+
+it('recusa um compositor externo que não declarou suporte ao retoque, antes de abrir encoder',async()=>{
+  const input=recipe(); input.version=3; input.requiredFeatures=['portrait-v1']; input.clips[0].portrait={version:1,strength:.4};
+  const factory=vi.fn(); await expect(exportStudioRecipe(input,async()=>new Blob(),{kernelFactory:factory})).rejects.toThrow('não oferece os efeitos');
+  expect(factory).not.toHaveBeenCalled(); expect(mocks.canVideo).not.toHaveBeenCalled(); expect(mocks.order).toEqual([]);
 });

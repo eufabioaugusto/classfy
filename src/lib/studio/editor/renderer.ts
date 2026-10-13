@@ -1,16 +1,20 @@
 import { ALL_FORMATS, AudioBufferSink, BlobSource, CanvasSink, Input, type WrappedCanvas } from 'mediabunny';
-import { studioGrade, validateStudioRecipe, type StudioGrade, type StudioRecipeClip, type StudioRenderRecipe } from '../../../../shared/studio';
+import { assertStudioRenderFeatures, studioGrade, validateStudioRecipe, type StudioEnhancement, type StudioGrade, type StudioRecipeClip, type StudioRenderRecipe } from '../../../../shared/studio';
+import { studioEnhancementPixel } from '../../../../shared/studio/autoEnhance';
+import { createStudioPortraitSurface, type StudioPortraitSurface } from './portraitRender';
 import { assertStudioActive, studioCanvas, type StudioAssetResolver } from './media';
 
 export type StudioRendererState = { position: number; playing: boolean; loading: boolean; error: string | null };
 export type StudioRenderer = {
   bindCanvas(canvas: HTMLCanvasElement | null): void;
+  preparePortrait(signal?: AbortSignal): Promise<void>;
   draw(canvas: HTMLCanvasElement, seconds: number): Promise<void>;
   seek(seconds: number): Promise<void>; play(): Promise<void>; pause(): void;
   setRecipe(recipe: StudioRenderRecipe): Promise<void>; dispose(): void;
   subscribe(listener: (state: StudioRendererState) => void): () => void;
 };
 const clamp = (value: number, low = 0, high = 1) => Math.max(low, Math.min(high, value));
+export const STUDIO_WEB_RENDER_FEATURES = ['enhancement-v1', 'portrait-v1'] as const;
 export function studioClipEnvelope(clip: StudioRecipeClip, localTicks: number) {
   const fadeIn = clip.fadeInTicks ? clamp(localTicks / clip.fadeInTicks) : 1;
   const fadeOut = clip.fadeOutTicks ? clamp((clip.durationTicks - localTicks) / clip.fadeOutTicks) : 1;
@@ -70,10 +74,12 @@ class StudioGradeSurface {
       const program = gl.createProgram()!;
       gl.attachShader(program, compile(gl.VERTEX_SHADER, 'attribute vec2 p; varying vec2 uv; void main(){uv=vec2((p.x+1.0)*.5,(1.0-p.y)*.5);gl_Position=vec4(p,0.,1.);}'));
       gl.attachShader(program, compile(gl.FRAGMENT_SHADER, `precision highp float; varying vec2 uv; uniform sampler2D image; uniform float intensity,exposure,contrast,saturation,temperature,preset;
+        uniform float autoStrength,autoExposure,autoContrast,autoSaturation,autoTemperature,autoTint,autoShadows,autoHighlights;
+        vec3 enhance(vec3 c){vec3 e=c*pow(2.,autoExposure)*vec3(1.+autoTemperature*.08,1.+autoTint*.06,1.-autoTemperature*.08);float y=dot(e,vec3(.2126,.7152,.0722));float lift=autoShadows*.14*(1.-smoothstep(.05,.65,y))+autoHighlights*.14*smoothstep(.5,1.,y);e=(e+lift-.42)*(1.+autoContrast*.25)+.42;float l=dot(e,vec3(.2126,.7152,.0722));return clamp(mix(c,vec3(l)+(e-vec3(l))*(1.+autoSaturation*.4),autoStrength),0.,1.);}
         float tone(float v){ float t=clamp(v,0.,1.)*4.; float i=floor(min(3.,t)); vec4 a=vec4(0.,.25,.5,.75);vec4 b=vec4(.25,.5,.75,1.);
         if(preset>1.5){a=vec4(.012,.235,.495,.745);b=vec4(.235,.495,.745,.985);}else if(preset>.5){a=vec4(0.,.235,.505,.765);b=vec4(.235,.505,.765,1.);}
         float lo=i<.5?a.x:i<1.5?a.y:i<2.5?a.z:a.w;float hi=i<.5?b.x:i<1.5?b.y:i<2.5?b.z:b.w;return mix(lo,hi,t-i);}
-        void main(){vec4 c=texture2D(image,uv);vec3 e=c.rgb*pow(2.,exposure)*vec3(1.+temperature*.08,1.,1.-temperature*.08);e=vec3(tone(e.r),tone(e.g),tone(e.b));float l=dot(e,vec3(.2126,.7152,.0722));e=vec3(l)+(e-vec3(l))*((preset>1.5?.96:1.)+saturation*.4);e=(e-.5)*(1.+contrast*.25)+.5;gl_FragColor=vec4(clamp(mix(c.rgb,e,intensity),0.,1.),c.a);}`));
+        void main(){vec4 c=texture2D(image,uv);c.rgb=enhance(c.rgb);vec3 e=c.rgb*pow(2.,exposure)*vec3(1.+temperature*.08,1.,1.-temperature*.08);e=vec3(tone(e.r),tone(e.g),tone(e.b));float l=dot(e,vec3(.2126,.7152,.0722));e=vec3(l)+(e-vec3(l))*((preset>1.5?.96:1.)+saturation*.4);e=(e-.5)*(1.+contrast*.25)+.5;gl_FragColor=vec4(clamp(mix(c.rgb,e,intensity),0.,1.),c.a);}`));
       gl.linkProgram(program); if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error('Shader indisponível.');
       gl.useProgram(program); this.program = program;
       const vertices = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vertices); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
@@ -83,19 +89,20 @@ class StudioGradeSurface {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     } catch { gl.getExtension('WEBGL_lose_context')?.loseContext(); this.gl = null; }
   }
-  render(source: CanvasImageSource, width: number, height: number, grade: StudioGrade): CanvasImageSource {
+  render(source: CanvasImageSource, width: number, height: number, grade: StudioGrade, enhancement?: StudioEnhancement): CanvasImageSource {
     const gl = this.gl;
     if (gl && this.program) {
       if (this.canvas.width !== width || this.canvas.height !== height) { this.canvas.width = width; this.canvas.height = height; }
       gl.viewport(0, 0, width, height); gl.useProgram(this.program); gl.bindTexture(gl.TEXTURE_2D, this.texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source as TexImageSource);
       for (const [name, value] of Object.entries({ intensity: grade.intensity, exposure: grade.exposure, contrast: grade.contrast, saturation: grade.saturation, temperature: grade.temperature, preset: grade.preset === 'cinematic' ? 2 : grade.preset === 'studio' ? 1 : 0 })) gl.uniform1f(gl.getUniformLocation(this.program, name), value);
+      for (const [name, value] of Object.entries({ autoStrength: enhancement?.strength ?? 0, autoExposure: enhancement?.exposure ?? 0, autoContrast: enhancement?.contrast ?? 0, autoSaturation: enhancement?.saturation ?? 0, autoTemperature: enhancement?.temperature ?? 0, autoTint: enhancement?.tint ?? 0, autoShadows: enhancement?.shadows ?? 0, autoHighlights: enhancement?.highlights ?? 0 })) gl.uniform1f(gl.getUniformLocation(this.program, name), value);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); return this.canvas;
     }
     const canvas = this.fallback ??= studioCanvas(width, height); canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext('2d', { willReadFrequently: true })!; ctx.drawImage(source, 0, 0, width, height);
     const pixels = ctx.getImageData(0, 0, width, height);
-    for (let i = 0; i < pixels.data.length; i += 4) { const rgb = studioGradePixel([pixels.data[i]/255,pixels.data[i+1]/255,pixels.data[i+2]/255], grade); for (let c = 0; c < 3; c++) pixels.data[i+c] = Math.round(rgb[c]*255); }
+    for (let i = 0; i < pixels.data.length; i += 4) { const rgb = studioGradePixel(studioEnhancementPixel([pixels.data[i]/255,pixels.data[i+1]/255,pixels.data[i+2]/255], enhancement), grade); for (let c = 0; c < 3; c++) pixels.data[i+c] = Math.round(rgb[c]*255); }
     ctx.putImageData(pixels, 0, 0); return canvas;
   }
   dispose() { this.gl?.getExtension('WEBGL_lose_context')?.loseContext(); this.canvas.width = 1; this.canvas.height = 1; this.fallback = null; }
@@ -113,8 +120,12 @@ export class StudioRenderKernel {
   private audioResources = new Set<string>();
   private resourceUses = new Map<string, number>();
   private disposed = false;
-  constructor(recipe: StudioRenderRecipe, private resolveAsset: StudioAssetResolver, private signal?: AbortSignal) {
+  private portraits: StudioPortraitSurface;
+  private ownsPortraits: boolean;
+  constructor(recipe: StudioRenderRecipe, private resolveAsset: StudioAssetResolver, private signal?: AbortSignal, portraits?: StudioPortraitSurface) {
     this.recipe = structuredClone(recipe); const issues = validateStudioRecipe(this.recipe); if (issues.length) throw new Error(issues[0]);
+    assertStudioRenderFeatures(this.recipe, STUDIO_WEB_RENDER_FEATURES);
+    this.portraits = portraits ?? createStudioPortraitSurface(); this.ownsPortraits = !portraits;
   }
   private assert() { assertStudioActive(this.signal); if (this.disposed) throw new DOMException('Prévia encerrada.', 'AbortError'); }
   private windowResources(seconds: number) {
@@ -226,10 +237,11 @@ export class StudioRenderKernel {
       else {
         source = await this.frame(clip, seconds); this.assert(); const resource = await this.resource(clip.assetId!); sw = resource.width; sh = resource.height;
         const grade = clip.grade ?? studioGrade(clip.effect);
-        if (grade.intensity > 0 && (grade.preset !== 'natural' || grade.exposure || grade.contrast || grade.saturation || grade.temperature)) {
+        if ((clip.portrait?.strength ?? 0) > 0 || (clip.enhancement?.strength ?? 0) > 0 || grade.intensity > 0 && (grade.preset !== 'natural' || grade.exposure || grade.contrast || grade.saturation || grade.temperature)) {
           const downscale = Math.min(1, Math.max(canvas.width, canvas.height) / Math.max(sw, sh));
           sw = Math.max(1, Math.round(sw * downscale)); sh = Math.max(1, Math.round(sh * downscale));
-          source = this.grades.render(source, sw, sh, grade);
+          if ((clip.portrait?.strength ?? 0) > 0) { source = await this.portraits.render(source, sw, sh, clip.portrait!.strength, this.signal); this.assert(); }
+          source = this.grades.render(source, sw, sh, grade, clip.enhancement);
         }
       }
       const fit = studioFitRect(sw, sh, width, height, clip.fit);
@@ -275,7 +287,7 @@ export class StudioRenderKernel {
     return result;
   }
   hasAudio() { return this.recipe.clips.some(c => (c.kind === 'audio' || c.kind === 'video' && this.recipe.assets.find(a => a.id === c.assetId)?.hasAudio !== false)); }
-  dispose() { if (this.disposed) return; this.disposed = true; this.readers.forEach(reader => void reader.iterator.return()); this.readers.clear(); this.resources.forEach(p => p.then(r => { r.input?.dispose(); r.image?.close(); }).catch(() => {})); this.resources.clear(); this.resourceUses.clear(); this.drawResources.clear(); this.audioResources.clear(); this.textCache.clear(); this.grades.dispose(); }
+  dispose() { if (this.disposed) return; this.disposed = true; this.readers.forEach(reader => void reader.iterator.return()); this.readers.clear(); this.resources.forEach(p => p.then(r => { r.input?.dispose(); r.image?.close(); }).catch(() => {})); this.resources.clear(); this.resourceUses.clear(); this.drawResources.clear(); this.audioResources.clear(); this.textCache.clear(); this.grades.dispose(); if (this.ownsPortraits) this.portraits.dispose(); }
 }
 
 function graphemes(text: string): string[] {
@@ -298,7 +310,8 @@ export function wrapStudioText(ctx: Pick<CanvasRenderingContext2D, 'measureText'
 
 export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAsset: StudioAssetResolver, { canvas = null, maxDimension = 1080 }: { canvas?: HTMLCanvasElement | null; maxDimension?: number } = {}): Promise<StudioRenderer> {
   const staging = studioCanvas(1,1);
-  let kernel = new StudioRenderKernel(recipe, resolveAsset), bound = canvas, state: StudioRendererState = { position: 0, playing: false, loading: false, error: null };
+  const portraits = createStudioPortraitSurface();
+  let kernel = new StudioRenderKernel(recipe, resolveAsset, undefined, portraits), bound = canvas, state: StudioRendererState = { position: 0, playing: false, loading: false, error: null };
   let epoch = 0, closed = false, raf = 0, context: AudioContext | null = null, anchorTime = 0, anchorPosition = 0, scheduled = 0, audioBusy = false, drawing = false;
   let drawWork: Promise<void> = Promise.resolve(), playWork: Promise<void> | null = null;
   let primedAudio: { start:number; samples:Float32Array[] } | null = null;
@@ -345,9 +358,8 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
   };
   const seek = async (seconds: number) => { pause(); const generation = epoch; publish({ position: clamp(seconds,0,duration()), loading: true, error: null }); try { if (bound) await draw(bound,state.position); if (generation === epoch && !closed) publish({ loading:false }); } catch (error) { if (generation === epoch && !closed) publish({ loading:false,error: String(error.message ?? error) }); throw error; } };
   const visibility = () => { if (document.visibilityState !== 'visible') pause(); }; document.addEventListener('visibilitychange',visibility);
-  // Font resolution is frozen before first frame. Preview and export use the same browser fallback.
-  await Promise.all(kernel.recipe.clips.filter(c => c.text).map(c => document.fonts?.load(`16px ${studioBrowserFont(c.text!.fontFamily)}`).catch(() => [])));
   const engine: StudioRenderer = {
+    preparePortrait(signal) { return portraits.prepare(signal); },
     bindCanvas(target) { bound = target; if (target) void seek(state.position).catch(() => {}); }, draw,
     seek, pause,
     play() {
@@ -365,9 +377,13 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
       })().catch(error => { if (closed || generation !== epoch) return; publish({playing:false,loading:false,error:String(error.message ?? error)}); throw error; }).finally(() => { if (playWork === task) playWork = null; });
       playWork = task; return task;
     },
-    async setRecipe(next) { const wasPlaying = state.playing, current = position(); pause(); const replacement = new StudioRenderKernel(next,resolveAsset); kernel.dispose(); kernel = replacement; const seeking = seek(Math.min(current,duration())), generation = epoch; await seeking; if (wasPlaying && !closed && generation === epoch) await engine.play(); },
-    dispose() { if (closed) return; pause(); closed=true; epoch++; kernel.dispose(); listeners.clear(); document.removeEventListener('visibilitychange',visibility); void context?.close(); staging.width=1; staging.height=1; },
+    async setRecipe(next) { const wasPlaying = state.playing, current = position(); pause(); const replacement = new StudioRenderKernel(next,resolveAsset,undefined,portraits); kernel.dispose(); kernel = replacement; const seeking = seek(Math.min(current,duration())), generation = epoch; await seeking; if (wasPlaying && !closed && generation === epoch) await engine.play(); },
+    dispose() { if (closed) return; pause(); closed=true; epoch++; kernel.dispose(); portraits.dispose(); listeners.clear(); document.removeEventListener('visibilitychange',visibility); void context?.close(); staging.width=1; staging.height=1; },
     subscribe(listener) { listeners.add(listener); listener({ ...state }); return () => listeners.delete(listener); },
   };
-  if (bound) await seek(0); return engine;
+  try {
+    // Font resolution is frozen before first frame. Preview and export use the same browser fallback.
+    await Promise.all(kernel.recipe.clips.filter(c => c.text).map(c => document.fonts?.load(`16px ${studioBrowserFont(c.text!.fontFamily)}`).catch(() => [])));
+    if (bound) await seek(0); return engine;
+  } catch (error) { engine.dispose(); throw error; }
 }

@@ -18,6 +18,7 @@ export type StudioTake = {
   colorSpace?: string;
   /** Reversible clip treatment; the original asset always remains unprocessed. */
   grade?: StudioGrade;
+  enhancement?: StudioEnhancement; portrait?: StudioPortrait;
   playbackRate?: number;
   flipHorizontal?: boolean; flipVertical?: boolean;
   gain?: number; opacity?: number; fadeInTicks?: number; fadeOutTicks?: number;
@@ -79,9 +80,10 @@ export function studioTakeDuration(take: Pick<StudioTake, 'start' | 'end' | 'pla
 }
 // Project schema and renderer are independent. Legacy artifacts are adopted only
 // when their old signature proves the unchanged sequential render.
-export const STUDIO_RENDER_VERSION = 3;
+export const STUDIO_RENDER_VERSION = 4;
 export function timelineSignature(project: Pick<StudioProject, 'kind' | 'takes'> & Partial<StudioProject>) {
   if (!project.editing && !project.takes.some(take => normalizeStudioCaptureGrade(take.grade)
+    || (take.enhancement?.strength ?? 0) > 0 || (take.portrait?.strength ?? 0) > 0
     || (take.playbackRate ?? 1) !== 1 || take.flipHorizontal || take.flipVertical || (take.gain ?? 1) !== 1
     || (take.opacity ?? 1) !== 1 || take.fadeInTicks || take.fadeOutTicks || take.motion && take.motion !== 'none')) return legacyTimelineSignature(project);
   const recipe = compileStudioRecipe(project);
@@ -147,6 +149,11 @@ export type StudioAssetKind = 'video' | 'image' | 'audio';
 export type StudioSourceStage = 'standard' | 'cinematicRaw' | 'cinematicRendered';
 export type StudioEffect = 'natural' | 'studio' | 'cinematic';
 export type StudioGrade = { preset: StudioEffect; intensity: number; exposure: number; contrast: number; saturation: number; temperature: number };
+/** Reversible, bounded analysis result. No image, face landmarks or external service state is persisted. */
+export type StudioEnhancement = { version: 1; strength: number; exposure: number; contrast: number; saturation: number;
+  temperature: number; tint: number; shadows: number; highlights: number; analyzedFrames: number };
+export type StudioPortrait = { version: 1; strength: number };
+export type StudioRenderFeature = 'enhancement-v1' | 'portrait-v1';
 export type StudioPendingTake = {
   id: string; uri: string; name: string; sourceUri?: string; kind?: StudioAssetKind;
   sourceKind?: 'standard' | 'cinematic'; sourceStage?: StudioSourceStage; frameRate?: number; colorSpace?: string;
@@ -174,6 +181,7 @@ export type StudioMainClip = {
   id: string; assetId: string; name?: string; sourceStartTicks: number; sourceEndTicks: number;
   /** Still image hold; temporal originals derive duration from their source range. */
   durationTicks?: number; effect?: StudioEffect; grade?: StudioGrade; gain?: number;
+  enhancement?: StudioEnhancement; portrait?: StudioPortrait;
   /** Reversible framing of the original within the lesson canvas. */
   rect?: StudioRect; fit?: 'contain' | 'cover'; rotationDegrees?: number;
   playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; opacity?: number;
@@ -187,6 +195,7 @@ export type StudioLayerItem = {
   sourceStartTicks?: number; sourceEndTicks?: number; anchor?: StudioLayerAnchor;
   rect?: StudioRect; rotationDegrees?: number; fit?: 'contain' | 'cover'; opacity?: number;
   gain?: number; fadeInTicks?: number; fadeOutTicks?: number; effect?: StudioEffect; grade?: StudioGrade; text?: StudioTextStyle;
+  enhancement?: StudioEnhancement; portrait?: StudioPortrait;
   playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; motion?: StudioClipMotion;
   /** Elapsed animation/motion time before the visible range; never a source time. */
   animationOffsetTicks?: number; motionOffsetTicks?: number; motionDurationTicks?: number;
@@ -221,11 +230,14 @@ export type StudioRecipeClip = {
   sourceStartTicks: number; sourceEndTicks: number; zIndex: number; rect: StudioRect;
   rotationDegrees: number; fit: 'contain' | 'cover'; opacity: number; gain: number;
   fadeInTicks: number; fadeOutTicks: number; effect: StudioEffect; grade?: StudioGrade; text?: StudioTextStyle;
+  enhancement?: StudioEnhancement; portrait?: StudioPortrait;
   playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; motion?: StudioClipMotion;
   animationOffsetTicks?: number; motionOffsetTicks?: number; motionDurationTicks?: number;
 };
 export type StudioRenderRecipe = {
-  version: 2; timebase: typeof STUDIO_TIMEBASE; durationTicks: number; mediaType: 'video' | 'audio';
+  /** Version 3 is required only for active magic effects; old native renderers reject it instead of ignoring an effect. */
+  version: 2 | 3; timebase: typeof STUDIO_TIMEBASE; durationTicks: number; mediaType: 'video' | 'audio';
+  requiredFeatures?: StudioRenderFeature[];
   canvas: StudioEditing['canvas']; output: StudioOutputProfile; assets: StudioAsset[]; clips: StudioRecipeClip[];
 };
 export function studioTicks(seconds: number) {
@@ -243,6 +255,42 @@ export function validateStudioGrade(value: unknown): string[] {
     || grade.intensity < 0 || grade.intensity > 1 || Math.abs(grade.exposure) > 2
     || [grade.contrast, grade.saturation, grade.temperature].some(value => Math.abs(value) > 1)) return ['Revise os ajustes de cor do clip.'];
   return [];
+}
+const enhancementKeys = ['version', 'strength', 'exposure', 'contrast', 'saturation', 'temperature', 'tint', 'shadows', 'highlights', 'analyzedFrames'];
+export function validateStudioEnhancement(value: unknown): string[] {
+  const enhancement = value as StudioEnhancement | null | undefined;
+  if (!enhancement || typeof enhancement !== 'object' || Array.isArray(enhancement)
+    || Object.keys(enhancement).some(key => !enhancementKeys.includes(key)) || enhancement.version !== 1
+    || ![enhancement.strength, enhancement.exposure, enhancement.contrast, enhancement.saturation, enhancement.temperature,
+      enhancement.tint, enhancement.shadows, enhancement.highlights].every(Number.isFinite)
+    || enhancement.strength < 0 || enhancement.strength > 1 || Math.abs(enhancement.exposure) > 2
+    || [enhancement.contrast, enhancement.saturation, enhancement.temperature, enhancement.tint, enhancement.shadows, enhancement.highlights].some(number => Math.abs(number) > 1)
+    || !Number.isSafeInteger(enhancement.analyzedFrames) || enhancement.analyzedFrames < 1 || enhancement.analyzedFrames > 24) return ['Revise a melhoria automática do clip.'];
+  return [];
+}
+export function validateStudioPortrait(value: unknown): string[] {
+  const portrait = value as StudioPortrait | null | undefined;
+  if (!portrait || typeof portrait !== 'object' || Array.isArray(portrait)
+    || Object.keys(portrait).some(key => !['version', 'strength'].includes(key)) || portrait.version !== 1
+    || !Number.isFinite(portrait.strength) || portrait.strength < 0 || portrait.strength > 1) return ['Revise o retoque facial do clip.'];
+  return [];
+}
+type StudioVisualTreatment = Pick<Partial<StudioMainClip>, 'enhancement' | 'portrait'>;
+function studioTreatmentProperties(clip: StudioVisualTreatment): StudioVisualTreatment {
+  return { ...(clip.enhancement !== undefined ? { enhancement: { ...clip.enhancement } } : {}),
+    ...(clip.portrait !== undefined ? { portrait: { ...clip.portrait } } : {}) };
+}
+/** Ordered requirements derive from active fields, never from user-supplied capability declarations. */
+export function studioRequiredFeatures(value: StudioEditing | Pick<StudioRenderRecipe, 'clips'>): StudioRenderFeature[] {
+  const clips = 'clips' in value ? value.clips : [...value.main, ...value.layers.flatMap(layer => layer.items)];
+  return [...(clips.some(clip => (clip.enhancement?.strength ?? 0) > 0) ? ['enhancement-v1' as const] : []),
+    ...(clips.some(clip => (clip.portrait?.strength ?? 0) > 0) ? ['portrait-v1' as const] : [])];
+}
+/** Call before handing a recipe to a platform renderer; missing support may never produce an untreated export. */
+export function assertStudioRenderFeatures(recipe: StudioRenderRecipe, supported: readonly StudioRenderFeature[]): void {
+  const issues = validateStudioRecipe(recipe);
+  if (issues.length) throw new Error(issues[0]);
+  if (studioRequiredFeatures(recipe).some(feature => !supported.includes(feature))) throw new Error('Este renderizador não oferece os efeitos desta montagem. Atualize o app ou remova os efeitos antes de exportar.');
 }
 /** Capture identity needs no recipe and must remain usable by legacy binaries. */
 export function normalizeStudioCaptureGrade(value?: StudioGrade): StudioGrade | undefined {
@@ -297,6 +345,7 @@ export function deriveStudioTakes(editing: StudioEditing): StudioTake[] {
       width: asset.width, height: asset.height, thumbnailUri: asset.thumbnailUri, kind: asset.kind,
       sourceKind: asset.sourceKind, sourceStage: asset.sourceStage, frameRate: asset.frameRate, colorSpace: asset.colorSpace,
       grade: clip.grade ? { ...clip.grade } : undefined, hasAudio: asset.hasAudio,
+      ...studioTreatmentProperties(clip),
       ...studioClipProperties(clip) };
   });
 }
@@ -354,7 +403,7 @@ export function reconcileStudioTakes(project: Pick<StudioProject, 'kind'> & Part
     const properties = studioClipProperties(take);
     const excluded = origin ? Math.round((start - origin.sourceStartTicks) / studioPlaybackRate(origin.playbackRate)) : 0;
     const duration = asset.kind === 'image' ? studioTicks(take.end - take.start) : Math.round((end - start) / studioPlaybackRate(take.playbackRate ?? origin?.playbackRate));
-    return { ...(origin ?? {}), ...properties, id: take.id, assetId: asset.id, name: take.name,
+    return { ...(origin ?? {}), ...properties, ...studioTreatmentProperties(take), id: take.id, assetId: asset.id, name: take.name,
       ...(grade ? { grade } : {}),
       ...(origin?.motion && origin.motion !== 'none' ? { motionOffsetTicks: properties.motionOffsetTicks !== undefined && properties.motionOffsetTicks !== origin.motionOffsetTicks
         ? properties.motionOffsetTicks : Math.max(0, (origin.motionOffsetTicks ?? 0) + excluded),
@@ -426,6 +475,7 @@ export function compileStudioRecipe(project: Pick<StudioProject, 'kind' | 'takes
     mainStarts.set(clip.id, { clip, start: cursor, duration });
     clips.push({ ...baseRecipeClip(clip.id, asset.kind, cursor, duration), assetId: clip.assetId,
       sourceStartTicks: clip.sourceStartTicks, sourceEndTicks: clip.sourceEndTicks, effect: clip.effect ?? 'natural', grade: clip.grade,
+      ...studioTreatmentProperties(clip),
       rect: clip.rect ?? { x: 0, y: 0, width: 1, height: 1 }, fit: clip.fit ?? 'contain', rotationDegrees: clip.rotationDegrees ?? 0,
       ...studioClipProperties(clip), gain: editing.mainMuted === true ? 0 : clip.gain ?? 1, opacity: clip.opacity ?? 1,
       fadeInTicks: Math.min(clip.fadeInTicks ?? 0, duration), fadeOutTicks: Math.min(clip.fadeOutTicks ?? 0, Math.max(0, duration - Math.min(clip.fadeInTicks ?? 0, duration))) });
@@ -461,6 +511,7 @@ export function compileStudioRecipe(project: Pick<StudioProject, 'kind' | 'takes
         sourceStartTicks: sourceStart, sourceEndTicks: sourceEnd, zIndex: layerIndex + 1,
         rect: item.rect ?? { x: 0, y: 0, width: 1, height: 1 }, rotationDegrees: item.rotationDegrees ?? 0, fit: item.fit ?? 'contain',
         effect: item.effect ?? 'natural', grade: item.grade, text: item.text,
+        ...studioTreatmentProperties(item),
         ...studioClipProperties(item), opacity: layer.hidden === true ? 0 : item.opacity ?? 1, gain: layer.muted === true ? 0 : item.gain ?? 1,
         fadeInTicks: Math.min(item.fadeInTicks ?? 0, duration), fadeOutTicks: Math.min(item.fadeOutTicks ?? 0, Math.max(0, duration - Math.min(item.fadeInTicks ?? 0, duration))),
         ...(item.text?.animation && item.text.animation !== 'none' ? { animationOffsetTicks: (item.animationOffsetTicks ?? 0) + excluded } : {}),
@@ -469,7 +520,8 @@ export function compileStudioRecipe(project: Pick<StudioProject, 'kind' | 'takes
     }
   }
   const referenced = new Set(clips.map(clip => clip.assetId).filter(Boolean));
-  return { version: 2, timebase: STUDIO_TIMEBASE, mediaType: project.kind === 'podcast' ? 'audio' : 'video',
+  const requiredFeatures = studioRequiredFeatures({ clips });
+  return { version: requiredFeatures.length ? 3 : 2, ...(requiredFeatures.length ? { requiredFeatures } : {}), timebase: STUDIO_TIMEBASE, mediaType: project.kind === 'podcast' ? 'audio' : 'video',
     durationTicks: Math.max(cursor, ...clips.map(clip => clip.startTicks + clip.durationTicks), 0),
     canvas: { ...editing.canvas }, output: resolveStudioOutput(editing, editing.assets.filter(asset => referenced.has(asset.id))),
     assets: editing.assets.filter(asset => referenced.has(asset.id)).map(asset => ({ ...asset })).sort((a, b) => a.id.localeCompare(b.id)),
@@ -485,7 +537,11 @@ const studioColor = (value: string) => typeof value === 'string' && /^#[0-9a-f]{
 export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
   const issues: string[] = [];
   const push = (message: string) => { if (!issues.includes(message)) issues.push(message); };
-  if (recipe.version !== 2 || recipe.timebase !== STUDIO_TIMEBASE || !isTicks(recipe.durationTicks)) push('A versão ou o tempo da montagem não é válido.');
+  if (![2, 3].includes(recipe.version) || recipe.timebase !== STUDIO_TIMEBASE || !isTicks(recipe.durationTicks)) push('A versão ou o tempo da montagem não é válido.');
+  const requiredFeatures = studioRequiredFeatures(recipe), declared = recipe.requiredFeatures ?? [];
+  if (recipe.requiredFeatures !== undefined && !Array.isArray(recipe.requiredFeatures)
+    || !Array.isArray(declared) || declared.length !== requiredFeatures.length || requiredFeatures.some(feature => !declared.includes(feature))
+    || new Set(declared).size !== declared.length || recipe.version !== (requiredFeatures.length ? 3 : 2)) push('A versão e os recursos de renderização da montagem não correspondem aos efeitos.');
   if (!recipe.canvas || !['landscape', 'portrait', 'square'].includes(recipe.canvas.aspectRatio) || !studioColor(recipe.canvas.backgroundColor)) push('O enquadramento da montagem não é válido.');
   const assets = new Map<string, StudioAsset>();
   for (const asset of recipe.assets) {
@@ -522,6 +578,9 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
       || clip.motionDurationTicks !== undefined && (!isTicks(clip.motionDurationTicks) || clip.motionDurationTicks <= 0)) push('Revise os efeitos e o espelhamento do clip.');
     if (!effects.includes(clip.effect)) push('O efeito deste clip não é suportado.');
     if (clip.grade !== undefined && validateStudioGrade(clip.grade).length) push('Revise os ajustes de cor do clip.');
+    if (clip.enhancement !== undefined && validateStudioEnhancement(clip.enhancement).length) push('Revise a melhoria automática do clip.');
+    if (clip.portrait !== undefined && validateStudioPortrait(clip.portrait).length) push('Revise o retoque facial do clip.');
+    if ((clip.enhancement !== undefined || clip.portrait !== undefined) && !['video', 'image'].includes(clip.kind)) push('A melhoria e o retoque só podem ser aplicados em imagem ou vídeo.');
     if (['text', 'caption'].includes(clip.kind) && (!clip.text || !clip.text.content.trim() || !Number.isFinite(clip.text.fontSize)
       || clip.text.fontSize <= 0 || clip.text.fontSize > 1 || typeof clip.text.fontFamily !== 'string' || !clip.text.fontFamily.trim()
       || !studioColor(clip.text.color) || !studioColor(clip.text.backgroundColor) || !['left', 'center', 'right'].includes(clip.text.alignment))) push('Revise os textos e as legendas.');
@@ -581,12 +640,15 @@ export function validateStudioEditing(editing: StudioEditing, kind: StudioKind):
       sourceStartTicks: sourceStart, sourceEndTicks: sourceEnd, rect: item.rect ?? { x: 0, y: 0, width: 1, height: 1 },
       rotationDegrees: item.rotationDegrees ?? 0, fit: item.fit ?? 'contain', opacity: item.opacity ?? 1, gain: item.gain ?? 1,
       fadeInTicks: item.fadeInTicks ?? 0, fadeOutTicks: item.fadeOutTicks ?? 0, effect: item.effect ?? 'natural', grade: item.grade, text: item.text,
+      ...studioTreatmentProperties(item),
       ...studioClipProperties(item), animationOffsetTicks: item.animationOffsetTicks });
   }
   try {
     const recipe = compileStudioRecipe({ kind, takes: [], editing });
     issues.push(...validateStudioRecipe(recipe));
-    const storedIssues = validateStudioRecipe({ ...recipe, assets: editing.assets, clips: originals });
+    const storedFeatures = studioRequiredFeatures({ clips: originals });
+    const storedIssues = validateStudioRecipe({ ...recipe, version: storedFeatures.length ? 3 : 2,
+      requiredFeatures: storedFeatures.length ? storedFeatures : undefined, assets: editing.assets, clips: originals });
     // Anchored elements use source times until compilation. Their actual decoder
     // overlap is checked above after resolving all links, not on raw offsets.
     issues.push(...storedIssues.filter(issue => issue !== 'A montagem pode usar até dois vídeos ao mesmo tempo.'));
@@ -777,6 +839,36 @@ export function patchStudioClipGrade(editing: StudioEditing, id: string, patch: 
   if (!item) throw new Error('Este clip não está mais na montagem.');
   return patchStudioLayerItem(editing, id, { grade: { ...studioGrade(item.effect), ...item.grade, ...patch } });
 }
+function patchStudioVisualTreatment(editing: StudioEditing, id: string, key: 'enhancement' | 'portrait', value: StudioEnhancement | StudioPortrait | null): StudioEditing {
+  const main = editing.main.find(clip => clip.id === id), layer = editing.layers.flatMap(track => track.items).find(item => item.id === id);
+  const target = main ?? layer;
+  if (!target) throw new Error('Este clip não está mais na montagem.');
+  if (value !== null) {
+    const issues = key === 'enhancement' ? validateStudioEnhancement(value) : validateStudioPortrait(value);
+    if (issues.length) throw new Error(issues[0]);
+    const kind = layer?.kind ?? editing.assets.find(asset => asset.id === main?.assetId)?.kind;
+    if (kind !== 'image' && kind !== 'video') throw new Error('A melhoria e o retoque só podem ser aplicados em imagem ou vídeo.');
+  }
+  const current = target[key];
+  if (value === null ? current === undefined : current !== undefined
+    && (key === 'enhancement' ? validateStudioEnhancement(current) : validateStudioPortrait(current)).length === 0
+    && Object.entries(value).every(([field, item]) => (current as unknown as Record<string, unknown>)[field] === item)) return editing;
+  if (main) {
+    const updated = { ...main };
+    if (value === null) delete updated[key]; else Object.assign(updated, { [key]: { ...value } });
+    return validatedStudioEdit({ ...editing, main: editing.main.map(clip => clip.id === id ? updated : clip) });
+  }
+  const updated = { ...layer! };
+  if (value === null) delete updated[key]; else Object.assign(updated, { [key]: { ...value } });
+  return validatedStudioEdit({ ...editing, layers: editing.layers.map(track => ({ ...track, items: track.items.map(item => item.id === id ? updated : item) })) });
+}
+/** Complete, versioned values are applied atomically; null removes a reversible treatment. */
+export function patchStudioClipEnhancement(editing: StudioEditing, id: string, value: StudioEnhancement | null): StudioEditing {
+  return patchStudioVisualTreatment(editing, id, 'enhancement', value);
+}
+export function patchStudioClipPortrait(editing: StudioEditing, id: string, value: StudioPortrait | null): StudioEditing {
+  return patchStudioVisualTreatment(editing, id, 'portrait', value);
+}
 
 export type StudioClipPropertiesPatch = Partial<Pick<StudioMainClip,
   'playbackRate' | 'flipHorizontal' | 'flipVertical' | 'opacity' | 'gain' | 'fadeInTicks' | 'fadeOutTicks' | 'motion' | 'fit' | 'rotationDegrees'>>;
@@ -846,7 +938,7 @@ export function patchStudioClipProperties(editing: StudioEditing, id: string, pa
 export function requiresStudioEditorTools(value: StudioEditing | StudioRenderRecipe): boolean {
   const clips = 'clips' in value ? value.clips : compileStudioRecipe({ kind: 'aula', takes: [], editing: value }).clips;
   const assets = new Map(value.assets.map(asset => [asset.id, asset]));
-  return clips.some(clip => clip.kind === 'audio' && assets.get(clip.assetId!)?.kind === 'video' || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal === true || clip.flipVertical === true
+  return studioRequiredFeatures({ clips }).length > 0 || clips.some(clip => clip.kind === 'audio' && assets.get(clip.assetId!)?.kind === 'video' || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal === true || clip.flipVertical === true
     || !!clip.motion && clip.motion !== 'none' || clip.zIndex === 0 && ((clip.fadeInTicks ?? 0) > 0 || (clip.fadeOutTicks ?? 0) > 0 || clip.opacity !== 1)
     || !!clip.text && (clip.text.decoration !== undefined && clip.text.decoration !== 'none'
       || clip.text.visualEffect !== undefined && clip.text.visualEffect !== 'none' || clip.text.animation !== undefined && clip.text.animation !== 'none'
@@ -872,6 +964,9 @@ export function validateStudioPendingTakes(pending: StudioProject['pendingTakes'
     if (entry.layerItem) {
       const item = entry.layerItem;
       if (entry.grade !== undefined || item.grade !== undefined && validateStudioGrade(item.grade).length
+        || item.enhancement !== undefined && validateStudioEnhancement(item.enhancement).length
+        || item.portrait !== undefined && validateStudioPortrait(item.portrait).length
+        || (item.enhancement !== undefined || item.portrait !== undefined) && !['video', 'image'].includes(item.kind)
         || !item.id || !['video', 'image', 'audio'].includes(item.kind) || item.assetId !== entry.id
         || entry.kind !== undefined && entry.kind !== item.kind || !isTicks(item.atTicks) || !isTicks(item.durationTicks)
         || [item.sourceStartTicks, item.sourceEndTicks, item.fadeInTicks, item.fadeOutTicks, item.animationOffsetTicks, item.motionOffsetTicks].some(value => value !== undefined && !isTicks(value))

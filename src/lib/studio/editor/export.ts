@@ -1,7 +1,7 @@
 import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, StreamTarget, canEncodeAudio, canEncodeVideo, type Target } from 'mediabunny';
-import { compileStudioRecipe, validateStudioRecipe, type StudioProject, type StudioRenderRecipe } from '../../../../shared/studio';
+import { assertStudioRenderFeatures, compileStudioRecipe, validateStudioRecipe, type StudioProject, type StudioRenderFeature, type StudioRenderRecipe } from '../../../../shared/studio';
 import { assertStudioActive, inspectStudioMedia, studioCanvas, type StudioAssetResolver } from './media';
-import { StudioRenderKernel, studioBrowserFont } from './renderer';
+import { StudioRenderKernel, studioBrowserFont, STUDIO_WEB_RENDER_FEATURES } from './renderer';
 import { getStudioAACDelay, StudioAACSource } from './exportAudio';
 
 export type StudioBrowserExportCapabilities = {
@@ -43,14 +43,15 @@ async function createExportTarget(estimatedBytes: number): Promise<ExportTarget>
   return {target, async file(name,mime) { if (!target.buffer) throw new Error('O encoder não produziu um arquivo.'); return new File([target.buffer],name,{type:mime}); },async release(){}};
 }
 export type StudioExportKernel = Pick<StudioRenderKernel, 'draw' | 'mixAudio' | 'dispose'>;
-export type StudioExportOptions = { signal?:AbortSignal; onProgress?:(value:number)=>void; kernelFactory?:(recipe:StudioRenderRecipe, resolver:StudioAssetResolver, signal?:AbortSignal)=>StudioExportKernel };
+export type StudioExportOptions = { signal?:AbortSignal; onProgress?:(value:number)=>void; kernelFeatures?: readonly StudioRenderFeature[]; kernelFactory?:(recipe:StudioRenderRecipe, resolver:StudioAssetResolver, signal?:AbortSignal)=>StudioExportKernel };
 /** Offline encoding: encoder backpressure + bounded frame/audio decoding, no realtime recorder. */
 export async function exportStudioProject(project: StudioProject, resolveAsset: StudioAssetResolver, options: StudioExportOptions = {}): Promise<File> {
   return exportStudioRecipe(compileStudioRecipe(structuredClone(project)),resolveAsset,{...options,name:project.title});
 }
-export async function exportStudioRecipe(inputRecipe: StudioRenderRecipe, resolveAsset: StudioAssetResolver, {signal,onProgress,name='Montagem Classfy',kernelFactory}: StudioExportOptions & {name?:string} = {}): Promise<File> {
+export async function exportStudioRecipe(inputRecipe: StudioRenderRecipe, resolveAsset: StudioAssetResolver, {signal,onProgress,name='Montagem Classfy',kernelFactory,kernelFeatures}: StudioExportOptions & {name?:string} = {}): Promise<File> {
   // The immutable snapshot is taken before the first await, including source trim/rate/grade.
   const recipe = structuredClone(inputRecipe), issues = validateStudioRecipe(recipe); if (issues.length) throw new Error(issues[0]); assertStudioActive(signal);
+  assertStudioRenderFeatures(recipe, kernelFactory ? kernelFeatures ?? [] : STUDIO_WEB_RENDER_FEATURES);
   const duration = recipe.durationTicks / recipe.timebase, fps = recipe.output.frameRateNumerator / recipe.output.frameRateDenominator;
   if (!duration || !Number.isFinite(duration)) throw new Error('Adicione conteúdo antes de exportar.');
   const hasAudio = recipe.mediaType === 'audio' || recipe.clips.some(c => c.kind === 'audio' || c.kind === 'video' && recipe.assets.find(a => a.id === c.assetId)?.hasAudio !== false);

@@ -82,4 +82,17 @@ describe('compositor compartilhado',()=>{
     const engine=await createStudioRenderer(recipe(),resolve);let state:any;engine.subscribe(s=>state=s);const target=document.createElement('canvas');const stale=engine.draw(target,0);await Promise.resolve();await Promise.resolve();
     const changing=engine.setRecipe(recipe([clip({rect:{x:.25,y:.25,width:.5,height:.5}})]));reject(new Error('decoder antigo encerrado'));await stale;await changing;expect(state.error).toBeNull();expect(state.position).toBe(0);engine.dispose();
   });
+  it('falha no primeiro quadro libera decoder e listener mesmo sem devolver o renderer ao caller',async()=>{
+    sources.frames=[];
+    const add=vi.spyOn(document,'addEventListener'),remove=vi.spyOn(document,'removeEventListener');
+    const target=document.createElement('canvas');
+    await expect(createStudioRenderer(recipe(),async()=>new Blob(['original']),{canvas:target})).rejects.toThrow('decodificar o quadro');
+    const registered=add.mock.calls.find(call=>call[0]==='visibilitychange');
+    expect(registered).toBeTruthy();
+    expect(remove).toHaveBeenCalledWith('visibilitychange',registered![1]);
+    expect(sources.inputs).toHaveLength(1);
+    expect(sources.inputs[0].disposed).toBe(true);
+    expect(sources.dispose).toHaveBeenCalledOnce();
+    add.mockRestore();remove.mockRestore();
+  });
 });
