@@ -19,7 +19,7 @@ export function StudioRemoteSceneRecoveryList({ owner, onRecoveredFile }: { owne
       await onRecoveredFile(file, source);
       if (current.current === owner) setAdded(values => [...values, entry.key]);
     }
-    catch (cause) { if (current.current === owner && !controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Os originais continuam preservados. Tente novamente.'); }
+    catch (cause) { if (current.current === owner && !controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Os originais continuam preservados. Retome o recebimento do take para continuar.'); }
     finally { if (current.current === owner) { setBusy(null); await refresh(); } }
   };
   if (!entries.length && !error) return null;

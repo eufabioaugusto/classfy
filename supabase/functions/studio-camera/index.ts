@@ -33,12 +33,13 @@ export async function handleCameraRequest(req: Request): Promise<Response> {
     if (error) throw error;
     const response = data as JsonObject;
     const objectPath = response._objectPath;
+    const roomsToClose = response._roomsToClose;
     const partIndex = response._partIndex; const partOffset = response._partOffset;
     const partBytes = response._partBytes; const totalParts = response._totalParts; const partMime = response._partMime;
     const partUploaded = response._partUploaded === true;
     for (const key of Object.keys(response)) if (key.startsWith('_')) delete response[key];
     const session = response.session as JsonObject;
-    if (action === 'create') response.pairing = { code, expiresAt: session.expiresAt };
+    if (action === 'create' && !session.deviceId) response.pairing = { code, expiresAt: session.expiresAt };
     if (action === 'join' || action === 'connect') response.connection = await connection(session, action === 'join' ? 'device' : String(params.role));
     if (action === 'upload-start') {
       const take = (response.takes as JsonObject[]).find(item => item.id === params.takeId);
@@ -72,11 +73,13 @@ export async function handleCameraRequest(req: Request): Promise<Response> {
       response.download = { ...(count === 1 ? { url: parts[0].url } : {}), parts, bytes: original.bytes, mime: original.mime,
         totalParts: count, nextPartIndex: end < count ? end : null, expiresAt: new Date(Date.now() + seconds * 1000).toISOString() };
     }
-    if (action === 'close') {
+    if (action === 'close' || action === 'unpair') {
       // Connection and its preview room have no Mux stream, live, or egress.
       try {
         const { url, key, secret } = rtcConfig();
-        await new RoomServiceClient(url.replace(/^ws/, 'http'), key, secret).deleteRoom(`classfy-studio-camera-${session.id}`).catch(() => undefined);
+        const rooms = action === 'unpair' && Array.isArray(roomsToClose) ? roomsToClose : [session.id];
+        const service = new RoomServiceClient(url.replace(/^ws/, 'http'), key, secret);
+        await Promise.allSettled(rooms.map(id => service.deleteRoom(`classfy-studio-camera-${id}`)));
       } catch { /* The durable session is closed even if the provider is offline. */ }
     }
     response.serverAt = new Date().toISOString();

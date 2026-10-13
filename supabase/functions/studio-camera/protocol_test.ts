@@ -3,6 +3,14 @@ function assert(value: unknown, message = 'assertion failed'): asserts value { i
 function rejects(fn: () => unknown) { try { fn(); } catch (error) { assert(error instanceof CameraError); return; } throw new Error('accepted invalid request'); }
 const id = '10000000-0000-4000-8000-000000000001';
 const info = { bytes: 1234, mime: 'video/quicktime', width: 3840, height: 2160, fps: 29.97, duration: 3.5 };
+Deno.test('persistent discovery and unpair require installation identifiers, never client ownership', () => {
+  const discover = validateRequest({ action: 'discover', deviceId: id, controllerId: id, ownerId: 'untrusted' });
+  assert(discover.params.deviceId === id && discover.params.controllerId === id && discover.params.ownerId === undefined);
+  assert(validateRequest({ action: 'discover', deviceId: id }).params.controllerId === undefined);
+  assert(validateRequest({ action: 'unpair', controllerId: id }).params.controllerId === id);
+  rejects(() => validateRequest({ action: 'discover', controllerId: id }));
+  rejects(() => validateRequest({ action: 'unpair', controllerId: 'bad' }));
+});
 Deno.test('pairing uses 256 random bits and only a SHA-256 digest reaches the database', async () => {
   const codes = Array.from({ length: 50 }, generatePairingCode);
   assert(new Set(codes).size === 50); assert(codes.every(code => /^[A-Za-z0-9_-]{43}$/.test(code)));
@@ -42,8 +50,8 @@ Deno.test('provider errors cannot expose a token or URL; auth failure remains 40
   assert(publicError({ message: 'studio_camera_premium_required' }).status === 403);
 });
 Deno.test('TUS uses direct storage host in production and retains local origins', () => {
-  assert(storageEndpoint('https://abcd.supabase.co') === 'https://abcd.storage.supabase.co/storage/v1/upload/resumable');
-  assert(storageEndpoint('http://127.0.0.1:54321') === 'http://127.0.0.1:54321/storage/v1/upload/resumable');
+  assert(storageEndpoint('https://abcd.supabase.co') === 'https://abcd.storage.supabase.co/storage/v1/upload/resumable/sign');
+  assert(storageEndpoint('http://127.0.0.1:54321') === 'http://127.0.0.1:54321/storage/v1/upload/resumable/sign');
 });
 Deno.test('multipart requests keep original metadata and restrict recovery to a paired device identity', () => {
   const request = validateRequest({ action: 'upload-start', sessionId: id, takeId: id, partIndex: 3, metadata: { ...info, bytes: 30_000_000 }, recovered: true, deviceId: id });
@@ -51,4 +59,17 @@ Deno.test('multipart requests keep original metadata and restrict recovery to a 
   assert((request.params.metadata as Record<string, unknown>).bytes === 30_000_000);
   rejects(() => validateRequest({ action: 'upload-start', sessionId: id, takeId: id, metadata: info, recovered: true }));
   rejects(() => validateRequest({ action: 'download', sessionId: id, takeId: id, partCount: 101 }));
+});
+Deno.test('resume-upload requires the original take and preserves a bounded fresh transfer receipt', () => {
+  const request = validateRequest({ action: 'command', sessionId: id, commandId: id, type: 'resume_upload', payload: { takeId: id, path: 'forged-original' } });
+  assert(JSON.stringify(request.params.payload) === JSON.stringify({ takeId: id }));
+  rejects(() => validateRequest({ action: 'command', sessionId: id, commandId: id, type: 'resume_upload', payload: {} }));
+  const receipt = { ok: true, takeId: id, uploadState: 'uploading', uploadProgressBytes: 0, uploadTotalBytes: 1234, uploadResumedAtServerMs: 123456,
+    uploadTakeId: id, uploadError: null, uploading: false, state: { uploadTakeId: id, uploadResumedAtServerMs: 123456, uploadState: 'uploading', uploadError: null } };
+  const ack = validateRequest({ action: 'ack', sessionId: id, deviceId: id, commandId: id, result: receipt });
+  const result = ack.params.result as Record<string, unknown>; assert(result.uploadResumedAtServerMs === 123456 && result.uploadTotalBytes === 1234 && result.uploadProgressBytes === 0 && result.uploading === false);
+  for (const patch of [{ uploadState: 'fake' }, { uploadProgressBytes: -1 }, { uploadProgressBytes: 1235 }, { uploadTotalBytes: Infinity }, { uploadResumedAtServerMs: '123456' }, { uploadResumedAtServerMs: 0 }, { uploadTakeId: 'another-original' }, { uploading: 'true' }]) {
+    rejects(() => validateRequest({ action: 'ack', sessionId: id, deviceId: id, commandId: id, result: { ...receipt, ...patch } }));
+  }
+  rejects(() => validateRequest({ action: 'heartbeat', sessionId: id, role: 'device', clientId: id, state: { uploadProgressBytes: -1 } }));
 });

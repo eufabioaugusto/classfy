@@ -15,6 +15,7 @@ const command = (name, args, options = {}) => execute(join(bin, name), args, { e
 const sql = (query) => command('psql', ['-X', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-c', query]);
 const migration = await readFile(new URL('../../migrations/20261012220000_studio_remote_camera.sql', import.meta.url), 'utf8');
 const proMigration = await readFile(new URL('../../migrations/20261012224500_studio_remote_camera_pro_state.sql', import.meta.url), 'utf8');
+const resumeMigration = await readFile(new URL('../../migrations/20261012233000_studio_remote_camera_resume.sql', import.meta.url), 'utf8');
 let started = false;
 try {
  await mkdir(socket);
@@ -45,6 +46,8 @@ try {
  await sql(migration); // Migration is safe to reapply in the rollback QA workflow.
  await sql(proMigration);
  await sql(proMigration);
+ await sql(resumeMigration);
+ await sql(resumeMigration);
  const fixture = await readFile(new URL('database_test.sql', import.meta.url), 'utf8');
  await sql(fixture);
  // Two simultaneous joins may consume the same QR only for one device.
@@ -60,7 +63,13 @@ try {
  assert.equal(commands.length, 2);
  assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_commands WHERE session_id='${session}';`)).stdout.trim()), 1);
  assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_takes WHERE session_id='${session}';`)).stdout.trim()), 1);
- console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS and concurrent idempotency.');
+ const pairingMigration = await readFile(new URL('../../migrations/20261013000000_studio_remote_camera_pairings.sql', import.meta.url), 'utf8');
+ await sql(pairingMigration);
+ await sql(pairingMigration);
+ await sql(await readFile(new URL('pairings_test.sql', import.meta.url), 'utf8'));
+ await sql(pairingMigration); // Reapplying never revives a revoked pairing.
+ assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_pairings WHERE controller_id='20000000-0000-4000-8000-000000000090' AND revoked_at IS NOT NULL;`)).stdout.trim()), 1);
+ console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency and durable pairings.');
 } finally {
  if (started) await command('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']).catch(() => undefined);
  await rm(temporary, { recursive: true, force: true });

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StudioRemoteResponse, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
+import type { StudioRemoteCommand, StudioRemoteResponse, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
 import type { StudioCaptureState } from './capture';
-import { createStudioRemoteCapture, remoteStudioProfile, validateStudioRemoteMaster, type StudioRemoteCaptureController, type StudioRemotePreviewFactory, type StudioRemoteView } from './remoteCameraCapture';
+import { createStudioRemoteCapture, remoteStudioProfile, studioRemoteControllerId, validateStudioRemoteMaster, type StudioRemoteCaptureController, type StudioRemotePreviewFactory, type StudioRemoteView } from './remoteCameraCapture';
 import type { StudioRemoteClient } from './remoteCameraClient';
 
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {} }));
@@ -12,11 +12,11 @@ function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unkn
 class Stream { constructor(public tracks: MediaStreamTrack[]) {} getVideoTracks() { return this.tracks; } getAudioTracks() { return []; } getTracks() { return this.tracks; } }
 const track = { id: 'phone-preview', kind: 'video', stop: vi.fn(), getSettings: () => ({ width: 1280, height: 720, frameRate: 30 }) } as unknown as MediaStreamTrack;
 let controllers: StudioRemoteCaptureController[];
-function fixture(paired = true) {
+function fixture(paired = true, transferTimeoutMs = 500) {
   const data: StudioRemoteResponse = {
     session: { id: 'session-remote', projectId: null, kind: 'aula', title: 'Minha aula', status: paired ? 'ready' : 'pairing', controllerId: 'controller', deviceId: paired ? 'phone' : null, sequence: 0, activeTakeId: null, configuration: { resolution: '4k', fps: 30, cameraFacing: 'back' }, deviceState: paired ? { deviceName: 'iPhone de teste', width: 3840, height: 2160, fps: 30, capabilities: { resolutions: ['720p', '1080p', '2k', '4k'], frameRates: [24, 30] } } : null, createdAt: new Date(NOW).toISOString(), expiresAt: new Date(NOW + 300_000).toISOString(), pairedAt: paired ? new Date(NOW).toISOString() : null, controllerSeenAt: null, deviceSeenAt: null, closedAt: null }, commands: [], takes: [], serverAt: new Date(NOW).toISOString(), pairing: { code: 'ABC123', expiresAt: new Date(NOW + 300_000).toISOString() },
   };
-  let autoAck = true, upload = true;
+  let autoAck = true, upload = true, staleResume = false;
   const download = vi.fn(async () => original), inspect = vi.fn(async () => metadata), disconnect = vi.fn(async () => undefined);
   const request = vi.fn(async (body: Record<string, unknown>) => {
     data.serverAt = new Date(Date.now()).toISOString();
@@ -24,22 +24,23 @@ function fixture(paired = true) {
     if (body.action === 'connect') data.connection = { url: 'wss://fixture.livekit.cloud', token: 'fixture-private-room', identity: 'controller' };
     if (body.action === 'download') data.download = { url: 'https://fixture.supabase.co/storage/v1/object/sign/master', parts: [{ url: 'https://fixture.supabase.co/storage/v1/object/sign/master', index: 0, bytes: original.size }], bytes: original.size, mime: 'video/mp4', totalParts: 1, nextPartIndex: null, expiresAt: new Date(NOW + 300_000).toISOString() };
     if (body.action === 'command' && !data.commands.some(command => command.id === body.commandId)) {
-      const payload = body.payload as Record<string, unknown>, command = { id: String(body.commandId), sequence: ++data.session.sequence, type: body.type as 'configure' | 'start' | 'stop', payload, status: autoAck ? 'applied' as const : 'pending' as const, createdAt: new Date(Date.now()).toISOString(), acknowledgedAt: autoAck ? new Date(Date.now()).toISOString() : null, result: body.type === 'start' ? { takeId: payload.takeId, startedAtServerMs: Date.now() } : {} };
+      const payload = body.payload as Record<string, unknown>, command = { id: String(body.commandId), sequence: ++data.session.sequence, type: body.type as StudioRemoteCommand['type'], payload, status: autoAck ? 'applied' as const : 'pending' as const, createdAt: new Date(Date.now()).toISOString(), acknowledgedAt: autoAck ? new Date(Date.now()).toISOString() : null, result: body.type === 'start' ? { takeId: payload.takeId, startedAtServerMs: Date.now() } : body.type === 'resume_upload' ? { takeId: payload.takeId, uploadState: 'uploading', uploadResumedAtServerMs: Date.now() } : {} };
       data.commands.push(command);
       if (body.type === 'start') { data.session.activeTakeId = String(payload.takeId); data.session.status = autoAck ? 'recording' : 'starting'; data.takes.push({ id: String(payload.takeId), status: 'recording', metadata: null, createdAt: new Date(NOW).toISOString(), uploadedAt: null }); }
       if (body.type === 'stop' && autoAck) { data.session.status = 'ready'; const take = data.takes.find(item => item.id === payload.takeId); if (take) { take.status = upload ? 'uploaded' : 'uploading'; take.metadata = { bytes: original.size, mime: 'video/mp4', width: 3840, height: 2160, fps: 30, duration: 2 }; } }
       if (body.type === 'configure' && autoAck) { Object.assign(data.session.configuration, payload); data.session.deviceState = { ...data.session.deviceState, configuration: { ...data.session.configuration } }; }
+      if (body.type === 'resume_upload' && autoAck && !staleResume) { data.session.deviceState = { ...data.session.deviceState, uploadTakeId: payload.takeId, uploadState: 'uploading', uploadError: null, uploadResumedAtServerMs: Date.now() }; const take = data.takes.find(item => item.id === payload.takeId); if (take) take.status = upload ? 'uploaded' : 'uploading'; }
     }
     return structuredClone(data);
   });
   const preview: StudioRemotePreviewFactory = vi.fn(async (_response, callbacks) => { callbacks.track(track); callbacks.connection('connected'); return { disconnect }; });
   const client = { request, download } as StudioRemoteClient;
-  const controller = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client, preview, inspect, persist: false, commandTimeoutMs: 500, transferTimeoutMs: 500 }); controllers.push(controller);
+  const controller = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client, preview, inspect, persist: false, commandTimeoutMs: 500, transferTimeoutMs }); controllers.push(controller);
   let state!: StudioCaptureState, remote!: StudioRemoteView;
   controller.subscribe(value => state = value); controller.subscribeRemote(value => remote = value);
-  return { controller, client, request, download, inspect, preview, disconnect, data, state: () => state, remote: () => remote, pending() { autoAck = false; }, uploading() { upload = false; } };
+  return { controller, client, request, download, inspect, preview, disconnect, data, state: () => state, remote: () => remote, pending() { autoAck = false; }, uploading() { upload = false; }, uploaded() { upload = true; }, staleResume() { staleResume = true; } };
 }
-beforeEach(() => { controllers = []; vi.useFakeTimers(); vi.setSystemTime(NOW); vi.stubGlobal('MediaStream', Stream); });
+beforeEach(() => { controllers = []; localStorage.clear(); vi.useFakeTimers(); vi.setSystemTime(NOW); vi.stubGlobal('MediaStream', Stream); });
 afterEach(() => { controllers.forEach(controller => controller.dispose()); vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('câmera remota preserva o original nativo e a autoridade do iPhone', () => {
@@ -75,6 +76,49 @@ describe('câmera remota preserva o original nativo e a autoridade do iPhone', (
     h.data.takes[0].status = 'uploaded'; const retry = h.controller.stop(); await vi.advanceTimersByTimeAsync(250); await retry;
     expect(h.data.commands.filter(item => item.type === 'stop')).toHaveLength(1); expect(h.state().phase).toBe('recorded');
   });
+  it('retomar solicita ao iPhone o mesmo original, expõe causa real e salva sem repetir REC ou STOP', async () => {
+    const h = fixture(); await h.controller.prepare(); const start = await h.controller.remoteStart(); h.uploading();
+    h.data.session.deviceState = { ...h.data.session.deviceState, uploadTakeId: start.takeId, uploadState: 'paused', uploadError: 'Não foi possível preparar esta parte do original.' };
+    await expect(h.controller.stop()).rejects.toThrow('Não foi possível preparar esta parte do original.');
+    expect(h.remote()).toMatchObject({ transfer: 'retry', pendingTakeId: start.takeId });
+    h.uploaded(); const first = h.controller.stop(), second = h.controller.stop(); await Promise.all([first, second]);
+    const commands = h.data.commands;
+    expect(commands.filter(command => command.type === 'start')).toHaveLength(1); expect(commands.filter(command => command.type === 'stop')).toHaveLength(1);
+    expect(commands.filter(command => command.type === 'resume_upload')).toHaveLength(1); expect(commands.at(-1)!.payload).toEqual({ takeId: start.takeId });
+    expect(h.download).toHaveBeenCalledTimes(1); expect(h.state()).toMatchObject({ phase: 'recorded', pendingRecovery: false });
+  });
+  it('ACK de retomada não trata pausa antiga como erro novo enquanto aguarda heartbeat do novo envio', async () => {
+    const h = fixture(true, 2000); await h.controller.prepare(); const start = await h.controller.remoteStart(); h.uploading();
+    h.data.session.deviceState = { ...h.data.session.deviceState, uploadTakeId: start.takeId, uploadState: 'paused', uploadError: 'Falha anterior.' };
+    await expect(h.controller.stop()).rejects.toThrow('Falha anterior'); h.data.takes[0].status = 'failed'; h.staleResume();
+    const retry = h.controller.stop(); await vi.advanceTimersByTimeAsync(200);
+    expect(h.state()).toMatchObject({ phase: 'stopping', error: null }); expect(h.remote().transfer).toBe('uploading');
+    const receipt = h.data.commands.find(command => command.type === 'resume_upload')!;
+    h.data.session.deviceState = { ...h.data.session.deviceState, uploadState: 'uploading', uploadError: null, uploadResumedAtServerMs: receipt.result!.uploadResumedAtServerMs, uploadProgressBytes: 5 };
+    await vi.advanceTimersByTimeAsync(400); expect(h.state().phase).toBe('stopping'); expect(h.remote()).toMatchObject({ transfer: 'uploading', transferBytes: 5, transferTotalBytes: original.size });
+    h.data.takes[0].status = 'uploaded'; await vi.advanceTimersByTimeAsync(400); await retry; expect(h.state().phase).toBe('recorded');
+  });
+  it('uma nova pausa após ACK aparece com sua causa e a próxima retomada recebe outro commandId', async () => {
+    const h = fixture(true, 2000); await h.controller.prepare(); const start = await h.controller.remoteStart(); h.uploading();
+    h.data.session.deviceState = { ...h.data.session.deviceState, uploadTakeId: start.takeId, uploadState: 'paused', uploadError: 'Falha anterior.' };
+    await expect(h.controller.stop()).rejects.toThrow('Falha anterior');
+    const retry = h.controller.stop().catch(error => error); await vi.advanceTimersByTimeAsync(0);
+    expect(h.remote().transfer).toBe('uploading'); h.data.session.deviceState!.uploadState = 'paused'; h.data.session.deviceState!.uploadError = 'Sem conexão para enviar a parte 2.';
+    await vi.advanceTimersByTimeAsync(400); expect((await retry).message).toContain('Sem conexão para enviar a parte 2.');
+    h.uploaded(); const recovered = h.controller.stop(); await vi.advanceTimersByTimeAsync(200); await recovered;
+    const resumes = h.data.commands.filter(command => command.type === 'resume_upload'); expect(resumes).toHaveLength(2); expect(resumes[0].id).not.toBe(resumes[1].id); expect(h.data.takes).toHaveLength(1);
+  });
+  it('ACK perdido da retomada repete o mesmo commandId e recebe original quando confirmação chega', async () => {
+    const h = fixture(true, 2000); await h.controller.prepare(); const start = await h.controller.remoteStart(); h.uploading();
+    h.data.session.deviceState = { ...h.data.session.deviceState, uploadTakeId: start.takeId, uploadState: 'paused', uploadError: 'Envio interrompido.' };
+    await expect(h.controller.stop()).rejects.toThrow('Envio interrompido'); h.pending();
+    const missingAck = h.controller.stop().catch(error => error); await vi.advanceTimersByTimeAsync(600); expect((await missingAck).code).toBe('ack_timeout');
+    const receipt = h.data.commands.find(command => command.type === 'resume_upload')!;
+    const retry = h.controller.stop(); await vi.advanceTimersByTimeAsync(0);
+    const calls = h.request.mock.calls.map(([body]) => body).filter(body => body.type === 'resume_upload'); expect(calls).toHaveLength(2); expect(calls[0].commandId).toBe(calls[1].commandId);
+    receipt.status = 'applied'; h.data.takes[0].status = 'uploaded'; await vi.advanceTimersByTimeAsync(400); await retry;
+    expect(h.state()).toMatchObject({ phase: 'recorded', pendingRecovery: false }); expect(h.data.commands.filter(command => command.type === 'resume_upload')).toHaveLength(1);
+  });
   it('cancelamento invalida download tardio e enfileira STOP sem encerrar original pendente', async () => {
     const h = fixture(); await h.controller.prepare(); await h.controller.remoteStart(); const pending = deferred<Blob>(); h.download.mockImplementation(() => pending.promise);
     const stopped = h.controller.stop().catch(error => error); await vi.advanceTimersByTimeAsync(0); h.controller.cancel(); pending.resolve(original);
@@ -103,6 +147,34 @@ describe('câmera remota preserva o original nativo e a autoridade do iPhone', (
     const h = fixture(); await h.controller.prepare(); h.data.session.deviceState!.configurationConfirmed = false; await h.controller.reconnect();
     expect(h.state()).toMatchObject({ phase: 'error', pendingRecovery: false }); await expect(h.controller.remoteStart()).rejects.toThrow('Confirme os ajustes'); expect(h.data.commands.filter(command => command.type === 'start')).toHaveLength(0);
     h.data.session.deviceState!.configurationConfirmed = true; await h.controller.configureRemote({ pro: { autoExposure: true } }); expect(h.state().phase).toBe('ready');
+  });
+  it('identidade do computador persiste por conta e limpar armazenamento exige identidade nova', () => {
+    const first = studioRemoteControllerId('owner'); expect(studioRemoteControllerId('owner')).toBe(first);
+    expect(studioRemoteControllerId('other-owner')).not.toBe(first); expect(studioRemoteControllerId('owner')).toBe(first);
+    localStorage.clear(); expect(studioRemoteControllerId('owner')).not.toBe(first);
+    localStorage.setItem('classfy:studio:remote-controller:v1:owner', 'invalid-client'); expect(studioRemoteControllerId('owner')).toMatch(/^[0-9a-f-]{36}$/);
+  });
+  it('sessão vinculada sem QR conecta automaticamente e cancelar não desvincula o computador', async () => {
+    const h = fixture(); delete h.data.pairing;
+    const controller = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview, inspect: h.inspect }); controllers.push(controller);
+    await controller.prepare(); const clientId = h.request.mock.calls.find(([body]) => body.action === 'create')![0].controllerId;
+    let state!: StudioCaptureState, remote!: StudioRemoteView; controller.subscribe(value => state = value); controller.subscribeRemote(value => remote = value);
+    expect(state.phase).toBe('ready'); expect(remote.pairing).toBeNull(); expect(remote.connection).toBe('connected');
+    controller.cancel(); expect(studioRemoteControllerId('owner')).toBe(clientId); expect(h.request.mock.calls.some(([body]) => body.action === 'unpair')).toBe(false);
+    await controller.prepare(); expect(h.request.mock.calls.filter(([body]) => body.action === 'create').every(([body]) => body.controllerId === clientId)).toBe(true);
+  });
+  it('cancelamento de criação pendente ignora resposta tardia e permite conectar novamente', async () => {
+    const h = fixture(false), pending = deferred<StudioRemoteResponse>(), originalRequest = h.request.getMockImplementation()!;
+    h.request.mockImplementationOnce(() => pending.promise);
+    const prepare = h.controller.prepare().catch(error => error); h.controller.cancel(); pending.resolve(structuredClone(h.data));
+    expect(await prepare).toMatchObject({ name: 'AbortError' }); expect(h.state()).toMatchObject({ phase: 'idle', stream: null, pendingRecovery: false });
+    h.request.mockImplementation(originalRequest); await h.controller.prepare(); expect(h.state().phase).toBe('preparing'); expect(h.remote().pairing?.code).toBe('ABC123');
+  });
+  it('desvincular usa revogação explícita, troca identidade e nunca toca originais pendentes', async () => {
+    const h = fixture(); const controller = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview, inspect: h.inspect }); controllers.push(controller);
+    await controller.prepare(); const first = studioRemoteControllerId('owner'); await controller.unlinkRemote();
+    expect(h.request).toHaveBeenCalledWith(expect.objectContaining({ action: 'unpair', sessionId: h.data.session.id, controllerId: first }), expect.anything()); expect(studioRemoteControllerId('owner')).not.toBe(first);
+    await controller.prepare(); await controller.remoteStart(); await expect(controller.unlinkRemote()).rejects.toThrow('Finalize e salve'); expect(h.request.mock.calls.filter(([body]) => body.action === 'unpair')).toHaveLength(1);
   });
 });
 describe('recibo do original remoto', () => {

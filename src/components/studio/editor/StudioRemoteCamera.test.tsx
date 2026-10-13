@@ -21,7 +21,7 @@ describe('câmera remota com identidade do Studio', () => {
   });
   it('código expirado oferece reconexão e desmontagem encerra contador', async () => {
     const reconnect = vi.fn(); await act(async () => root.render(<StudioRemoteCameraPairing state={view()} onReconnect={reconnect} />));
-    await act(async () => vi.advanceTimersByTime(300_001)); expect(host.textContent).toContain('Código expirado'); const retry = [...host.querySelectorAll('button')].find(button => button.textContent?.includes('Tentar novamente'))!;
+    await act(async () => vi.advanceTimersByTime(300_001)); expect(host.textContent).toContain('Código expirado'); const retry = [...host.querySelectorAll('button')].find(button => button.textContent?.includes('Gerar novo código'))!;
     await act(async () => retry.click()); expect(reconnect).toHaveBeenCalledTimes(1); await act(async () => root.render(null)); expect(vi.getTimerCount()).toBe(0);
   });
   it('controles nativos permanecem confirmados até ACK; slider envia uma intenção ao soltar', async () => {
@@ -38,5 +38,19 @@ describe('câmera remota com identidade do Studio', () => {
     await act(async () => root.render(<><StudioRemoteCameraControls state={state} disabled={false} onConfigure={configure} onClose={() => undefined} /><StudioRemoteCameraStatus state={state} onReconnect={() => undefined} audioMonitorVisible /></>));
     const slider = host.querySelector('[aria-label="Zoom"]') as HTMLInputElement; expect(slider.min).toBe('1'); expect(slider.max).toBe('5');
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider, '2'); slider.dispatchEvent(new Event('input', { bubbles: true })); }); await act(async () => slider.dispatchEvent(new Event('pointerup', { bubbles: true }))); expect(configure).toHaveBeenCalledWith({ pro: { zoom: 2 } }); expect(host.querySelector('.src-status--above-meter')).toBeTruthy();
+  });
+  it('status de transferência distingue envio, recebimento e verificação com progresso real', async () => {
+    const state = view(); state.connection = 'connected'; state.transfer = 'uploading'; state.transferBytes = 25; state.transferTotalBytes = 100;
+    await act(async () => root.render(<StudioRemoteCameraStatus state={state} onReconnect={() => undefined} />)); expect(host.textContent).toContain('Enviando original do iPhone… 25%');
+    state.transfer = 'downloading'; state.transferBytes = 75; await act(async () => root.render(<StudioRemoteCameraStatus state={state} onReconnect={() => undefined} />)); expect(host.textContent).toContain('Recebendo original no computador… 75%');
+    state.transfer = 'validating'; await act(async () => root.render(<StudioRemoteCameraStatus state={state} onReconnect={() => undefined} />)); expect(host.textContent).toContain('Conferindo imagem, áudio e duração'); expect(host.textContent).not.toContain('75%');
+  });
+  it('espera do aparelho já vinculado oferece cancelamento sem QR e desvinculação separada', async () => {
+    const state = view(), cancel = vi.fn(), unpair = vi.fn(); state.pairing = null; state.connection = 'connecting'; state.session = { deviceId: 'paired-phone' } as StudioRemoteView['session'];
+    await act(async () => root.render(<StudioRemoteCameraPairing state={state} onReconnect={() => undefined} onCancel={cancel} onUnpair={unpair} />));
+    expect(host.textContent).toContain('Aguardando meu iPhone'); expect(host.textContent).toContain('já está vinculado'); expect(host.querySelector('.src-qr')).toBeNull(); expect(qr.generate).not.toHaveBeenCalled();
+    const actions = [...host.querySelectorAll('button')]; await act(async () => actions.find(button => button.textContent === 'Cancelar conexão')!.click()); expect(cancel).toHaveBeenCalledTimes(1); expect(unpair).not.toHaveBeenCalled();
+    await act(async () => actions.find(button => button.textContent === 'Desvincular iPhone')!.click()); expect(unpair).toHaveBeenCalledTimes(1);
+    await act(async () => root.render(<StudioRemoteCameraPairing state={state} onReconnect={() => undefined} onCancel={cancel} onUnpair={unpair} disabled />)); expect([...host.querySelectorAll('button')].every(button => button.disabled)).toBe(true);
   });
 });

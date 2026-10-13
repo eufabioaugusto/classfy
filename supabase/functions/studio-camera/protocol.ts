@@ -45,6 +45,23 @@ function boundedObject(value: unknown, max = 8192): JsonObject {
   inspect(result);
   return result;
 }
+function transferReceipt(source: JsonObject): JsonObject {
+  const result: JsonObject = {};
+  if (source.uploadState !== undefined) {
+    if (!['idle', 'uploading', 'paused', 'complete'].includes(String(source.uploadState))) throw new CameraError('studio_camera_invalid_request');
+    result.uploadState = source.uploadState;
+  }
+  for (const key of ['uploadProgressBytes', 'uploadTotalBytes']) if (source[key] !== undefined) result[key] = finite(source[key], 0, Number.MAX_SAFE_INTEGER, true);
+  if (source.uploadResumedAtServerMs !== undefined) result.uploadResumedAtServerMs = finite(source.uploadResumedAtServerMs, 1, Number.MAX_SAFE_INTEGER);
+  if (source.uploadTakeId !== undefined) result.uploadTakeId = source.uploadTakeId === null ? null : uuid(source.uploadTakeId);
+  if (source.uploading !== undefined) { if (typeof source.uploading !== 'boolean') throw new CameraError('studio_camera_invalid_request'); result.uploading = source.uploading; }
+  if (source.uploadError !== undefined) { if (source.uploadError !== null && typeof source.uploadError !== 'string') throw new CameraError('studio_camera_invalid_request'); result.uploadError = source.uploadError === null ? null : String(source.uploadError).slice(0, 300); }
+  if (typeof result.uploadProgressBytes === 'number' && typeof result.uploadTotalBytes === 'number' && result.uploadProgressBytes > result.uploadTotalBytes) throw new CameraError('studio_camera_invalid_metadata');
+  return result;
+}
+function deviceState(value: unknown): JsonObject {
+  const state = boundedObject(value, 12000); return { ...state, ...transferReceipt(state) };
+}
 export function configuration(value: unknown): JsonObject {
   const source = object(value); const result: JsonObject = {};
   for (const key of Object.keys(source)) if (!['resolution', 'fps', 'cameraFacing', 'pro'].includes(key)) throw new CameraError('studio_camera_invalid_configuration');
@@ -66,7 +83,7 @@ export function configuration(value: unknown): JsonObject {
 }
 export function validateRequest(value: unknown): { action: string; params: JsonObject } {
   const source = object(value); const action = String(source.action ?? ''); const params: JsonObject = {};
-  if (!['create', 'join', 'connect', 'status', 'command', 'ack', 'heartbeat', 'upload-start', 'upload-complete', 'download', 'close'].includes(action))
+  if (!['create', 'join', 'discover', 'unpair', 'connect', 'status', 'command', 'ack', 'heartbeat', 'upload-start', 'upload-complete', 'download', 'close'].includes(action))
     throw new CameraError('studio_camera_unknown_action');
   if (action === 'create') {
     if (!['aula', 'short'].includes(String(source.kind))) throw new CameraError('studio_camera_invalid_request');
@@ -77,6 +94,11 @@ export function validateRequest(value: unknown): { action: string; params: JsonO
   } else if (action === 'join') {
     if (typeof source.code !== 'string' || !PAIRING_CODE.test(source.code)) throw new CameraError('studio_camera_pairing_unavailable', 409);
     params.code = source.code; params.deviceId = uuid(source.deviceId);
+  } else if (action === 'discover') {
+    params.deviceId = uuid(source.deviceId);
+    if (source.controllerId != null) params.controllerId = uuid(source.controllerId);
+  } else if (action === 'unpair') {
+    params.controllerId = uuid(source.controllerId);
   } else {
     params.sessionId = uuid(source.sessionId);
     if (action === 'status' || action === 'heartbeat') {
@@ -86,12 +108,12 @@ export function validateRequest(value: unknown): { action: string; params: JsonO
       if (!['controller', 'device'].includes(String(source.role))) throw new CameraError('studio_camera_invalid_request');
       params.role = source.role; params.clientId = uuid(source.clientId);
     }
-    if (action === 'heartbeat') params.state = source.state === undefined ? {} : boundedObject(source.state, 12000);
+    if (action === 'heartbeat') params.state = source.state === undefined ? {} : deviceState(source.state);
     if (action === 'command') {
       params.commandId = uuid(source.commandId); params.type = source.type;
-      if (!['configure', 'start', 'stop'].includes(String(source.type))) throw new CameraError('studio_camera_invalid_request');
+      if (!['configure', 'start', 'stop', 'resume_upload'].includes(String(source.type))) throw new CameraError('studio_camera_invalid_request');
       params.payload = source.type === 'configure' ? configuration(source.payload)
-        : source.type === 'start' ? { takeId: uuid(object(source.payload).takeId) } : {};
+        : ['start', 'resume_upload'].includes(String(source.type)) ? { takeId: uuid(object(source.payload).takeId) } : {};
     }
     if (action === 'ack') {
       params.commandId = uuid(source.commandId); params.deviceId = uuid(source.deviceId);
@@ -99,11 +121,12 @@ export function validateRequest(value: unknown): { action: string; params: JsonO
       if (typeof result.ok !== 'boolean') throw new CameraError('studio_camera_invalid_request');
       params.result = {
         ok: result.ok,
-        ...(result.state === undefined ? {} : { state: boundedObject(result.state, 12000) }),
+        ...(result.state === undefined ? {} : { state: deviceState(result.state) }),
         ...(result.takeId === undefined ? {} : { takeId: uuid(result.takeId) }),
         ...(result.startedAtServerMs === undefined ? {} : { startedAtServerMs: finite(result.startedAtServerMs, 0, Number.MAX_SAFE_INTEGER) }),
         ...(result.metadata === undefined ? {} : { metadata: metadata(result.metadata) }),
         ...(typeof result.error === 'string' ? { error: result.error.slice(0, 300) } : {}),
+        ...transferReceipt(result),
       };
     }
     if (['upload-start', 'upload-complete', 'download'].includes(action)) params.takeId = uuid(source.takeId);
@@ -132,7 +155,9 @@ export async function pairingHash(code: string): Promise<string> {
 export function storageEndpoint(supabaseUrl: string): string {
   const url = new URL(supabaseUrl);
   if (url.hostname.endsWith('.supabase.co') && !url.hostname.endsWith('.storage.supabase.co')) url.hostname = url.hostname.replace('.supabase.co', '.storage.supabase.co');
-  url.pathname = '/storage/v1/upload/resumable'; url.search = ''; url.hash = '';
+  // Signed upload grants use the dedicated TUS route. The regular route
+  // expects an Authorization JWT and rejects an x-signature-only request.
+  url.pathname = '/storage/v1/upload/resumable/sign'; url.search = ''; url.hash = '';
   return url.toString();
 }
 export const errors: Record<string, { status: number; message: string }> = {
@@ -155,5 +180,5 @@ export function publicError(error: unknown): { code: string; message: string; st
   const raw = error instanceof Error ? error.message : typeof error === 'object' && error ? String((error as JsonObject).message ?? '') : '';
   const code = error instanceof CameraError ? error.code : raw.startsWith('studio_camera_') && /^[a-z_]+$/.test(raw) ? raw : 'studio_camera_operation_failed';
   const detail = errors[code];
-  return { code, message: detail?.message ?? 'Não foi possível concluir esta ação. Tente novamente.', status: detail?.status ?? (error instanceof CameraError ? error.status : code === 'studio_camera_operation_failed' ? 502 : 409) };
+  return { code, message: detail?.message ?? 'Não foi possível concluir esta ação. Retome a operação para continuar.', status: detail?.status ?? (error instanceof CameraError ? error.status : code === 'studio_camera_operation_failed' ? 502 : 409) };
 }
