@@ -21,6 +21,21 @@ import Foundation
   }
   static func main()async throws{
     assert(StudioEffectRenderer.cinematicSignatureAvailable)
+    // The face anchor selects the creator even when a larger, disconnected
+    // vase/plant was misclassified. Connected arms and original soft hair
+    // stay; no new alpha is painted into the background.
+    var rawMatte=[UInt8](repeating:0,count:32*24)
+    for y in 4..<20 { for x in 3..<12 { rawMatte[y*32+x]=230 } }
+    for x in 12..<20 { rawMatte[15*32+x]=180 }
+    for y in 1..<23 { for x in 24..<32 { rawMatte[y*32+x]=245 } }
+    rawMatte[10*32+2]=40;rawMatte[10*32+1]=20;rawMatte[10*32]=10
+    let creator=StudioSignatureMatte.principalPerson(rawMatte,width:32,height:24,face:CGRect(x:3.0/32,y:4.0/24,width:9.0/32,height:7.0/24))
+    assert(creator[10*32+6]==230&&creator[15*32+19]==180,"Creator body and connected arm survive")
+    assert(creator[10*32+28]==0,"Disconnected vase/plant cannot receive face treatment")
+    assert(creator[10*32+2]==40&&creator[10*32+1]==20&&creator[10*32]==0,"Only two pixels of existing soft fringe survive")
+    for i in creator.indices { assert(creator[i] <= rawMatte[i],"Cleanup cannot invent alpha or expand silhouette") }
+    let noFace=StudioSignatureMatte.principalPerson(rawMatte,width:32,height:24,face:nil)
+    assert(noFace[10*32+28]==245&&noFace[10*32+6]==0,"No-face policy selects largest connected component")
     let renderer=StudioEffectRenderer(),engine=StudioRecipeEngine(),extent=CGRect(x:0,y:0,width:256,height:128)
     func image(_ rgb:[CGFloat])->CIImage { CIImage(color:CIColor(cgColor:CGColor(colorSpace:space,components:rgb+[1])!)).cropped(to:extent) }
     let gray=image([0.5,0.5,0.5]),white=CIImage(color:.white).cropped(to:extent),black=CIImage(color:.black).cropped(to:extent)
@@ -42,6 +57,9 @@ import Foundation
     // must prevent red pixels spilling into the background beside the subject.
     let box=CGRect(x:100,y:20,width:56,height:88),red=image([0.9,0.25,0.15]).cropped(to:box).composited(over:gray)
     let matte=CIImage(color:.white).cropped(to:box).composited(over:black)
+    let refined=try renderer.refineSignatureMatte(gray,mask:matte,pixelSize:CGSize(width:4,height:4),faceBounds:nil)
+    assert(pixel(refined,renderer,99,64)[0]==0,"Bilateral refinement cannot expand foreground into clean background")
+    assert(pixel(refined,renderer,128,64)[0]==255,"Confident person core remains intact")
     let blurLook=StudioCinematicSignature(version:1,strength:1,subjectExposure:0.3,backgroundExposure:-1.2,backgroundBlur:0.6,temperature:0.18)
     let blurred=try renderer.cinematicSignature(red,signature:blurLook,masks:StudioSignatureMasks(person:matte,face:black,faceBounds:nil))
     let boundary=pixel(blurred,renderer,99,64);assert(abs(Int(boundary[0])-Int(boundary[2]))<8,"Foreground cannot leak into background blur")
@@ -55,6 +73,21 @@ import Foundation
     let valid=try json(recipe);_=try StudioRecipeEngine.decode(valid)
     recipe["version"]=2;do{_=try StudioRecipeEngine.decode(json(recipe));assertionFailure("Recipe2 cannot silently ignore signature")}catch{}
     recipe["version"]=3;recipe["requiredFeatures"]=["enhancement-v1"];do{_=try StudioRecipeEngine.decode(json(recipe));assertionFailure("Mismatched feature must fail")}catch{}
+    // Text is composited after each source's selective treatments. Its solid
+    // glyph edges must not be blurred/graded by the video's signature.
+    var textRecipe=try JSONSerialization.jsonObject(with:Data(valid.utf8)) as! [String:Any]
+    let title:[String:Any]=["id":"title","kind":"text","startTicks":0,"durationTicks":30000,"sourceStartTicks":0,"sourceEndTicks":0,"zIndex":1,"rect":["x":0.1,"y":0.25,"width":0.8,"height":0.4],"rotationDegrees":0,"fit":"contain","opacity":1,"gain":0,"fadeInTicks":0,"fadeOutTicks":0,"effect":"natural","text":["content":"IHAAA CLASSFY","fontFamily":"system","fontSize":0.15,"color":"#FFFFFF","backgroundColor":"#00000000","alignment":"center"]]
+    var textClips=textRecipe["clips"] as! [[String:Any]];textClips.append(title);textRecipe["clips"]=textClips
+    let withLook=try await engine.prepare(recipeJSON:json(textRecipe)),lookFrame=try await engine.frame(withLook,at:0.1)
+    textClips[0].removeValue(forKey:"signature");textRecipe["clips"]=textClips;textRecipe["version"]=2;textRecipe.removeValue(forKey:"requiredFeatures")
+    let cleanText=try await engine.prepare(recipeJSON:json(textRecipe)),cleanFrame=try await engine.frame(cleanText,at:0.1)
+    func solidGlyphs(_ cg:CGImage)->[Bool]{
+      let image=CIImage(cgImage:cg,options:[.colorSpace:StudioEffectRenderer.outputColorSpace]);var pixels=[UInt8](repeating:0,count:640*360*4)
+      renderer.context.render(image,toBitmap:&pixels,rowBytes:640*4,bounds:CGRect(x:0,y:0,width:640,height:360),format:.RGBA8,colorSpace:space)
+      return stride(from:0,to:pixels.count,by:4).map{pixels[$0]==255&&pixels[$0+1]==255&&pixels[$0+2]==255}
+    }
+    let glyphs=solidGlyphs(cleanFrame);assert(glyphs.filter{$0}.count>100,"Fixture contains actual opaque text glyphs")
+    assert(glyphs==solidGlyphs(lookFrame),"Video signature cannot change or soften solid text edges")
     let path=root.appendingPathComponent("signature-no-person.mp4")
     _=try await engine.export(requestId:"signature-synthetic",recipeJSON:valid,outputUri:path.absoluteString,progress:{_ in})
     let encoded=AVURLAsset(url:path),audio=try await encoded.loadTracks(withMediaType:.audio),preserved=try Data(contentsOf:source)
@@ -70,6 +103,6 @@ import Foundation
       try renderer.context.writePNGRepresentation(of:rendered,to:root.appendingPathComponent("reference-signature.png"),format:.RGBA8,colorSpace:space,options:[:])
       print("PASS Vision person+face on the user-provided reference; actual selective statistics and GPU image artifact")
     }
-    print("PASS signature SDR math ≤2/255, subject/background isolation, no red spill, zero identity/noperson background look, strict recipe3 and real MP4+audio/original preserved")
+    print("PASS signature SDR math ≤2/255, face-anchored connected mask preserves hands/soft hair and excludes isolated objects, sharp text glyphs after signature, no red spill, zero identity/noperson background look, strict recipe3 and real MP4+audio/original preserved")
   }
 }

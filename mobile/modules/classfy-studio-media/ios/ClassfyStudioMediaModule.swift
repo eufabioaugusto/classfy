@@ -141,7 +141,7 @@ public final class ClassfyStudioMediaModule: Module {
     }
     AsyncFunction("getStudioEnhancementCapabilitiesAsync") { () -> [String: Any] in
       ["version": 1, "recipeVersion": 3, "available": StudioEffectRenderer.editorTreatmentsAvailable,
-       "features": ["enhancement-v1", "portrait-v1"] + (StudioEffectRenderer.cinematicSignatureAvailable ? ["cinematic-signature-v1"] : []), "maximumAnalysisFrames": 12]
+       "features": ["enhancement-v1", "portrait-v1"] + (StudioEffectRenderer.portraitV2Available ? ["portrait-v2"] : []) + (StudioEffectRenderer.cinematicSignatureAvailable ? ["cinematic-signature-v1"] : []), "maximumAnalysisFrames": 12]
     }
     AsyncFunction("analyzeStudioSceneAsync") { (uri: String, kind: String, startSeconds: Double, endSeconds: Double, frameCount: Int) async throws -> [String: Any] in
       try await self.recipeEngine.analyzeScene(uri: uri, kind: kind, startSeconds: startSeconds, endSeconds: endSeconds, frameCount: frameCount)

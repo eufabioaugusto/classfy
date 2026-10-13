@@ -19,7 +19,7 @@ export function studioRecipeTreatmentsSupported(recipe: StudioRenderRecipe, capa
   if (!studioRecipeNeedsTreatments(recipe)) return true;
   const required = new Set(recipe.requiredFeatures || []);
   if (recipe.clips.some(clip => (clip.enhancement?.strength ?? 0) > 0)) required.add('enhancement-v1');
-  if (recipe.clips.some(clip => (clip.portrait?.strength ?? 0) > 0)) required.add('portrait-v1');
+  for (const clip of recipe.clips) if ((clip.portrait?.strength ?? 0) > 0) required.add(clip.portrait?.version === 2 ? 'portrait-v2' : 'portrait-v1');
   if (recipe.clips.some(clip => (clip.signature?.strength ?? 0) > 0)) required.add('cinematic-signature-v1');
   return capabilities.available && required.size > 0 && [...required].every(feature => capabilities.features.includes(feature));
 }

@@ -73,3 +73,13 @@ test('assinatura analisa pessoa e cenário reais; amostra incompatível nunca vi
  await assert.rejects(bad.analyzeStudioSignatureSceneAsync(request),/confirmada/);
  }
 });
+test('retoque v2 exige feature própria; binário v1 não exporta nem gera thumbnail ignorando-o',async()=>{
+ let called=0;const api=bridge({...base,getStudioEnhancementCapabilitiesAsync:async()=>capability,analyzeStudioSceneAsync(){},exportRecipeAsync(){called++;},getStudioEditorCapabilitiesAsync:async()=>({version:1,available:true}),renderStudioRecipeThumbnailAsync(){called++;}});
+ const recipe={version:3,requiredFeatures:['portrait-v2'],clips:[{portrait:{version:2,strength:.45}}],assets:[]},caps=await api.getStudioEnhancementCapabilitiesAsync();
+ assert.equal(api.studioRecipeTreatmentsSupported(recipe,caps),false);
+ assert.equal(api.studioRecipeTreatmentsSupported({...recipe,requiredFeatures:undefined},caps),false);
+ await assert.rejects(api.exportRecipeAsync({requestId:'portrait-v2',recipeJSON:JSON.stringify(recipe),outputUri:'file:///out.mp4'}),/Atualize/);
+ await assert.rejects(api.renderStudioRecipeThumbnailAsync(JSON.stringify(recipe),'file:///out.jpg',0),/Atualize/);assert.equal(called,0);
+ assert.equal(api.studioRecipeTreatmentsSupported(recipe,{...caps,features:[...caps.features,'portrait-v2']}),true);
+ assert.equal(api.studioRecipeTreatmentsSupported({version:3,requiredFeatures:['portrait-v1','portrait-v2'],clips:[{portrait:{version:1,strength:.4}},{portrait:{version:2,strength:.45}}]}, {...caps,features:[...caps.features,'portrait-v2']}),true);
+});

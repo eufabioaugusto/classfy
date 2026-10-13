@@ -47,9 +47,10 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, init
   const signatureRef = useRef(signature);
   const [treatmentsAvailable, setTreatmentsAvailable] = useState(false), [analyzing, setAnalyzing] = useState(false);
   const [signatureAvailable, setSignatureAvailable] = useState(false), [analysisKind, setAnalysisKind] = useState<'basic' | 'signature'>('signature');
+  const [portraitAvailable, setPortraitAvailable] = useState(false);
   const analysisGeneration = useRef(0);
   const analysisActive = useRef(false);
-  useEffect(() => { let active = true; void getStudioEnhancementCapabilitiesAsync().then(value => { if (active) { setTreatmentsAvailable(value.available); setSignatureAvailable(value.available && value.features.includes('cinematic-signature-v1')); } }); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; void getStudioEnhancementCapabilitiesAsync().then(value => { if (active) { setTreatmentsAvailable(value.available); setSignatureAvailable(value.available && value.features.includes('cinematic-signature-v1')); setPortraitAvailable(value.available && value.features.includes('portrait-v2')); } }); return () => { active = false; }; }, []);
   const [tab, setTab] = useState<'filters' | 'adjust' | 'scene'>(initialTab), [parameter, setParameter] = useState<Parameter>('exposure');
   const [saving, setSaving] = useState(false), [error, setError] = useState<string>();
   const live = useRef({ editing, targetId, disabled, onPreview, onApply, onClose, onBefore });
@@ -128,6 +129,7 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, init
   };
   const active = parameters.find(item => item.id === parameter)!;
   const blocked = disabled || saving || analyzing;
+  const portraitEnabled = (portrait?.strength ?? 0) > 0;
   return <View style={s.panel}>
     <View style={s.header}>
       <Pressable accessibilityRole="button" accessibilityLabel="Fechar tratamento" disabled={disabled || saving} onPress={() => { analysisGeneration.current++; onClose(); }} style={s.icon}><ArrowLeft size={22} color={colors.text} strokeWidth={1.7} /></Pressable>
@@ -144,7 +146,11 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, init
         <Pressable accessibilityRole="button" accessibilityLabel="Aplicar Assinatura Classfy" accessibilityState={{ busy: analyzing && analysisKind === 'signature', disabled: blocked || !signatureAvailable }} disabled={blocked || !signatureAvailable} onPress={() => { void improveScene('signature'); }} style={[s.improve, (blocked || !signatureAvailable) && s.disabled]}>{analyzing && analysisKind === 'signature' ? <ActivityIndicator size="small" color={colors.text} /> : <WandSparkles size={17} color={colors.text} />}<Text style={s.improveLabel}>{analyzing && analysisKind === 'signature' ? 'Analisando pessoa e cenário…' : signature ? 'Renovar assinatura' : 'Aplicar assinatura'}</Text></Pressable>
         {!signatureAvailable && treatmentsAvailable ? <Text style={s.notice}>Atualize o Classfy para separar pessoa e cenário neste aparelho.</Text> : null}
         <StudioControlSlider label="Intensidade da assinatura" value={signature?.strength ?? 0} min={0} max={1} step={0.05} disabled={blocked || !signature || !signatureAvailable} formatValue={value => `${Math.round(value*100)}%`} onChange={strength => signatureRef.current && updateTreatment('signature', { ...signatureRef.current, strength })} onInteractionEnd={publishPreview} />
-        {signature ? <StudioControlSlider label="Suavidade do fundo" value={signature.backgroundBlur} min={0} max={1} step={0.05} disabled={blocked || !signatureAvailable} formatValue={value => `${Math.round(value*100)}%`} onChange={backgroundBlur => signatureRef.current && updateTreatment('signature', { ...signatureRef.current, backgroundBlur })} onInteractionEnd={publishPreview} /> : null}
+        {signature ? <>
+          <StudioControlSlider label="Suavidade do fundo" value={signature.backgroundBlur} min={0} max={1} step={0.05} disabled={blocked || !signatureAvailable} formatValue={value => `${Math.round(value*100)}%`} onChange={backgroundBlur => signatureRef.current && updateTreatment('signature', { ...signatureRef.current, backgroundBlur })} onInteractionEnd={publishPreview} />
+          <StudioControlSlider label="Luz do fundo" value={signature.backgroundExposure} min={-2} max={0} step={0.05} disabled={blocked || !signatureAvailable} formatValue={value => `${value > 0 ? '+' : ''}${value.toFixed(2)} EV`} onChange={backgroundExposure => signatureRef.current && updateTreatment('signature', { ...signatureRef.current, backgroundExposure })} onInteractionEnd={publishPreview} />
+          <StudioControlSlider label="Luz no rosto" value={signature.subjectExposure} min={-0.5} max={1} step={0.05} disabled={blocked || !signatureAvailable} formatValue={value => `${value > 0 ? '+' : ''}${value.toFixed(2)} EV`} onChange={subjectExposure => signatureRef.current && updateTreatment('signature', { ...signatureRef.current, subjectExposure })} onInteractionEnd={publishPreview} />
+        </> : null}
         <Text style={s.sceneHint}>A assinatura acompanha a pessoa no quadro e mantém seus originais intactos.</Text>
       </View>
       <View style={s.treatmentCard}>
@@ -155,8 +161,10 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, init
       </View>
       <View style={s.treatmentCard}>
         <View style={s.treatmentTitle}><ScanFace size={19} color={colors.accent} /><Text style={s.treatmentLabel}>Retoque natural</Text><Pressable accessibilityRole="button" accessibilityLabel="Remover retoque natural" disabled={blocked || !portrait} onPress={() => updateTreatment('portrait', undefined, true)} style={s.reset}><RotateCcw size={17} color={colors.textSecondary} /></Pressable></View>
-        <Text style={s.sceneDetail}>Suaviza levemente a pele, preservando olhos, boca e traços. Sem mudar seu rosto.</Text>
-        <StudioControlSlider label="Intensidade do retoque" value={portrait?.strength ?? 0} min={0} max={1} step={0.05} disabled={blocked || !treatmentsAvailable} formatValue={value => `${Math.round(value*100)}%`} onChange={strength => updateTreatment('portrait', { version: 1, strength })} onInteractionEnd={publishPreview} />
+        <Text style={s.sceneDetail}>Suave nas intensidades menores, mais presente no máximo. Preserva olhos, boca e traços.</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={portraitEnabled ? 'Desativar retoque natural' : 'Ativar retoque natural'} accessibilityState={{ selected: portraitEnabled, disabled: blocked || !portraitAvailable }} disabled={blocked || !portraitAvailable} onPress={() => updateTreatment('portrait', (portraitRef.current?.strength ?? 0) > 0 ? undefined : { version: 2, strength: 0.45 }, true)} style={[s.basicAction, (blocked || !portraitAvailable) && s.disabled]}><ScanFace size={17} color={colors.textSecondary} /><Text style={s.improveLabel}>{portraitEnabled ? 'Desativar retoque' : 'Ativar retoque'}</Text></Pressable>
+        <StudioControlSlider label="Intensidade do retoque" value={portrait?.strength ?? 0} min={0} max={1} step={0.05} disabled={blocked || !portraitAvailable} formatValue={value => `${Math.round(value*100)}%`} onChange={strength => updateTreatment('portrait', { version: 2, strength })} onInteractionEnd={publishPreview} />
+        {!portraitAvailable && treatmentsAvailable ? <Text style={s.notice}>Atualize o Classfy para controlar a nova intensidade de retoque.</Text> : null}
         <Text style={s.sceneHint}>Só atua quando há um rosto identificado no quadro.</Text>
       </View>
     </ScrollView> : tab === 'filters' ? <>

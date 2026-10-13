@@ -525,9 +525,10 @@ final class StudioRecipeEngine {
   static func validate(_ recipe: StudioRecipe) throws {
     let features = Set(recipe.requiredFeatures ?? [])
     let activeEnhancement = recipe.clips.contains { ($0.enhancement?.strength ?? 0) > 0 }
-    let activePortrait = recipe.clips.contains { ($0.portrait?.strength ?? 0) > 0 }
+    let activePortraitV1 = recipe.clips.contains { $0.portrait?.version == 1 && ($0.portrait?.strength ?? 0) > 0 }
+    let activePortraitV2 = recipe.clips.contains { $0.portrait?.version == 2 && ($0.portrait?.strength ?? 0) > 0 }
     let activeSignature = recipe.clips.contains { ($0.signature?.strength ?? 0) > 0 }
-    let expected = Set((activeEnhancement ? ["enhancement-v1"] : []) + (activePortrait ? ["portrait-v1"] : []) + (activeSignature ? ["cinematic-signature-v1"] : []))
+    let expected = Set((activeEnhancement ? ["enhancement-v1"] : []) + (activePortraitV1 ? ["portrait-v1"] : []) + (activePortraitV2 ? ["portrait-v2"] : []) + (activeSignature ? ["cinematic-signature-v1"] : []))
     guard features == expected, features.count == (recipe.requiredFeatures ?? []).count,
       recipe.version == (expected.isEmpty ? 2 : 3),
       expected.isEmpty || StudioEffectRenderer.editorTreatmentsAvailable else {
@@ -535,6 +536,9 @@ final class StudioRecipeEngine {
     }
     guard !activeSignature || StudioEffectRenderer.cinematicSignatureAvailable else {
       throw StudioRecipeError.invalid("Atualize o Classfy para processar a Assinatura Classfy desta montagem sem perder o tratamento.")
+    }
+    guard !activePortraitV2 || StudioEffectRenderer.portraitV2Available else {
+      throw StudioRecipeError.invalid("Atualize o Classfy para processar o novo retoque desta montagem sem perder o tratamento.")
     }
     guard recipe.timebase == 120_000,
           recipe.durationTicks > 0, recipe.durationTicks <= 120_000 * 43_200,

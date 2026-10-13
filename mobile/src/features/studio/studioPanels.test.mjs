@@ -353,7 +353,7 @@ test('hidratação e callbacks de conta anterior não mudam biblioteca nem estil
 
 const treatmentSample = autoEnhance.measureStudioScene([80,88,95,255,100,105,110,255]);
 const treatmentDependencies = analyze => ({ '../../../modules/classfy-studio-media': {
-  getStudioEnhancementCapabilitiesAsync: async () => ({available:true, features:['enhancement-v1','portrait-v1']}), analyzeStudioSceneAsync: analyze || (async () => [treatmentSample]),
+  getStudioEnhancementCapabilitiesAsync: async () => ({available:true, features:['enhancement-v1','portrait-v1','portrait-v2']}), analyzeStudioSceneAsync: analyze || (async () => [treatmentSample]),
 } });
 test('Melhorar cena e Retoque usam drafts independentes, comparação e Aplicar único sem tocar o original', async () => {
   const {view,previews,applied,before,editing} = treatment({initialTab:'scene',dependencies:treatmentDependencies()});
@@ -392,7 +392,7 @@ test('análise com falha mantém o filtro e oferece nova ação; ABI antigo nunc
 });
 
 const signatureDependencies = analyze => ({ '../../../modules/classfy-studio-media': {
- getStudioEnhancementCapabilitiesAsync:async()=>({available:true,features:['enhancement-v1','portrait-v1','cinematic-signature-v1']}),
+ getStudioEnhancementCapabilitiesAsync:async()=>({available:true,features:['enhancement-v1','portrait-v1','portrait-v2','cinematic-signature-v1']}),
  analyzeStudioSceneAsync:async()=>[treatmentSample],
  analyzeStudioSignatureSceneAsync:analyze || (async()=>[{subject:treatmentSample,background:treatmentSample,personPresent:true,facePresent:true}]),
 } });
@@ -404,6 +404,22 @@ test('Assinatura Classfy principal cria tratamento seletivo, retira correção b
  view.slider('Suavidade do fundo').onChange(.15);view.slider('Suavidade do fundo').onInteractionEnd(false);view.draw();
  view.press('Filtros');view.press('Filtro Cinema');view.press('Aplicar tratamento');await view.pump();
  assert.equal(applied.length,1);assert.equal(applied[0].main[0].signature.backgroundBlur,.15);assert.equal(applied[0].main[0].grade.preset,'cinematic');assert.deepEqual(applied[0].assets,editing.assets);
+});
+test('intensidade, desfoque e luz de rosto/fundo são drafts independentes com um Aplicar e comparação reversível',async()=>{
+ const {view,editing,previews,applied}=treatment({initialTab:'scene',onBefore:undefined,dependencies:signatureDependencies()});await view.pump();view.press('Aplicar Assinatura Classfy');await view.pump();
+ const initial={...previews.at(-1).main[0].signature};
+ for(const [label,value,key] of [['Suavidade do fundo',.75,'backgroundBlur'],['Luz do fundo',-1.85,'backgroundExposure'],['Luz no rosto',.65,'subjectExposure'],['Intensidade da assinatura',.6,'strength']]){
+   const previous={...previews.at(-1).main[0].signature};view.slider(label).onChange(value);view.slider(label).onInteractionEnd(false);view.draw();
+   assert.deepEqual(previews.at(-1).main[0].signature,{...previous,[key]:value});
+ }
+ assert.equal(view.slider('Luz do fundo').min,-2);assert.equal(view.slider('Luz do fundo').max,0);
+ assert.equal(view.slider('Luz do fundo').formatValue(-1.85),'-1.85 EV');assert.equal(view.slider('Luz no rosto').formatValue(.65),'+0.65 EV');
+ assert.equal(view.slider('Luz no rosto').min,-.5);assert.equal(view.slider('Luz no rosto').max,1);
+ assert.equal(initial.temperature,previews.at(-1).main[0].signature.temperature);
+ const changed={...previews.at(-1).main[0].signature};
+ view.button('Segure para comparar com o original').onPressIn();assert.equal(previews.at(-1).main[0].signature,undefined);
+ view.button('Segure para comparar com o original').onPressOut();assert.deepEqual(previews.at(-1).main[0].signature,changed);
+ assert.equal(applied.length,0);view.press('Aplicar tratamento');await view.pump();assert.equal(applied.length,1);assert.deepEqual(applied[0].main[0].signature,changed);assert.deepEqual(applied[0].assets,editing.assets);
 });
 test('reset da assinatura é independente; assinatura tardia ou sem pessoa não altera outro alvo',async()=>{
  const first=treatment({initialTab:'scene',dependencies:signatureDependencies()});await first.view.pump();first.view.press('Aplicar Assinatura Classfy');await first.view.pump();
@@ -417,4 +433,18 @@ test('reset da assinatura é independente; assinatura tardia ou sem pessoa não 
 });
 test('ABI básica existente mantém correção automática mas desabilita assinatura seletiva',async()=>{
  const {view}=treatment({initialTab:'scene',dependencies:treatmentDependencies()});await view.pump();assert.equal(view.button('Analisar e melhorar cena').disabled,false);assert.equal(view.button('Aplicar Assinatura Classfy').disabled,true);
+});
+test('retoque novo inicia v2 a45%; projeto v1 só muda versão por gesto explícito',async()=>{
+ const first=treatment({initialTab:'scene',dependencies:signatureDependencies()});await first.view.pump();first.view.press('Ativar retoque natural');
+ assert.deepEqual(first.previews.at(-1).main[0].portrait,{version:2,strength:.45});
+ first.view.press('Desativar retoque natural');assert.equal(first.previews.at(-1).main[0].portrait,undefined);
+ const value=model.patchStudioClipPortrait(first.editing,first.editing.main[0].id,{version:1,strength:.6});
+ const old=treatment({initialTab:'scene',editing:value,dependencies:signatureDependencies()});await old.view.pump();
+ old.view.press('Aplicar Assinatura Classfy');await old.view.pump();assert.deepEqual(old.previews.at(-1).main[0].portrait,{version:1,strength:.6});
+ old.view.press('Aplicar tratamento');await old.view.pump();assert.deepEqual(old.applied.at(-1).main[0].portrait,{version:1,strength:.6});
+ old.view.slider('Intensidade do retoque').onChange(.35);old.view.slider('Intensidade do retoque').onInteractionEnd(false);old.view.draw();assert.deepEqual(old.previews.at(-1).main[0].portrait,{version:2,strength:.35});
+});
+test('ABI v1 desconhece retoque v2: não apresenta slider habilitado nem migra efeito existente',async()=>{
+ const dependencies=signatureDependencies();dependencies['../../../modules/classfy-studio-media'].getStudioEnhancementCapabilitiesAsync=async()=>({available:true,features:['enhancement-v1','portrait-v1','cinematic-signature-v1']});
+ const {view}=treatment({initialTab:'scene',dependencies});await view.pump();assert.equal(view.slider('Intensidade do retoque').disabled,true);assert.equal(view.button('Ativar retoque natural').disabled,true);
 });
