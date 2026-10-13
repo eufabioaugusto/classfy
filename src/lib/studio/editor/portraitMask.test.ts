@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { studioPortraitAnalysisSize, studioPortraitRegions, studioPortraitFaceWidth, type StudioPortraitFace } from './portraitMask';
+import { drawStudioPortraitMask, studioPortraitAnalysisSize, studioPortraitRegions, studioPortraitFaceWidth, type StudioPortraitFace } from './portraitMask';
 import { studioPortraitPixel } from './portraitRender';
 function face(): StudioPortraitFace {
   const points = Array.from({ length: 478 }, () => ({ x: .5, y: .5 }));
@@ -31,5 +31,25 @@ describe('geometria e tratamento natural do retrato', () => {
     expect(treated[0]-treated[1]).toBeCloseTo(rgb[0]-rgb[1]); expect(treated[1]-treated[2]).toBeCloseTo(rgb[1]-rgb[2]);
     const half=studioPortraitPixel(rgb,.6,1,.5); expect(half[0]-rgb[0]).toBeCloseTo((treated[0]-rgb[0])/2);
     expect(studioPortraitPixel([1,.9,.8],1,1,1)).toEqual([1,.9,.8]); expect(studioPortraitPixel([.2,.1,0],0,1,1)).toEqual([.2,.1,0]);
+  });
+  it('v2 acrescenta nariz e desenha exclusões duras somente após feather do contorno', () => {
+    const value=face();
+    [168,6,197,195,5,4,1,19,94,2,98,97,326,327,294,278,344,440,275,45,220,115,48,64].forEach((id,i)=>{
+      value[id]={x:.5+Math.cos(i/24*Math.PI*2)*.025,y:.54+Math.sin(i/24*Math.PI*2)*.08};
+    });
+    const original=structuredClone(value), regions=studioPortraitRegions(value,2);
+    expect(regions).toHaveLength(7); expect(regions[6].protected).toBe(true);
+    expect(Math.max(...regions[6].points.map(p=>p.x))-.5).toBeGreaterThan(.025);
+    const passes:{filter:string;fillStyle:string}[]=[];
+    let clips=0, strokes=0;
+    const ctx={filter:'none',fillStyle:'',fillRect(){},save(){},restore(){},stroke(){strokes++;},clip(){clips++;},beginPath(){},moveTo(){},lineTo(){},closePath(){},fill(){passes.push({filter:this.filter,fillStyle:this.fillStyle});}};
+    const canvas={width:1,height:1,getContext:()=>ctx} as unknown as HTMLCanvasElement;
+    expect(drawStudioPortraitMask(canvas,value,640,360,2)).toBe(true);
+    expect(passes[0]).toEqual({filter:'blur(1.5px)',fillStyle:'#fff'});
+    expect(passes.slice(1)).toEqual(Array(6).fill({filter:'none',fillStyle:'#000'}));
+    expect(clips).toBe(1);
+    expect(strokes).toBe(6);
+    expect(ctx.filter).toBe('none'); expect(value).toEqual(original);
+    expect(studioPortraitPixel([.4,.3,.2],.8,1,1,2)[0]-.4).toBeGreaterThan(studioPortraitPixel([.4,.3,.2],.8,1,1,1)[0]-.4);
   });
 });

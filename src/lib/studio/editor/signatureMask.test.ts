@@ -1,5 +1,5 @@
 import { describe,expect,it } from 'vitest';
-import { measureStudioSignaturePixels,studioSignatureAnalysisSize,studioSignatureFaceBox,studioSignatureFaceROI,studioSignatureMaskPixel,studioSignaturePersonWeight,validateStudioSignatureFrame,type StudioSignatureFrame } from './signatureMask';
+import { measureStudioSignaturePixels,studioSignatureAnalysisSize,studioSignatureFaceBox,studioSignatureFaceROI,studioSignatureMaskPixel,studioSignaturePersonWeight,studioSignaturePrincipalPerson,studioSignatureMulticlassPerson,validateStudioSignatureFrame,type StudioSignatureFrame } from './signatureMask';
 const oval=[10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
 function face(){const result=Array.from({length:478},()=>({x:.5,y:.3}));oval.forEach((index,i)=>{const angle=i/oval.length*Math.PI*2;result[index]={x:.5+Math.cos(angle)*.2,y:.3+Math.sin(angle)*.2};});return result;}
 function frame(alpha:Float32Array):StudioSignatureFrame{return{width:4,height:4,sourceWidth:40,sourceHeight:40,personAlpha:alpha,faceLandmarks:[],personPresent:true,facePresent:false};}
@@ -9,4 +9,19 @@ describe('máscara local da assinatura',()=>{
   it('amostra alfa bilinear e mantém quadro sem pessoa sem reaproveitar um rosto antigo',()=>{const data=frame(new Float32Array([0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0]));expect(studioSignatureMaskPixel(data,.25,.5)).toBe(.5);data.personAlpha.fill(0);data.personPresent=false;const pixels=new Uint8ClampedArray(40*40*4).fill(255),measured=measureStudioSignaturePixels(pixels,40,40,data);expect(measured.subject).toBeNull();expect(measured.background?.p50).toBe(1);expect(measured.personPresent).toBe(false);});
   it('mede rosto separado de roupas pretas e fundo claro',()=>{const data=frame(new Float32Array(16).fill(1));data.faceLandmarks=face();const pixels=new Uint8ClampedArray(40*40*4);for(let y=0;y<40;y++)for(let x=0;x<40;x++){const at=(y*40+x)*4,value=y<21?128:8;pixels.set([value,value,value,255],at);}const measured=measureStudioSignaturePixels(pixels,40,40,data);expect(measured.facePresent).toBe(true);expect(measured.subject?.p50).toBeCloseTo(128/255,2);});
   it('rejeita máscara incompleta, alpha não finito e máscara de outro source',()=>{const data=frame(new Float32Array(16));validateStudioSignatureFrame(data,40,40);expect(()=>validateStudioSignatureFrame(data,41,40)).toThrow();data.personAlpha[3]=NaN;expect(()=>validateStudioSignatureFrame(data,40,40)).toThrow();data.personAlpha=new Float32Array(15);expect(()=>validateStudioSignatureFrame(data,40,40)).toThrow();});
+  it('remove planta maior afastada quando o creator está ancorado no rosto',()=>{
+    const width=80,height=80,alpha=new Float32Array(width*height);for(let y=2;y<76;y++)for(let x=0;x<23;x++)alpha[y*width+x]=.95;for(let y=10;y<70;y++)for(let x=34;x<52;x++)alpha[y*width+x]=.9;
+    // Connected diagonal fingers/arm stay in the same 8-connected creator component.
+    for(let i=0;i<14;i++)alpha[(45+i)*width+52+i]=.8;
+    const clean=studioSignaturePrincipalPerson(alpha,width,height,face());expect(clean[30*width+10]).toBe(0);expect(clean[30*width+40]).toBeCloseTo(.9);expect(clean[58*width+65]).toBeCloseTo(.8);expect(alpha[30*width+10]).toBeCloseTo(.95);
+  });
+  it('preserva alfa da franja próxima sem dilatar e escolhe maior componente quando sem face',()=>{
+    const width=20,height=20,alpha=new Float32Array(width*height);for(let y=5;y<18;y++)for(let x=8;x<16;x++)alpha[y*width+x]=.9;alpha[10*width+7]=.15;alpha[10*width+6]=.08;alpha[10*width+2]=.95;
+    const clean=studioSignaturePrincipalPerson(alpha,width,height,[]);expect(clean[10*width+7]).toBeCloseTo(.15);expect(clean[10*width+6]).toBeCloseTo(.08);expect(clean[10*width+5]).toBe(0);expect(clean[10*width+2]).toBe(0);
+  });
+  it('não propaga ilha antiga no quadro vazio nem esconde alpha inválido durante pruning',()=>{expect(studioSignaturePrincipalPerson(new Float32Array(16),4,4,[])).toEqual(new Float32Array(16));const invalid=new Float32Array(16);invalid[1]=NaN;expect(()=>studioSignaturePrincipalPerson(invalid,4,4,[])).toThrow();});
+
+  it('soma somente cabelo, pele e roupa; fundo e objetos não viram pessoa',()=>{const labels=['background','hair','body-skin','face-skin','clothes','others'],masks=Array.from({length:6},()=>new Float32Array(4));masks[0][0]=.95;masks[5][1]=.99;masks[1][2]=.3;masks[2][2]=.2;masks[3][2]=.1;masks[4][2]=.4;masks[2][3]=.8;expect(Array.from(studioSignatureMulticlassPerson(masks,2,2,labels))).toEqual([0,0,1,expect.closeTo(.8)]);masks[5][1]=NaN;expect(()=>studioSignatureMulticlassPerson(masks,2,2,labels)).toThrow();});
+  it('rejeita metadata de classes diferente e planos incompletos em vez de cair no selfie antigo',()=>{const masks=Array.from({length:6},()=>new Float32Array(4));expect(()=>studioSignatureMulticlassPerson(masks,2,2,['background','hair','body-skin','face-skin','others','clothes'])).toThrow();expect(()=>studioSignatureMulticlassPerson(masks.slice(0,5),2,2,[])).toThrow();});
+
 });

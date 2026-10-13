@@ -80,7 +80,7 @@ export function studioTakeDuration(take: Pick<StudioTake, 'start' | 'end' | 'pla
 }
 // Project schema and renderer are independent. Legacy artifacts are adopted only
 // when their old signature proves the unchanged sequential render.
-export const STUDIO_RENDER_VERSION = 5;
+export const STUDIO_RENDER_VERSION = 6;
 export function timelineSignature(project: Pick<StudioProject, 'kind' | 'takes'> & Partial<StudioProject>) {
   if (!project.editing && !project.takes.some(take => normalizeStudioCaptureGrade(take.grade)
     || (take.enhancement?.strength ?? 0) > 0 || (take.portrait?.strength ?? 0) > 0 || (take.signature?.strength ?? 0) > 0
@@ -152,11 +152,11 @@ export type StudioGrade = { preset: StudioEffect; intensity: number; exposure: n
 /** Reversible, bounded analysis result. No image, face landmarks or external service state is persisted. */
 export type StudioEnhancement = { version: 1; strength: number; exposure: number; contrast: number; saturation: number;
   temperature: number; tint: number; shadows: number; highlights: number; analyzedFrames: number };
-export type StudioPortrait = { version: 1; strength: number };
+export type StudioPortrait = { version: 1 | 2; strength: number };
 /** Person/background treatment. Geometry and segmentation masks remain transient in the renderer. */
 export type StudioSignature = { version: 1; strength: number; subjectExposure: number; backgroundExposure: number;
   backgroundBlur: number; temperature: number };
-export type StudioRenderFeature = 'enhancement-v1' | 'portrait-v1' | 'cinematic-signature-v1';
+export type StudioRenderFeature = 'enhancement-v1' | 'portrait-v1' | 'portrait-v2' | 'cinematic-signature-v1';
 export type StudioPendingTake = {
   id: string; uri: string; name: string; sourceUri?: string; kind?: StudioAssetKind;
   sourceKind?: 'standard' | 'cinematic'; sourceStage?: StudioSourceStage; frameRate?: number; colorSpace?: string;
@@ -274,7 +274,7 @@ export function validateStudioEnhancement(value: unknown): string[] {
 export function validateStudioPortrait(value: unknown): string[] {
   const portrait = value as StudioPortrait | null | undefined;
   if (!portrait || typeof portrait !== 'object' || Array.isArray(portrait)
-    || Object.keys(portrait).some(key => !['version', 'strength'].includes(key)) || portrait.version !== 1
+    || Object.keys(portrait).some(key => !['version', 'strength'].includes(key)) || ![1, 2].includes(portrait.version)
     || !Number.isFinite(portrait.strength) || portrait.strength < 0 || portrait.strength > 1) return ['Revise o retoque facial do clip.'];
   return [];
 }
@@ -299,7 +299,8 @@ function studioTreatmentProperties(clip: StudioVisualTreatment): StudioVisualTre
 export function studioRequiredFeatures(value: StudioEditing | Pick<StudioRenderRecipe, 'clips'>): StudioRenderFeature[] {
   const clips = 'clips' in value ? value.clips : [...value.main, ...value.layers.flatMap(layer => layer.items)];
   return [...(clips.some(clip => (clip.enhancement?.strength ?? 0) > 0) ? ['enhancement-v1' as const] : []),
-    ...(clips.some(clip => (clip.portrait?.strength ?? 0) > 0) ? ['portrait-v1' as const] : []),
+    ...(clips.some(clip => clip.portrait?.version === 1 && clip.portrait.strength > 0) ? ['portrait-v1' as const] : []),
+    ...(clips.some(clip => clip.portrait?.version === 2 && clip.portrait.strength > 0) ? ['portrait-v2' as const] : []),
     ...(clips.some(clip => (clip.signature?.strength ?? 0) > 0) ? ['cinematic-signature-v1' as const] : [])];
 }
 /** Call before handing a recipe to a platform renderer; missing support may never produce an untreated export. */
