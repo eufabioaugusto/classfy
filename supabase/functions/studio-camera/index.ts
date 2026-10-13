@@ -1,18 +1,31 @@
-import { AccessToken, TrackSource, RoomServiceClient } from 'npm:livekit-server-sdk@2.19.1';
+import { AccessToken, TrackSource, RoomServiceClient, type VideoGrant } from 'npm:livekit-server-sdk@2.19.1';
 import { corsHeaders, json, requireUser } from '../_shared/video/http.ts';
-import { BUCKET, CHUNK_BYTES, CameraError, generatePairingCode, pairingHash, publicError, storageEndpoint, validateRequest, type JsonObject } from './protocol.ts';
+import { BUCKET, CHUNK_BYTES, CameraError, UUID, generatePairingCode, pairingHash, publicError, storageEndpoint, validateRequest, type JsonObject } from './protocol.ts';
 
 function rtcConfig() {
   const url = Deno.env.get('LIVEKIT_URL'); const key = Deno.env.get('LIVEKIT_API_KEY'); const secret = Deno.env.get('LIVEKIT_API_SECRET');
   if (!url || !key || !secret) throw new CameraError('studio_camera_provider_unavailable', 503);
   return { url, key, secret };
 }
+/** Only an owner-authorized, bound RPC session can receive its private room grants. */
+export function cameraConnectionAccess(session: JsonObject, role: string): { identity: string; grant: VideoGrant } {
+  if (role !== 'controller' && role !== 'device') throw new CameraError('studio_camera_invalid_request');
+  if (session.status === 'closed' || [session.id, session.controllerId, session.deviceId].some(value => typeof value !== 'string' || !UUID.test(value)))
+    throw new CameraError('studio_camera_not_ready');
+  const identity = `studio-${role}-${session.id}-${role === 'device' ? session.deviceId : session.controllerId}`;
+  return { identity, grant: {
+    roomJoin: true, room: `classfy-studio-camera-${session.id}`, canPublish: role === 'device',
+    canPublishSources: role === 'device' ? [TrackSource.CAMERA] : [], canSubscribe: role === 'controller',
+    // Data permission is independent of media publishing. Exact sender/topic and
+    // configuration-only payload validation belong to both camera endpoints.
+    canPublishData: true,
+  } };
+}
 async function connection(session: JsonObject, role: string) {
   const { url, key, secret } = rtcConfig();
-  const identity = `studio-${role}-${session.id}-${role === 'device' ? session.deviceId : session.controllerId}`;
+  const { identity, grant } = cameraConnectionAccess(session, role);
   const token = new AccessToken(key, secret, { identity, ttl: '5m' });
-  token.addGrant({ roomJoin: true, room: `classfy-studio-camera-${session.id}`, canPublish: role === 'device',
-    canPublishSources: role === 'device' ? [TrackSource.CAMERA] : [], canSubscribe: role === 'controller', canPublishData: false });
+  token.addGrant(grant);
   return { url, token: await token.toJwt(), identity, expiresAt: new Date(Date.now() + 300_000).toISOString() };
 }
 

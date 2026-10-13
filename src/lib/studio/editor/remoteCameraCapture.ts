@@ -15,7 +15,7 @@ export type StudioRemoteView = {
   transferBytes?: number; transferTotalBytes?: number;
   pendingTakeId: string | null; error: string | null;
 };
-export type StudioRemotePreview = { disconnect(): Promise<void>; reconnect?(): Promise<void> };
+export type StudioRemotePreview = { disconnect(): Promise<void>; reconnect?(): Promise<void>; configure?(id: string, patch: Partial<StudioRemoteConfiguration>): Promise<StudioRemoteDeviceState> };
 export type StudioRemotePreviewFactory = (response: StudioRemoteResponse, callbacks: { track(track: MediaStreamTrack | null): void; connection(value: StudioRemoteView['connection']): void }, signal: AbortSignal) => Promise<StudioRemotePreview>;
 /** Older apps keep their existing audio route; new apps must confirm the chosen input. */
 export function studioRemoteAudioReady(device: StudioRemoteDeviceState | null | undefined): boolean {
@@ -52,6 +52,20 @@ export const connectStudioRemotePreview: StudioRemotePreviewFactory = async (res
   if (!connection || !deviceId) throw new StudioRemoteCameraError('Aguarde a conexão do iPhone.');
   const room = new Room({ adaptiveStream: false, dynacast: true }); let closed = false;
   const identity = `studio-device-${response.session.id}-${deviceId}`;
+  const settings = new Map<string, { resolve(state: StudioRemoteDeviceState): void; reject(cause: Error): void; timer: ReturnType<typeof setTimeout> }>();
+  const rejectSettings = () => { for (const pending of settings.values()) { clearTimeout(pending.timer); pending.reject(new DOMException('Conexão cancelada.', 'AbortError')); } settings.clear(); };
+  const data = (payload: Uint8Array, participant: RemoteParticipant | undefined, _kind: unknown, topic?: string) => {
+    if (closed || signal.aborted || participant?.identity !== identity || topic !== 'classfy-studio-camera-control-ack-v1' || payload.byteLength > 16384) return;
+    try {
+      const receipt = JSON.parse(new TextDecoder().decode(payload));
+      if (receipt.v !== 1 || typeof receipt.id !== 'string') return;
+      const pending = settings.get(receipt.id); if (!pending) return;
+      if (receipt.ok === true && receipt.state && receipt.state.configurationConfirmed === true && receipt.state.pro && typeof receipt.state.pro === 'object' && !Array.isArray(receipt.state.pro)) {
+        settings.delete(receipt.id); clearTimeout(pending.timer); pending.resolve(receipt.state);
+      } else if (receipt.ok === false) { settings.delete(receipt.id); clearTimeout(pending.timer); pending.reject(new StudioRemoteCameraError(typeof receipt.error === 'string' ? receipt.error : 'O iPhone não confirmou o ajuste direto.', 'live_configuration_failed')); }
+    } catch { /* A malformed packet has no authority over the camera. */ }
+  };
+  room.on(RoomEvent.DataReceived, data);
   const published = (publication: RemoteTrackPublication, participant: RemoteParticipant) => { if (!closed && !signal.aborted) publication.setSubscribed(participant.identity === identity && publication.kind === Track.Kind.Video); };
   const subscribed = (track: RemoteTrack, _publication: unknown, participant: RemoteParticipant) => {
     if (!closed && !signal.aborted && participant.identity === identity && track.kind === Track.Kind.Video) {
@@ -66,10 +80,20 @@ export const connectStudioRemotePreview: StudioRemotePreviewFactory = async (res
   room.on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => { if (!closed && participant.identity === identity && track.kind === Track.Kind.Video) callbacks.track(null); });
   room.on(RoomEvent.Reconnecting, () => { if (!closed) callbacks.connection('reconnecting'); });
   room.on(RoomEvent.Reconnected, () => { if (!closed) callbacks.connection('connected'); });
-  room.on(RoomEvent.Disconnected, () => { if (!closed) { callbacks.track(null); callbacks.connection('disconnected'); } });
-  const disconnect = async () => { if (closed) return; closed = true; signal.removeEventListener('abort', abort); room.removeAllListeners(); callbacks.track(null); await room.disconnect(); };
+  room.on(RoomEvent.Disconnected, () => { if (!closed) { rejectSettings(); callbacks.track(null); callbacks.connection('disconnected'); } });
+  const disconnect = async () => { if (closed) return; closed = true; signal.removeEventListener('abort', abort); room.removeAllListeners(); rejectSettings(); callbacks.track(null); await room.disconnect(); };
   const abort = () => { void disconnect(); }; signal.addEventListener('abort', abort, { once: true });
-  try { callbacks.connection('connecting'); await room.connect(connection.url, connection.token, { autoSubscribe: false }); if (signal.aborted || closed) throw new DOMException('Conexão cancelada.', 'AbortError'); room.remoteParticipants.forEach(participant => participant.trackPublications.forEach(publication => published(publication, participant))); callbacks.connection('connected'); return { disconnect }; }
+  const configure = (id: string, patch: Partial<StudioRemoteConfiguration>) => new Promise<StudioRemoteDeviceState>((resolve, reject) => {
+    if (closed || signal.aborted || !room.remoteParticipants.has(identity)) { reject(new StudioRemoteCameraError('A câmera direta está desconectada.')); return; }
+    if (settings.has(id) || settings.size >= 128) { reject(new StudioRemoteCameraError('Aguarde o ajuste direto em andamento.')); return; }
+    if (!controllerUUID.test(id) || !patch || !Object.keys(patch).length || Object.keys(patch).some(key => key !== 'pro' && key !== 'imageGrade')) { reject(new StudioRemoteCameraError('O ajuste direto é inválido.')); return; }
+    const payload = new TextEncoder().encode(JSON.stringify({ v: 1, id, patch }));
+    if (payload.byteLength > 8192) { reject(new StudioRemoteCameraError('O ajuste da câmera é grande demais.')); return; }
+    const timer = setTimeout(() => { settings.delete(id); reject(new StudioRemoteCameraError('A câmera direta não respondeu.', 'live_configuration_timeout')); }, 800);
+    settings.set(id, { resolve, reject, timer });
+    void room.localParticipant.publishData(payload, { reliable: true, topic: 'classfy-studio-camera-control-v1', destinationIdentities: [identity] }).catch(cause => { const pending = settings.get(id); if (pending) { settings.delete(id); clearTimeout(pending.timer); pending.reject(cause); } });
+  });
+  try { callbacks.connection('connecting'); await room.connect(connection.url, connection.token, { autoSubscribe: false }); if (signal.aborted || closed) throw new DOMException('Conexão cancelada.', 'AbortError'); room.remoteParticipants.forEach(participant => participant.trackPublications.forEach(publication => published(publication, participant))); callbacks.connection('connected'); return { disconnect, configure }; }
   catch (error) { await disconnect(); throw error; }
 };
 
@@ -105,6 +129,9 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   type ConfigurationWaiter = { resolve(): void; reject(error: unknown): void };
   let queuedConfiguration: Partial<StudioRemoteConfiguration> | null = null, configurationWaiters: ConfigurationWaiter[] = [];
   let configurationIntent: { id: string; patch: Partial<StudioRemoteConfiguration>; uncertain: boolean } | null = null;
+  let queuedConfigurationId: string | null = null, liveDesired: Partial<StudioRemoteConfiguration> | null = null;
+  let liveReceipt: { id: string; order: number; state: StudioRemoteDeviceState } | null = null, liveOrder = 0;
+  const liveJobs = new Map<string, Promise<StudioRemoteDeviceState | null>>();
   let generation = 0, disposed = false, lifecycle = new AbortController(), envelope: StudioRemoteEnvelope | null = null, preview: StudioRemotePreview | null = null, cameraTrack: MediaStreamTrack | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null, heartbeatAt = 0, serverOffset = 0, bestRTT = Infinity, polling: Promise<void> | null = null, connecting: Promise<void> | null = null, prepareWork: Promise<void> | null = null, startWork: Promise<StudioRemoteStart> | null = null, stopWork: Promise<StudioRemoteMaster> | null = null;
   let pendingStart: { id: string; takeId: string } | null = null, pendingStop: { id: string; takeId: string } | null = null, pendingResume: { id: string; takeId: string } | null = null, lastStart: StudioRemoteStart | null = null, cachedMaster: StudioRemoteMaster | null = null;
@@ -113,7 +140,8 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   let remote: StudioRemoteView = { pairing: null, connection: 'idle', session: null, transfer: 'idle', pendingTakeId: null, error: null };
   const snapshot = () => ({ ...state, devices: { cameras: [], microphones: [] }, levels: [], ...(state.videoControls ? { videoControls: structuredClone(state.videoControls) } : {}), ...(state.outputVideo ? { outputVideo: structuredClone(state.outputVideo) } : {}) });
   const configurationPending = () => configuring || !!configurationIntent || !!envelope?.commands.some(command => command.type === 'configure' && command.status === 'pending');
-  const view = () => structuredClone(remote);
+  const view = () => structuredClone(liveReceipt && remote.session ? { ...remote, session: { ...remote.session, deviceState: { ...remote.session.deviceState,
+    pro: liveReceipt.state.pro, configuration: liveReceipt.state.configuration, imageGrade: liveReceipt.state.imageGrade } } } : remote);
   const publish = (patch: Partial<StudioCaptureState>) => { if (disposed) return; state = { ...state, ...patch }; listeners.forEach(listener => listener(snapshot())); };
   const publishRemote = (patch: Partial<StudioRemoteView>) => { if (disposed) return; remote = { ...remote, ...patch }; remoteListeners.forEach(listener => listener(view())); };
   const scope = (token = generation) => ({ signal: lifecycle.signal, isCurrent: () => !disposed && token === generation });
@@ -134,6 +162,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       envelope.commands.some(previous => previous.status !== 'pending' && response.commands.some(next => next.id === previous.id && next.status === 'pending'))
     )) return;
     envelope = response;
+    if (liveReceipt && response.session.deviceState?.liveConfigurationId === liveReceipt.id && response.session.deviceState.configurationConfirmed === true) liveReceipt.state = response.session.deviceState;
     if (configurationIntent && (response.session.status === 'closed' || response.commands.some(command => command.id === configurationIntent?.id && command.status !== 'pending'))) configurationIntent = null;
     // Retain the proven browser identity separately from per-take recovery;
     // successfully saving a take must not erase its computer pairing.
@@ -289,6 +318,24 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     if (pro?.autoExposure === true) { delete pro.iso; delete pro.shutterSeconds; }
     if (pro?.autoWhiteBalance === true) for (const key of ['redGain', 'greenGain', 'blueGain', 'temperatureKelvin', 'whiteBalanceTint']) delete pro[key];
     if (pro?.autoFocus === true) delete pro.lensPosition;
+    const id = crypto.randomUUID(); queuedConfigurationId = id;
+    const direct = preview?.configure && remote.connection === 'connected' && envelope.session.deviceState?.capabilities?.liveControls === 1 && Object.keys(next).every(key => key === 'pro' || key === 'imageGrade');
+    if (direct) {
+      const order = ++liveOrder;
+      const { focusPoint: _previousFocus, ...previousPro } = liveDesired?.pro ?? {};
+      liveDesired = { ...liveDesired, ...next, ...(liveDesired?.pro || next.pro ? { pro: { ...previousPro, ...next.pro } } : {}) };
+      if (liveDesired.pro?.autoExposure === true) { delete liveDesired.pro.iso; delete liveDesired.pro.shutterSeconds; }
+      if (liveDesired.pro?.autoWhiteBalance === true) for (const key of ['redGain', 'greenGain', 'blueGain', 'temperatureKelvin', 'whiteBalanceTint']) delete liveDesired.pro[key];
+      if (liveDesired.pro?.autoFocus === true) delete liveDesired.pro.lensPosition;
+      const token = generation;
+      const job = preview!.configure!(id, structuredClone(liveDesired)).then(actual => {
+        assert(token);
+        if (!liveReceipt || order > liveReceipt.order) { liveReceipt = { id, order, state: actual }; publishRemote({}); }
+        return actual;
+      }).catch(() => null);
+      liveJobs.set(id, job);
+      if (liveJobs.size > 256) for (const key of liveJobs.keys()) { if (key !== configurationIntent?.id && key !== queuedConfigurationId) { liveJobs.delete(key); break; } }
+    } else { liveReceipt = null; liveDesired = null; }
     const result = new Promise<void>((resolve, reject) => configurationWaiters.push({ resolve, reject }));
     if (configuring) return result;
     const token = generation; configuring = true;
@@ -297,10 +344,10 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       try {
         while (queuedConfiguration) {
           assert(token);
-          const desired = queuedConfiguration, waiters = configurationWaiters;
-          queuedConfiguration = null; configurationWaiters = [];
-          const intent = { id: crypto.randomUUID(), patch: desired, uncertain: false }; configurationIntent = intent;
-          try { await command(intent.id, 'configure', desired, token); assert(token); if (configurationIntent === intent) configurationIntent = null; waiters.forEach(waiter => waiter.resolve()); }
+          const desired = queuedConfiguration, waiters = configurationWaiters, id = queuedConfigurationId!;
+          queuedConfiguration = null; queuedConfigurationId = null; configurationWaiters = [];
+          const intent = { id, patch: desired, uncertain: false }; configurationIntent = intent;
+          try { const direct = liveJobs.get(id); if (direct) { await direct; assert(token); liveJobs.delete(id); } await command(intent.id, 'configure', desired, token); assert(token); if (configurationIntent === intent) configurationIntent = null; waiters.forEach(waiter => waiter.resolve()); }
           catch (error) {
             if (token === generation && configurationIntent === intent) {
               if (error instanceof StudioRemoteCameraError && error.code.startsWith('studio_camera_')) configurationIntent = null;
@@ -320,7 +367,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   const cancel = () => {
     const previous = envelope, hadMaster = !!cachedMaster, takeId = remote.pendingTakeId ?? pendingStart?.takeId ?? previous?.session.activeTakeId; bestRTT = Infinity;
     persistIntent(); if (previous && (hadMaster || !takeId)) forgetIntent(); configuring = false;
-    queuedConfiguration = null; configurationIntent = null; const waiting = configurationWaiters; configurationWaiters = []; waiting.forEach(waiter => waiter.reject(new DOMException('Conexão cancelada.', 'AbortError')));
+    queuedConfiguration = null; queuedConfigurationId = null; configurationIntent = null; liveReceipt = null; liveDesired = null; liveJobs.clear(); const waiting = configurationWaiters; configurationWaiters = []; waiting.forEach(waiter => waiter.reject(new DOMException('Conexão cancelada.', 'AbortError')));
     const stopId = pendingStop?.id ?? crypto.randomUUID(); generation++; lifecycle.abort(); lifecycle = new AbortController(); if (pollTimer) clearTimeout(pollTimer); pollTimer = null; polling = null; connecting = null;
     const ownedPreview = preview; preview = null; void ownedPreview?.disconnect(); cameraTrack = null; envelope = null; pendingStart = null; pendingStop = null; pendingResume = null; lastStart = null; cachedMaster = null; prepareWork = null; startWork = null; stopWork = null;
     // A lost browser must not delete/close the original while the phone is still
