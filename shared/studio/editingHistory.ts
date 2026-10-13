@@ -28,7 +28,7 @@ type Pending = {
 
 function takeValues(take: StudioTake) {
   return [take.id, take.uri, take.name, take.duration, take.start, take.end,
-    take.width ?? null, take.height ?? null, take.thumbnailUri ?? null, take.enhancement ?? null, take.portrait ?? null];
+    take.width ?? null, take.height ?? null, take.thumbnailUri ?? null, take.enhancement ?? null, take.portrait ?? null, take.signature ?? null];
 }
 
 /** Local media paths deliberately participate: old iOS container paths must not return through undo. */
@@ -50,7 +50,8 @@ function freeze<T>(value: T): T {
 function snapshot(takes: readonly StudioTake[], editing?: StudioEditing): Frame {
   return freeze({ takes: takes.map(take => ({ ...take,
     ...(take.enhancement ? { enhancement: { ...take.enhancement } } : {}),
-    ...(take.portrait ? { portrait: { ...take.portrait } } : {}) })),
+    ...(take.portrait ? { portrait: { ...take.portrait } } : {}),
+    ...(take.signature ? { signature: { ...take.signature } } : {}) })),
     ...(editing ? { editing: JSON.parse(JSON.stringify(editing)) as StudioEditing } : {}) });
 }
 function validEditing(before: StudioEditing | undefined, after: StudioEditing, kind: StudioKind) {

@@ -29,7 +29,8 @@ function requireNewIds(takes: readonly StudioTake[], ids: string[]) {
 }
 function takeTreatments(take: StudioTake) {
   return { ...(take.enhancement ? { enhancement: { ...take.enhancement } } : {}),
-    ...(take.portrait ? { portrait: { ...take.portrait } } : {}) };
+    ...(take.portrait ? { portrait: { ...take.portrait } } : {}),
+    ...(take.signature ? { signature: { ...take.signature } } : {}) };
 }
 
 function studioSplitLocation(takes: readonly StudioTake[], takeId: string, sourceSeconds: number) {

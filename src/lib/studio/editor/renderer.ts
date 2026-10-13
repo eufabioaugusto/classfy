@@ -2,19 +2,23 @@ import { ALL_FORMATS, AudioBufferSink, BlobSource, CanvasSink, Input, type Wrapp
 import { assertStudioRenderFeatures, studioGrade, validateStudioRecipe, type StudioEnhancement, type StudioGrade, type StudioRecipeClip, type StudioRenderRecipe } from '../../../../shared/studio';
 import { studioEnhancementPixel } from '../../../../shared/studio/autoEnhance';
 import { createStudioPortraitSurface, type StudioPortraitSurface } from './portraitRender';
+import { createStudioSignatureSurface, measureStudioSignature, type StudioSignatureSurface } from './signatureRender';
+import type { StudioSignatureSample } from '../../../../shared/studio/signatureLook';
 import { assertStudioActive, studioCanvas, type StudioAssetResolver } from './media';
 
 export type StudioRendererState = { position: number; playing: boolean; loading: boolean; error: string | null };
 export type StudioRenderer = {
   bindCanvas(canvas: HTMLCanvasElement | null): void;
   preparePortrait(signal?: AbortSignal): Promise<void>;
+  prepareSignature(signal?: AbortSignal): Promise<void>;
+  measureSignature(source: CanvasImageSource, width: number, height: number, signal?: AbortSignal): Promise<StudioSignatureSample>;
   draw(canvas: HTMLCanvasElement, seconds: number): Promise<void>;
   seek(seconds: number): Promise<void>; play(): Promise<void>; pause(): void;
   setRecipe(recipe: StudioRenderRecipe): Promise<void>; dispose(): void;
   subscribe(listener: (state: StudioRendererState) => void): () => void;
 };
 const clamp = (value: number, low = 0, high = 1) => Math.max(low, Math.min(high, value));
-export const STUDIO_WEB_RENDER_FEATURES = ['enhancement-v1', 'portrait-v1'] as const;
+export const STUDIO_WEB_RENDER_FEATURES = ['enhancement-v1', 'portrait-v1', 'cinematic-signature-v1'] as const;
 export function studioClipEnvelope(clip: StudioRecipeClip, localTicks: number) {
   const fadeIn = clip.fadeInTicks ? clamp(localTicks / clip.fadeInTicks) : 1;
   const fadeOut = clip.fadeOutTicks ? clamp((clip.durationTicks - localTicks) / clip.fadeOutTicks) : 1;
@@ -122,10 +126,13 @@ export class StudioRenderKernel {
   private disposed = false;
   private portraits: StudioPortraitSurface;
   private ownsPortraits: boolean;
-  constructor(recipe: StudioRenderRecipe, private resolveAsset: StudioAssetResolver, private signal?: AbortSignal, portraits?: StudioPortraitSurface) {
+  private signatures: StudioSignatureSurface;
+  private ownsSignatures: boolean;
+  constructor(recipe: StudioRenderRecipe, private resolveAsset: StudioAssetResolver, private signal?: AbortSignal, portraits?: StudioPortraitSurface, signatures?: StudioSignatureSurface) {
     this.recipe = structuredClone(recipe); const issues = validateStudioRecipe(this.recipe); if (issues.length) throw new Error(issues[0]);
     assertStudioRenderFeatures(this.recipe, STUDIO_WEB_RENDER_FEATURES);
     this.portraits = portraits ?? createStudioPortraitSurface(); this.ownsPortraits = !portraits;
+    this.signatures = signatures ?? createStudioSignatureSurface(); this.ownsSignatures = !signatures;
   }
   private assert() { assertStudioActive(this.signal); if (this.disposed) throw new DOMException('Prévia encerrada.', 'AbortError'); }
   private windowResources(seconds: number) {
@@ -237,11 +244,16 @@ export class StudioRenderKernel {
       else {
         source = await this.frame(clip, seconds); this.assert(); const resource = await this.resource(clip.assetId!); sw = resource.width; sh = resource.height;
         const grade = clip.grade ?? studioGrade(clip.effect);
-        if ((clip.portrait?.strength ?? 0) > 0 || (clip.enhancement?.strength ?? 0) > 0 || grade.intensity > 0 && (grade.preset !== 'natural' || grade.exposure || grade.contrast || grade.saturation || grade.temperature)) {
+        if ((clip.signature?.strength ?? 0) > 0 || (clip.portrait?.strength ?? 0) > 0 || (clip.enhancement?.strength ?? 0) > 0 || grade.intensity > 0 && (grade.preset !== 'natural' || grade.exposure || grade.contrast || grade.saturation || grade.temperature)) {
           const downscale = Math.min(1, Math.max(canvas.width, canvas.height) / Math.max(sw, sh));
           sw = Math.max(1, Math.round(sw * downscale)); sh = Math.max(1, Math.round(sh * downscale));
+          const signatureFrame = (clip.signature?.strength ?? 0) > 0 ? await this.signatures.analyze(source, sw, sh, this.signal) : undefined; this.assert();
           if ((clip.portrait?.strength ?? 0) > 0) { source = await this.portraits.render(source, sw, sh, clip.portrait!.strength, this.signal); this.assert(); }
-          source = this.grades.render(source, sw, sh, grade, clip.enhancement);
+          if (signatureFrame) {
+            if ((clip.enhancement?.strength ?? 0) > 0) source = this.grades.render(source, sw, sh, studioGrade(), clip.enhancement);
+            source = await this.signatures.render(source, sw, sh, clip.signature!, this.signal, signatureFrame); this.assert();
+            source = this.grades.render(source, sw, sh, grade);
+          } else source = this.grades.render(source, sw, sh, grade, clip.enhancement);
         }
       }
       const fit = studioFitRect(sw, sh, width, height, clip.fit);
@@ -287,7 +299,7 @@ export class StudioRenderKernel {
     return result;
   }
   hasAudio() { return this.recipe.clips.some(c => (c.kind === 'audio' || c.kind === 'video' && this.recipe.assets.find(a => a.id === c.assetId)?.hasAudio !== false)); }
-  dispose() { if (this.disposed) return; this.disposed = true; this.readers.forEach(reader => void reader.iterator.return()); this.readers.clear(); this.resources.forEach(p => p.then(r => { r.input?.dispose(); r.image?.close(); }).catch(() => {})); this.resources.clear(); this.resourceUses.clear(); this.drawResources.clear(); this.audioResources.clear(); this.textCache.clear(); this.grades.dispose(); if (this.ownsPortraits) this.portraits.dispose(); }
+  dispose() { if (this.disposed) return; this.disposed = true; this.readers.forEach(reader => void reader.iterator.return()); this.readers.clear(); this.resources.forEach(p => p.then(r => { r.input?.dispose(); r.image?.close(); }).catch(() => {})); this.resources.clear(); this.resourceUses.clear(); this.drawResources.clear(); this.audioResources.clear(); this.textCache.clear(); this.grades.dispose(); if (this.ownsPortraits) this.portraits.dispose(); if (this.ownsSignatures) this.signatures.dispose(); }
 }
 
 function graphemes(text: string): string[] {
@@ -310,8 +322,8 @@ export function wrapStudioText(ctx: Pick<CanvasRenderingContext2D, 'measureText'
 
 export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAsset: StudioAssetResolver, { canvas = null, maxDimension = 1080 }: { canvas?: HTMLCanvasElement | null; maxDimension?: number } = {}): Promise<StudioRenderer> {
   const staging = studioCanvas(1,1);
-  const portraits = createStudioPortraitSurface();
-  let kernel = new StudioRenderKernel(recipe, resolveAsset, undefined, portraits), bound = canvas, state: StudioRendererState = { position: 0, playing: false, loading: false, error: null };
+  const portraits = createStudioPortraitSurface(), signatures = createStudioSignatureSurface();
+  let kernel = new StudioRenderKernel(recipe, resolveAsset, undefined, portraits, signatures), bound = canvas, state: StudioRendererState = { position: 0, playing: false, loading: false, error: null };
   let epoch = 0, closed = false, raf = 0, context: AudioContext | null = null, anchorTime = 0, anchorPosition = 0, scheduled = 0, audioBusy = false, drawing = false;
   let drawWork: Promise<void> = Promise.resolve(), playWork: Promise<void> | null = null;
   let primedAudio: { start:number; samples:Float32Array[] } | null = null;
@@ -360,6 +372,8 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
   const visibility = () => { if (document.visibilityState !== 'visible') pause(); }; document.addEventListener('visibilitychange',visibility);
   const engine: StudioRenderer = {
     preparePortrait(signal) { return portraits.prepare(signal); },
+    prepareSignature(signal) { return signatures.prepare(signal); },
+    measureSignature(source, width, height, signal) { return measureStudioSignature(source, width, height, signal, signatures); },
     bindCanvas(target) { bound = target; if (target) void seek(state.position).catch(() => {}); }, draw,
     seek, pause,
     play() {
@@ -377,8 +391,8 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
       })().catch(error => { if (closed || generation !== epoch) return; publish({playing:false,loading:false,error:String(error.message ?? error)}); throw error; }).finally(() => { if (playWork === task) playWork = null; });
       playWork = task; return task;
     },
-    async setRecipe(next) { const wasPlaying = state.playing, current = position(); pause(); const replacement = new StudioRenderKernel(next,resolveAsset,undefined,portraits); kernel.dispose(); kernel = replacement; const seeking = seek(Math.min(current,duration())), generation = epoch; await seeking; if (wasPlaying && !closed && generation === epoch) await engine.play(); },
-    dispose() { if (closed) return; pause(); closed=true; epoch++; kernel.dispose(); portraits.dispose(); listeners.clear(); document.removeEventListener('visibilitychange',visibility); void context?.close(); staging.width=1; staging.height=1; },
+    async setRecipe(next) { const wasPlaying = state.playing, current = position(); pause(); const replacement = new StudioRenderKernel(next,resolveAsset,undefined,portraits,signatures); kernel.dispose(); kernel = replacement; const seeking = seek(Math.min(current,duration())), generation = epoch; await seeking; if (wasPlaying && !closed && generation === epoch) await engine.play(); },
+    dispose() { if (closed) return; pause(); closed=true; epoch++; kernel.dispose(); portraits.dispose(); signatures.dispose(); listeners.clear(); document.removeEventListener('visibilitychange',visibility); void context?.close(); staging.width=1; staging.height=1; },
     subscribe(listener) { listeners.add(listener); listener({ ...state }); return () => listeners.delete(listener); },
   };
   try {
