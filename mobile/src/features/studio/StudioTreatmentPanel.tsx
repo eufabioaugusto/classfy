@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ArrowLeft, Check, Contrast, Droplets, Eye, Sun, Thermometer, WandSparkles, ScanFace, RotateCcw } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
-import { patchStudioClipGrade, patchStudioClipEnhancement, patchStudioClipPortrait, studioGrade, type StudioEditing, type StudioGrade, type StudioEnhancement, type StudioPortrait } from './model';
-import { analyzeStudioSceneAsync, getStudioEnhancementCapabilitiesAsync } from '../../../modules/classfy-studio-media';
+import { patchStudioClipGrade, patchStudioClipEnhancement, patchStudioClipPortrait, patchStudioClipSignature, studioGrade, type StudioEditing, type StudioGrade, type StudioEnhancement, type StudioPortrait, type StudioSignature } from './model';
+import { analyzeStudioSceneAsync, analyzeStudioSignatureSceneAsync, getStudioEnhancementCapabilitiesAsync } from '../../../modules/classfy-studio-media';
 import { suggestStudioEnhancement } from './autoEnhance';
+import { suggestStudioSignature } from './signatureLook';
 import { studioSceneAnalysisRequest } from './sceneTreatments';
 import { StudioControlSlider } from './StudioControlSlider';
 import { LoadingImage } from '@/components/LoadingImage';
@@ -41,11 +42,14 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, init
   const target = editing.main.find(item => item.id === targetId) ?? editing.layers.flatMap(layer => layer.items).find(item => item.id === targetId);
   const [enhancement, setEnhancement] = useState<StudioEnhancement | undefined>(target?.enhancement);
   const [portrait, setPortrait] = useState<StudioPortrait | undefined>(target?.portrait);
+  const [signature, setSignature] = useState<StudioSignature | undefined>(target?.signature);
   const enhancementRef = useRef(enhancement), portraitRef = useRef(portrait);
+  const signatureRef = useRef(signature);
   const [treatmentsAvailable, setTreatmentsAvailable] = useState(false), [analyzing, setAnalyzing] = useState(false);
+  const [signatureAvailable, setSignatureAvailable] = useState(false), [analysisKind, setAnalysisKind] = useState<'basic' | 'signature'>('signature');
   const analysisGeneration = useRef(0);
   const analysisActive = useRef(false);
-  useEffect(() => { let active = true; void getStudioEnhancementCapabilitiesAsync().then(value => { if (active) setTreatmentsAvailable(value.available); }); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; void getStudioEnhancementCapabilitiesAsync().then(value => { if (active) { setTreatmentsAvailable(value.available); setSignatureAvailable(value.available && value.features.includes('cinematic-signature-v1')); } }); return () => { active = false; }; }, []);
   const [tab, setTab] = useState<'filters' | 'adjust' | 'scene'>(initialTab), [parameter, setParameter] = useState<Parameter>('exposure');
   const [saving, setSaving] = useState(false), [error, setError] = useState<string>();
   const live = useRef({ editing, targetId, disabled, onPreview, onApply, onClose, onBefore });
@@ -57,7 +61,8 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, init
     const current = live.current;
     let next = patchStudioClipGrade(current.editing, current.targetId, untreated ? studioGrade() : draftRef.current);
     next = patchStudioClipEnhancement(next, current.targetId, untreated ? null : enhancementRef.current ?? null);
-    return patchStudioClipPortrait(next, current.targetId, untreated ? null : portraitRef.current ?? null);
+    next = patchStudioClipPortrait(next, current.targetId, untreated ? null : portraitRef.current ?? null);
+    return patchStudioClipSignature(next, current.targetId, untreated ? null : signatureRef.current ?? null);
   };
   const publishPreview = () => {
     clearTimer(); lastPreview.current = Date.now();
@@ -75,6 +80,7 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, init
     clearTimer(); originalHeld.current = false; live.current.onBefore?.(false); live.current.onPreview(undefined);
     const next = gradeFor(editing, targetId); draftRef.current = next; setDraft(next); setError(undefined);
     enhancementRef.current = target?.enhancement; portraitRef.current = target?.portrait;
+    signatureRef.current = target?.signature; setSignature(target?.signature);
     setEnhancement(target?.enhancement); setPortrait(target?.portrait); analysisGeneration.current++; analysisActive.current = false; setAnalyzing(false);
   }, [editing, targetId]);
   useEffect(() => { setTab(initialTab); }, [targetId, initialTab]);
@@ -84,24 +90,26 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, init
   }, []);
   useEffect(() => { if (disabled && originalHeld.current) original(false); }, [disabled]);
   useEffect(() => { if (disabled) { analysisGeneration.current++; analysisActive.current = false; setAnalyzing(false); } }, [disabled]);
-  const updateTreatment = (kind: 'enhancement' | 'portrait', value: StudioEnhancement | StudioPortrait | undefined, flush = false) => {
+  const updateTreatment = (kind: 'enhancement' | 'portrait' | 'signature', value: StudioEnhancement | StudioPortrait | StudioSignature | undefined, flush = false) => {
     if (live.current.disabled || writing.current || live.current.targetId !== targetId) return;
     if (kind === 'enhancement') { enhancementRef.current = value as StudioEnhancement | undefined; setEnhancement(enhancementRef.current); }
-    else { portraitRef.current = value as StudioPortrait | undefined; setPortrait(portraitRef.current); }
+    else if (kind === 'portrait') { portraitRef.current = value as StudioPortrait | undefined; setPortrait(portraitRef.current); }
+    else { signatureRef.current = value as StudioSignature | undefined; setSignature(signatureRef.current); }
     setError(undefined);
     const delay = Math.max(0, 40 - (Date.now() - lastPreview.current));
     if (flush || !delay) publishPreview(); else if (!previewTimer.current) previewTimer.current = setTimeout(publishPreview, delay);
   };
-  const improveScene = async () => {
-    if (!treatmentsAvailable || analysisActive.current || live.current.disabled || writing.current) return;
+  const improveScene = async (kind: 'basic' | 'signature' = 'basic') => {
+    if (!(kind === 'signature' ? signatureAvailable : treatmentsAvailable) || analysisActive.current || live.current.disabled || writing.current) return;
     const generation = ++analysisGeneration.current, snapshot = live.current, id = snapshot.targetId;
     analysisActive.current = true;
-    setAnalyzing(true); setError(undefined);
+    setAnalyzing(true); setAnalysisKind(kind); setError(undefined);
     try {
       const request = studioSceneAnalysisRequest(snapshot.editing, id);
-      const samples = await analyzeStudioSceneAsync(request);
+      const result = kind === 'signature' ? suggestStudioSignature(await analyzeStudioSignatureSceneAsync(request)) : suggestStudioEnhancement(await analyzeStudioSceneAsync(request));
       if (!mounted.current || generation !== analysisGeneration.current || live.current.disabled || live.current.targetId !== id || live.current.editing !== snapshot.editing) return;
-      updateTreatment('enhancement', suggestStudioEnhancement(samples), true);
+      if (kind === 'signature') { enhancementRef.current = undefined; setEnhancement(undefined); }
+      updateTreatment(kind === 'signature' ? 'signature' : 'enhancement', result, true);
     } catch (cause) { if (mounted.current && generation === analysisGeneration.current) setError(cause instanceof Error ? cause.message : 'Não foi possível analisar esta cena.'); }
     finally { if (mounted.current && generation === analysisGeneration.current) { analysisActive.current = false; setAnalyzing(false); } }
   };
@@ -128,12 +136,21 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, init
       <Pressable accessibilityRole="button" accessibilityLabel="Aplicar tratamento" accessibilityState={{ busy: saving, disabled: blocked }} disabled={blocked} onPress={() => { void apply(); }} style={s.icon}>{saving ? <ActivityIndicator size="small" color={colors.accent} /> : <Check size={24} color={colors.accent} strokeWidth={1.8} />}</Pressable>
     </View>
     {tab === 'scene' ? <ScrollView style={s.sceneScroll} contentContainerStyle={s.sceneContent} showsVerticalScrollIndicator={false}>
-      <Text style={s.sceneCaption}>Sua cena, com equilíbrio e naturalidade.</Text>
+      <Text style={s.sceneCaption}>Sua presença, no centro da cena.</Text>
       {!treatmentsAvailable ? <Text style={s.notice}>Atualize o Classfy para usar os tratamentos neste aparelho.</Text> : null}
+      <View style={[s.treatmentCard, s.signatureCard]}>
+        <View style={s.treatmentTitle}><WandSparkles size={19} color={colors.accent} /><Text style={s.treatmentLabel}>Assinatura Classfy</Text><Pressable accessibilityRole="button" accessibilityLabel="Remover Assinatura Classfy" disabled={blocked || !signature} onPress={() => updateTreatment('signature', undefined, true)} style={s.reset}><RotateCcw size={17} color={colors.textSecondary} /></Pressable></View>
+        <Text style={s.sceneDetail}>Fundo mais suave e profundo. Luz delicada no rosto. Seu jeito de ensinar, em destaque.</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Aplicar Assinatura Classfy" accessibilityState={{ busy: analyzing && analysisKind === 'signature', disabled: blocked || !signatureAvailable }} disabled={blocked || !signatureAvailable} onPress={() => { void improveScene('signature'); }} style={[s.improve, (blocked || !signatureAvailable) && s.disabled]}>{analyzing && analysisKind === 'signature' ? <ActivityIndicator size="small" color={colors.text} /> : <WandSparkles size={17} color={colors.text} />}<Text style={s.improveLabel}>{analyzing && analysisKind === 'signature' ? 'Analisando pessoa e cenário…' : signature ? 'Renovar assinatura' : 'Aplicar assinatura'}</Text></Pressable>
+        {!signatureAvailable && treatmentsAvailable ? <Text style={s.notice}>Atualize o Classfy para separar pessoa e cenário neste aparelho.</Text> : null}
+        <StudioControlSlider label="Intensidade da assinatura" value={signature?.strength ?? 0} min={0} max={1} step={0.05} disabled={blocked || !signature || !signatureAvailable} formatValue={value => `${Math.round(value*100)}%`} onChange={strength => signatureRef.current && updateTreatment('signature', { ...signatureRef.current, strength })} onInteractionEnd={publishPreview} />
+        {signature ? <StudioControlSlider label="Suavidade do fundo" value={signature.backgroundBlur} min={0} max={1} step={0.05} disabled={blocked || !signatureAvailable} formatValue={value => `${Math.round(value*100)}%`} onChange={backgroundBlur => signatureRef.current && updateTreatment('signature', { ...signatureRef.current, backgroundBlur })} onInteractionEnd={publishPreview} /> : null}
+        <Text style={s.sceneHint}>A assinatura acompanha a pessoa no quadro e mantém seus originais intactos.</Text>
+      </View>
       <View style={s.treatmentCard}>
-        <View style={s.treatmentTitle}><WandSparkles size={19} color={colors.accent} /><Text style={s.treatmentLabel}>Melhorar cena</Text><Pressable accessibilityRole="button" accessibilityLabel="Remover melhoria da cena" disabled={blocked || !enhancement} onPress={() => updateTreatment('enhancement', undefined, true)} style={s.reset}><RotateCcw size={17} color={colors.textSecondary} /></Pressable></View>
+        <View style={s.treatmentTitle}><Sun size={19} color={colors.textSecondary} /><Text style={s.treatmentLabel}>Equilíbrio automático</Text><Pressable accessibilityRole="button" accessibilityLabel="Remover melhoria da cena" disabled={blocked || !enhancement} onPress={() => updateTreatment('enhancement', undefined, true)} style={s.reset}><RotateCcw size={17} color={colors.textSecondary} /></Pressable></View>
         <Text style={s.sceneDetail}>Luz, cor e contraste a partir do seu original. Sem alterar o arquivo.</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Analisar e melhorar cena" accessibilityState={{ busy: analyzing, disabled: blocked || !treatmentsAvailable }} disabled={blocked || !treatmentsAvailable} onPress={() => { void improveScene(); }} style={[s.improve, (blocked || !treatmentsAvailable) && s.disabled]}>{analyzing ? <ActivityIndicator size="small" color={colors.text} /> : <WandSparkles size={17} color={colors.text} />}<Text style={s.improveLabel}>{analyzing ? 'Analisando sua cena…' : enhancement ? 'Analisar novamente' : 'Melhorar cena'}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Analisar e melhorar cena" accessibilityState={{ busy: analyzing && analysisKind === 'basic', disabled: blocked || !treatmentsAvailable }} disabled={blocked || !treatmentsAvailable} onPress={() => { void improveScene(); }} style={[s.basicAction, (blocked || !treatmentsAvailable) && s.disabled]}>{analyzing && analysisKind === 'basic' ? <ActivityIndicator size="small" color={colors.text} /> : <Sun size={17} color={colors.textSecondary} />}<Text style={s.improveLabel}>{analyzing && analysisKind === 'basic' ? 'Analisando sua cena…' : enhancement ? 'Analisar novamente' : 'Equilibrar luz e cor'}</Text></Pressable>
         <StudioControlSlider label="Intensidade da melhoria" value={enhancement?.strength ?? 0} min={0} max={1} step={0.05} disabled={blocked || !enhancement || !treatmentsAvailable} formatValue={value => `${Math.round(value*100)}%`} onChange={strength => enhancementRef.current && updateTreatment('enhancement', { ...enhancementRef.current, strength })} onInteractionEnd={publishPreview} />
       </View>
       <View style={s.treatmentCard}>
@@ -165,6 +182,7 @@ const s = StyleSheet.create({
   error: { color: colors.accent, fontSize: 11, paddingHorizontal: 14, paddingBottom: 6 },
   sceneScroll: { maxHeight: 290, flexShrink: 1 }, sceneContent: { paddingHorizontal: 14, paddingBottom: 8, gap: 9 }, sceneCaption: { color: colors.textSecondary, fontSize: 12, paddingTop: 4 },
   treatmentCard: { backgroundColor: colors.surfaceAlt, borderRadius: 13, borderWidth: 1, borderColor: colors.borderSubtle, paddingHorizontal: 10, paddingTop: 7 },
+  signatureCard: { borderColor: colors.accent }, basicAction: { minHeight: 42, borderRadius: 9, backgroundColor: colors.surfaceMuted, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 9 },
   treatmentTitle: { flexDirection: 'row', gap: 8, alignItems: 'center', minHeight: 32 }, treatmentLabel: { color: colors.text, fontSize: 13, fontWeight: '600', flex: 1 }, reset: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   sceneDetail: { color: colors.textSecondary, fontSize: 11, lineHeight: 16 }, sceneHint: { color: colors.muted, fontSize: 10, lineHeight: 14, paddingBottom: 8 }, notice: { color: colors.accent, fontSize: 11, lineHeight: 16 },
   improve: { minHeight: 42, borderRadius: 9, backgroundColor: colors.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 9 }, improveLabel: { color: colors.text, fontSize: 12, fontWeight: '600' }, disabled: { opacity: 0.45 },

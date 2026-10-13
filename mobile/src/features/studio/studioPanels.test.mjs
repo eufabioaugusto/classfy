@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as model from './model.ts';
 import * as autoEnhance from './autoEnhance.ts';
+import * as signatureLook from './signatureLook.ts';
 
 const dependenciesEqual = (a, b) => a?.length === b?.length && a.every((value, index) => Object.is(value, b[index]));
 function harness(file, exportName, initialProps, dependencyOverrides = {}) {
@@ -32,7 +33,7 @@ function harness(file, exportName, initialProps, dependencyOverrides = {}) {
     'react-native': { Pressable: 'button', ScrollView: 'scroll', Text: 'text', TextInput: 'input', View: 'view', ActivityIndicator: 'spinner', StyleSheet: { create: value => value } },
     'lucide-react-native': new Proxy({}, { get: (_, key) => `icon:${String(key)}` }),
     '@/theme/colors': { colors: { surface: '#141414', surfaceAlt: '#1F1F1F', surfaceMuted: '#262626', text: '#FAFAFA', muted: '#A3A3A3', accent: '#E11D48' } },
-    '../../../modules/classfy-studio-media': { getStudioEnhancementCapabilitiesAsync: async () => ({ available: false }) }, './autoEnhance': autoEnhance, './sceneTreatments': { studioSceneAnalysisRequest: (editing, id) => { const clip=editing.main.find(clip=>clip.id===id); const asset=editing.assets.find(asset=>asset.id===clip.assetId); return {uri:asset.uri,kind:asset.kind,startSeconds:model.studioSeconds(clip.sourceStartTicks),endSeconds:model.studioSeconds(clip.sourceEndTicks),frameCount:8}; } }, './textLibrary': libraryHarness(), './filterCatalog': { studioFilterPresets, studioSelectedFilter }, './filterPreviews': { prepareStudioFilterPreviews: () => () => {} }, '@/components/LoadingImage': { LoadingImage: 'image' }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
+    '../../../modules/classfy-studio-media': { getStudioEnhancementCapabilitiesAsync: async () => ({ available: false, features:[] }) }, './autoEnhance': autoEnhance, './signatureLook': signatureLook, './sceneTreatments': { studioSceneAnalysisRequest: (editing, id) => { const clip=editing.main.find(clip=>clip.id===id); const asset=editing.assets.find(asset=>asset.id===clip.assetId); return {uri:asset.uri,kind:asset.kind,startSeconds:model.studioSeconds(clip.sourceStartTicks),endSeconds:model.studioSeconds(clip.sourceEndTicks),frameCount:8}; } }, './textLibrary': libraryHarness(), './filterCatalog': { studioFilterPresets, studioSelectedFilter }, './filterPreviews': { prepareStudioFilterPreviews: () => () => {} }, '@/components/LoadingImage': { LoadingImage: 'image' }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
     ...dependencyOverrides,
   };
   const source = readFileSync(new URL(file, import.meta.url), 'utf8');
@@ -352,7 +353,7 @@ test('hidratação e callbacks de conta anterior não mudam biblioteca nem estil
 
 const treatmentSample = autoEnhance.measureStudioScene([80,88,95,255,100,105,110,255]);
 const treatmentDependencies = analyze => ({ '../../../modules/classfy-studio-media': {
-  getStudioEnhancementCapabilitiesAsync: async () => ({available:true}), analyzeStudioSceneAsync: analyze || (async () => [treatmentSample]),
+  getStudioEnhancementCapabilitiesAsync: async () => ({available:true, features:['enhancement-v1','portrait-v1']}), analyzeStudioSceneAsync: analyze || (async () => [treatmentSample]),
 } });
 test('Melhorar cena e Retoque usam drafts independentes, comparação e Aplicar único sem tocar o original', async () => {
   const {view,previews,applied,before,editing} = treatment({initialTab:'scene',dependencies:treatmentDependencies()});
@@ -388,4 +389,32 @@ test('análise com falha mantém o filtro e oferece nova ação; ABI antigo nunc
   await view.pump();view.press('Analisar e melhorar cena');await view.pump();assert.ok(view.labels().includes('Original indisponível'));assert.equal(view.button('Analisar e melhorar cena').disabled,false);
   assert.equal(previews.at(-1),undefined);
   const old=treatment({initialTab:'scene'});await old.view.pump();assert.equal(old.view.button('Analisar e melhorar cena').disabled,true);assert.equal(old.view.slider('Intensidade do retoque').disabled,true);
+});
+
+const signatureDependencies = analyze => ({ '../../../modules/classfy-studio-media': {
+ getStudioEnhancementCapabilitiesAsync:async()=>({available:true,features:['enhancement-v1','portrait-v1','cinematic-signature-v1']}),
+ analyzeStudioSceneAsync:async()=>[treatmentSample],
+ analyzeStudioSignatureSceneAsync:analyze || (async()=>[{subject:treatmentSample,background:treatmentSample,personPresent:true,facePresent:true}]),
+} });
+test('Assinatura Classfy principal cria tratamento seletivo, retira correção básica e mantém retoque/filtro',async()=>{
+ const {view,editing,previews,applied}=treatment({initialTab:'scene',dependencies:signatureDependencies()});await view.pump();view.press('Analisar e melhorar cena');await view.pump();
+ view.slider('Intensidade do retoque').onChange(.3);view.slider('Intensidade do retoque').onInteractionEnd(false);view.draw();
+ view.press('Aplicar Assinatura Classfy');await view.pump();const clip=previews.at(-1).main[0];
+ assert.ok(clip.signature.backgroundExposure<0);assert.equal(clip.signature.strength,.85);assert.equal(clip.enhancement,undefined);assert.equal(clip.portrait.strength,.3);assert.equal(applied.length,0);
+ view.slider('Suavidade do fundo').onChange(.15);view.slider('Suavidade do fundo').onInteractionEnd(false);view.draw();
+ view.press('Filtros');view.press('Filtro Cinema');view.press('Aplicar tratamento');await view.pump();
+ assert.equal(applied.length,1);assert.equal(applied[0].main[0].signature.backgroundBlur,.15);assert.equal(applied[0].main[0].grade.preset,'cinematic');assert.deepEqual(applied[0].assets,editing.assets);
+});
+test('reset da assinatura é independente; assinatura tardia ou sem pessoa não altera outro alvo',async()=>{
+ const first=treatment({initialTab:'scene',dependencies:signatureDependencies()});await first.view.pump();first.view.press('Aplicar Assinatura Classfy');await first.view.pump();
+ first.view.slider('Intensidade do retoque').onChange(.4);first.view.slider('Intensidade do retoque').onInteractionEnd(false);first.view.draw();first.view.press('Remover Assinatura Classfy');
+ assert.equal(first.previews.at(-1).main[0].signature,undefined);assert.equal(first.previews.at(-1).main[0].portrait.strength,.4);
+ const absent=treatment({initialTab:'scene',dependencies:signatureDependencies(async()=>[{subject:null,background:treatmentSample,personPresent:false,facePresent:false}])});await absent.view.pump();absent.view.press('Aplicar Assinatura Classfy');await absent.view.pump();
+ assert.equal(absent.previews.at(-1),undefined);assert.ok(absent.view.labels().some(value=>typeof value==='string'&&value.includes('destacar uma pessoa')));
+ let finish;const late=treatment({initialTab:'scene',dependencies:signatureDependencies(()=>new Promise(resolve=>{finish=resolve;}))});await late.view.pump();late.view.press('Aplicar Assinatura Classfy');
+ late.view.update({targetId:'other',editing:{...late.editing,main:[...late.editing.main,{...late.editing.main[0],id:'other'}]}});const count=late.previews.length;
+ finish([{subject:treatmentSample,background:treatmentSample,personPresent:true,facePresent:true}]);await late.view.pump();assert.equal(late.previews.length,count);
+});
+test('ABI básica existente mantém correção automática mas desabilita assinatura seletiva',async()=>{
+ const {view}=treatment({initialTab:'scene',dependencies:treatmentDependencies()});await view.pump();assert.equal(view.button('Analisar e melhorar cena').disabled,false);assert.equal(view.button('Aplicar Assinatura Classfy').disabled,true);
 });

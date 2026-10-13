@@ -34,6 +34,26 @@ struct StudioNaturalPortrait: Codable, Equatable {
   let strength: Double
   var isValid: Bool { version == 1 && strength.isFinite && (0...1).contains(strength) }
 }
+struct StudioCinematicSignature: Codable, Equatable {
+  let version: Int
+  let strength: Double
+  let subjectExposure: Double
+  let backgroundExposure: Double
+  let backgroundBlur: Double
+  let temperature: Double
+  var isValid: Bool {
+    version == 1 && strength.isFinite && (0...1).contains(strength)
+      && subjectExposure.isFinite && (-0.5...1).contains(subjectExposure)
+      && backgroundExposure.isFinite && (-2...0).contains(backgroundExposure)
+      && backgroundBlur.isFinite && (0...1).contains(backgroundBlur)
+      && temperature.isFinite && (-1...1).contains(temperature)
+  }
+}
+struct StudioSignatureMasks {
+  let person: CIImage
+  let face: CIImage
+  let faceBounds: CGRect?
+}
 enum StudioEditorTreatmentError: LocalizedError {
   case unavailable
   var errorDescription: String? { "Este aparelho não conseguiu processar o tratamento. Os originais continuam preservados." }
@@ -200,11 +220,102 @@ final class StudioEffectRenderer {
     }
     """)
   static var editorTreatmentsAvailable: Bool { enhancementKernel != nil && portraitKernel != nil }
+  private static let backgroundIsolationKernel = CIColorKernel(source: """
+    kernel vec4 backgroundOnly(__sample pixel, __sample mask) {
+      return pixel*(1.0-clamp(mask.r,0.0,1.0));
+    }
+    """)
+  private static let signatureFaceAnalysisKernel = CIKernel(source: """
+    kernel vec4 faceAnalysis(float cx,float cy,float rx,float ry) {
+      vec2 d=(destCoord()-vec2(cx,cy))/vec2(rx,ry);
+      float w=exp(-2.5*dot(d,d));return vec4(w,w,w,1.0);
+    }
+    """)
+  private static let signatureMeasurementKernel = CIColorKernel(source: """
+    kernel vec4 subjectMeasurement(__sample person,__sample face,float hasFace) {
+      float eligible=hasFace>0.5?step(0.350001,face.r)*step(0.600001,person.r):step(0.850001,person.r);
+      return vec4(eligible,eligible,eligible,1.0);
+    }
+    """)
+  private static let signatureMatteKernel = CIKernel(source: """
+    vec3 matteRGB(sampler image,vec2 p) {
+      vec3 v=unpremultiply(sample(image,samplerTransform(image,p))).rgb;
+      return mix(v*12.92,1.055*pow(max(v,vec3(0.0)),vec3(1.0/2.4))-0.055,step(vec3(0.0031308),v));
+    }
+    kernel vec4 refineMatte(sampler image,sampler mask,float sx,float sy,float cx,float cy,float fw,float fh,float hasFace) {
+      vec2 p=destCoord();vec3 rgb=matteRGB(image,p);float a=sample(mask,samplerTransform(mask,p)).r,sum=a,weights=1.0;
+      vec2 q=p+vec2(sx,0.0);vec3 d=matteRGB(image,q)-rgb;float w=0.75*exp(-dot(d,d)/(2.0*0.09*0.09));sum+=sample(mask,samplerTransform(mask,q)).r*w;weights+=w;
+      q=p+vec2(-sx,0.0);d=matteRGB(image,q)-rgb;w=0.75*exp(-dot(d,d)/(2.0*0.09*0.09));sum+=sample(mask,samplerTransform(mask,q)).r*w;weights+=w;
+      q=p+vec2(0.0,sy);d=matteRGB(image,q)-rgb;w=0.75*exp(-dot(d,d)/(2.0*0.09*0.09));sum+=sample(mask,samplerTransform(mask,q)).r*w;weights+=w;
+      q=p+vec2(0.0,-sy);d=matteRGB(image,q)-rgb;w=0.75*exp(-dot(d,d)/(2.0*0.09*0.09));sum+=sample(mask,samplerTransform(mask,q)).r*w;weights+=w;
+      q=p+vec2(sx,sy);d=matteRGB(image,q)-rgb;w=0.5*exp(-dot(d,d)/(2.0*0.09*0.09));sum+=sample(mask,samplerTransform(mask,q)).r*w;weights+=w;
+      q=p+vec2(-sx,sy);d=matteRGB(image,q)-rgb;w=0.5*exp(-dot(d,d)/(2.0*0.09*0.09));sum+=sample(mask,samplerTransform(mask,q)).r*w;weights+=w;
+      q=p+vec2(sx,-sy);d=matteRGB(image,q)-rgb;w=0.5*exp(-dot(d,d)/(2.0*0.09*0.09));sum+=sample(mask,samplerTransform(mask,q)).r*w;weights+=w;
+      q=p+vec2(-sx,-sy);d=matteRGB(image,q)-rgb;w=0.5*exp(-dot(d,d)/(2.0*0.09*0.09));sum+=sample(mask,samplerTransform(mask,q)).r*w;weights+=w;
+      float refined=mix(a,sum/weights,0.6);
+      if(hasFace>0.5){vec2 fd=(p-vec2(cx-fw*0.06,cy+fh*0.08))/vec2(fw*0.63,fh*0.68);refined=max(refined,smoothstep(0.35,0.75,exp(-2.5*dot(fd,fd))));}
+      return vec4(vec3(clamp(refined,0.0,1.0)),1.0);
+    }
+    """)
+  private static let signatureKernel = CIKernel(source: """
+    vec3 encodedSignature(vec3 v) { return mix(v*12.92,1.055*pow(max(v,vec3(0.0)),vec3(1.0/2.4))-0.055,step(vec3(0.0031308),v)); }
+    vec3 linearSignature(vec3 v) { return mix(v/12.92,pow((v+0.055)/1.055,vec3(2.4)),step(vec3(0.04045),v)); }
+    float signatureTone(float value) {
+      float v=clamp(value,0.0,1.0);
+      if(v<0.12)return v*0.085/0.12;
+      if(v<0.25)return 0.085+(v-0.12)*(0.225-0.085)/(0.25-0.12);
+      if(v<0.5)return 0.225+(v-0.25)*(0.515-0.225)/(0.5-0.25);
+      if(v<0.75)return 0.515+(v-0.5)*(0.775-0.515)/(0.75-0.5);
+      return 0.775+(v-0.75)*(0.97-0.775)/(1.0-0.75);
+    }
+    kernel vec4 signature(sampler image,sampler background,sampler person,
+      float strength,float subjectExposure,float backgroundExposure,float temperature,
+      float cx,float cy,float fw,float fh,float hasFace) {
+      vec2 p=destCoord();vec4 original=unpremultiply(sample(image,samplerTransform(image,p)));
+      vec3 rgb=encodedSignature(original.rgb);
+      float mask=clamp(sample(person,samplerTransform(person,p)).r,0.0,1.0),key=0.0;
+      if(hasFace>0.5){
+        float x=(p.x-cx)/(fw*0.6),y=(cy-p.y)/(fh*0.7);
+        float radius=length(vec2(x,y)),t=clamp((radius-0.55)/0.57,0.0,1.0);
+        float feather=1.0-t*t*(3.0-2.0*t),direction=clamp(0.6-0.22*x-0.16*y,0.18,1.0);
+        key=clamp(feather*(0.7+0.3*direction),0.0,1.0)*mask;
+      }
+      vec4 bgSample=sample(background,samplerTransform(background,p));
+      vec3 bgRGB=bgSample.a>0.01?encodedSignature(unpremultiply(bgSample).rgb):rgb;
+      vec3 fg=rgb*pow(2.0,subjectExposure*(0.18+0.82*key))*vec3(1.0+temperature*0.05*key,1.0,1.0-temperature*0.04*key);
+      vec3 bg=bgRGB*pow(2.0,backgroundExposure)*vec3(0.99,1.0,1.015);
+      fg=vec3(signatureTone(fg.r),signatureTone(fg.g),signatureTone(fg.b));
+      bg=vec3(signatureTone(bg.r),signatureTone(bg.g),signatureTone(bg.b));
+      vec3 weights=vec3(0.2126,0.7152,0.0722);float yf=dot(fg,weights),yb=dot(bg,weights);
+      fg=vec3(yf)+(fg-vec3(yf))*0.97;bg=vec3(yb)+(bg-vec3(yb))*0.88;
+      vec3 result=clamp(mix(rgb,mix(bg,fg,mask),strength),0.0,1.0);
+      return premultiply(vec4(linearSignature(result),original.a));
+    }
+    """)
+  static var cinematicSignatureAvailable: Bool { signatureKernel != nil && backgroundIsolationKernel != nil && signatureFaceAnalysisKernel != nil && signatureMeasurementKernel != nil && signatureMatteKernel != nil }
+
+  func signatureSubjectMeasurementMask(_ masks: StudioSignatureMasks) throws -> CIImage {
+    guard let result = Self.signatureMeasurementKernel?.apply(extent: masks.person.extent,
+      arguments: [masks.person,masks.face,masks.faceBounds == nil ? 0.0 : 1.0]) else { throw StudioEditorTreatmentError.unavailable }
+    return result
+  }
+  /// Blur weighted background only. Dividing by its blurred alpha reconstructs
+  /// neighboring background colors without spreading the person's pixels into
+  /// hair/shoulder edges. The compositor uses the current matte to blend it.
+  func isolatedSignatureBackground(_ image: CIImage, person: CIImage, amount: Double) throws -> CIImage {
+    guard amount > 0 else { return image }
+    guard let isolated = Self.backgroundIsolationKernel?.apply(extent: image.extent, arguments: [image, person]) else {
+      throw StudioEditorTreatmentError.unavailable
+    }
+    let radius = min(image.extent.width, image.extent.height)*amount*0.035
+    return isolated.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius]).cropped(to: image.extent)
+  }
 
   /// Same order as web: portrait from original landmarks, enhancement, grade.
   /// A kernel failure aborts preview/export rather than dropping an effect.
   func editorImage(_ input: CIImage, grade: StudioImageGrade = .identity,
                    enhancement: StudioSceneEnhancement? = nil, portrait: StudioNaturalPortrait? = nil,
+                   signature: StudioCinematicSignature? = nil,
                    sourceStage: StudioSourceStage = .standard) throws -> CIImage {
     var result = input
     if let portrait, portrait.strength > 0 {
@@ -218,7 +329,27 @@ final class StudioEffectRenderer {
           enhancement.tint, enhancement.shadows, enhancement.highlights]) else { throw StudioEditorTreatmentError.unavailable }
       result = enhanced
     }
+    if let signature, signature.strength > 0 {
+      guard signature.isValid, Self.cinematicSignatureAvailable else { throw StudioEditorTreatmentError.unavailable }
+      result = try cinematicSignature(result, signature: signature, masks: signatureMasks(in: input))
+    }
     return outputImage(result, grade: grade, sourceStage: sourceStage)
+  }
+
+  func cinematicSignature(_ image: CIImage, signature: StudioCinematicSignature, masks: StudioSignatureMasks?) throws -> CIImage {
+    guard signature.strength > 0 else { return image }
+    // A signature is accepted only after analysis found a creator. If they
+    // leave the current frame, keep the background treatment instead of
+    // flashing back to the untreated original or reusing an old person mask.
+    let black = CIImage(color: .black).cropped(to: image.extent)
+    let masks = masks ?? StudioSignatureMasks(person: black, face: black, faceBounds: nil)
+    let background = try isolatedSignatureBackground(image, person: masks.person, amount: signature.backgroundBlur)
+    let box = masks.faceBounds ?? CGRect(x: image.extent.midX, y: image.extent.midY, width: 1, height: 1)
+    guard let result = Self.signatureKernel?.apply(extent: image.extent, roiCallback: { _, rect in rect },
+      arguments: [image, background, masks.person, signature.strength, signature.subjectExposure,
+        signature.backgroundExposure, signature.temperature, box.midX, box.midY,
+        box.width, box.height, masks.faceBounds == nil ? 0.0 : 1.0]) else { throw StudioEditorTreatmentError.unavailable }
+    return result
   }
 
   func portraitGeometry(in image: CIImage) -> [StudioPortraitGeometry] {
@@ -292,6 +423,49 @@ final class StudioEffectRenderer {
       throw StudioEditorTreatmentError.unavailable
     }
     return result
+  }
+
+  /// A new request for this exact oriented image. The reduced matte is never
+  /// reused across frames/cuts; Vision keeps hair and hands in the person mask.
+  func signatureMasks(in image: CIImage) throws -> StudioSignatureMasks? {
+    let extent = image.extent
+    guard extent.width > 0, extent.height > 0, !extent.isInfinite, !extent.isNull else { return nil }
+    let scale = min(1, 512 / max(extent.width, extent.height))
+    let small = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+      .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    guard let cg = context.createCGImage(small, from: small.extent, format: .RGBA8,
+      colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!) else { throw StudioEditorTreatmentError.unavailable }
+    let request = VNGeneratePersonSegmentationRequest()
+    request.qualityLevel = .balanced; request.outputPixelFormat = kCVPixelFormatType_OneComponent8
+    do { try VNImageRequestHandler(cgImage: cg, options: [:]).perform([request]) }
+    catch { throw StudioEditorTreatmentError.unavailable }
+    guard let buffer = request.results?.first?.pixelBuffer else { return nil }
+    CVPixelBufferLockBaseAddress(buffer, .readOnly); defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+    guard let address = CVPixelBufferGetBaseAddress(buffer) else { throw StudioEditorTreatmentError.unavailable }
+    let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer), rowBytes = CVPixelBufferGetBytesPerRow(buffer)
+    let bytes = address.assumingMemoryBound(to: UInt8.self)
+    var confident = 0
+    for y in 0..<height { for x in 0..<width { if bytes[y*rowBytes+x] >= 192 { confident += 1 } } }
+    guard Double(confident)/Double(width*height) >= 0.015 else { return nil }
+    let raw = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: NSNull()])
+    // A small feather after upscaling prevents pixel steps without turning the
+    // matte into a broad ellipse or discarding fine hair/hand boundaries.
+    let radius = max(0.6, min(extent.width, extent.height)*0.0012)
+    let upscaled = raw.transformed(by: CGAffineTransform(scaleX: extent.width/CGFloat(width), y: extent.height/CGFloat(height)))
+      .transformed(by: CGAffineTransform(translationX: extent.minX, y: extent.minY))
+      .clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius]).cropped(to: extent)
+    let box = faceRegions(in: image).first
+    let bounds = box ?? CGRect(x: extent.midX, y: extent.midY, width: 1, height: 1)
+    let sx = extent.width/CGFloat(width), sy = extent.height/CGFloat(height)
+    guard let person = Self.signatureMatteKernel?.apply(extent: extent, roiCallback: { _, rect in rect.insetBy(dx: -sx, dy: -sy) },
+      arguments: [image.clampedToExtent(), upscaled.clampedToExtent(), sx, sy,
+        bounds.midX,bounds.midY,bounds.width,bounds.height,box == nil ? 0.0 : 1.0]) else { throw StudioEditorTreatmentError.unavailable }
+    var face = CIImage(color: .black).cropped(to: extent)
+    if let box, let ellipse = Self.signatureFaceAnalysisKernel?.apply(extent: extent, roiCallback: { _, rect in rect },
+      arguments: [box.midX-box.width*0.06,box.midY+box.height*0.08,box.width*0.63,box.height*0.68]) {
+      face = ellipse.cropped(to: extent)
+    }
+    return StudioSignatureMasks(person: person, face: face, faceBounds: box)
   }
 
   init(context: CIContext? = nil) {

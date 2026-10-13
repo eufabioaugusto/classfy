@@ -18,7 +18,7 @@ export type StudioTake = {
   colorSpace?: string;
   /** Reversible clip treatment; the original asset always remains unprocessed. */
   grade?: StudioGrade;
-  enhancement?: StudioEnhancement; portrait?: StudioPortrait;
+  enhancement?: StudioEnhancement; portrait?: StudioPortrait; signature?: StudioSignature;
   playbackRate?: number;
   flipHorizontal?: boolean; flipVertical?: boolean;
   gain?: number; opacity?: number; fadeInTicks?: number; fadeOutTicks?: number;
@@ -80,10 +80,10 @@ export function studioTakeDuration(take: Pick<StudioTake, 'start' | 'end' | 'pla
 }
 // Project schema and renderer are independent. Legacy artifacts are adopted only
 // when their old signature proves the unchanged sequential render.
-export const STUDIO_RENDER_VERSION = 4;
+export const STUDIO_RENDER_VERSION = 5;
 export function timelineSignature(project: Pick<StudioProject, 'kind' | 'takes'> & Partial<StudioProject>) {
   if (!project.editing && !project.takes.some(take => normalizeStudioCaptureGrade(take.grade)
-    || (take.enhancement?.strength ?? 0) > 0 || (take.portrait?.strength ?? 0) > 0
+    || (take.enhancement?.strength ?? 0) > 0 || (take.portrait?.strength ?? 0) > 0 || (take.signature?.strength ?? 0) > 0
     || (take.playbackRate ?? 1) !== 1 || take.flipHorizontal || take.flipVertical || (take.gain ?? 1) !== 1
     || (take.opacity ?? 1) !== 1 || take.fadeInTicks || take.fadeOutTicks || take.motion && take.motion !== 'none')) return legacyTimelineSignature(project);
   const recipe = compileStudioRecipe(project);
@@ -153,7 +153,10 @@ export type StudioGrade = { preset: StudioEffect; intensity: number; exposure: n
 export type StudioEnhancement = { version: 1; strength: number; exposure: number; contrast: number; saturation: number;
   temperature: number; tint: number; shadows: number; highlights: number; analyzedFrames: number };
 export type StudioPortrait = { version: 1; strength: number };
-export type StudioRenderFeature = 'enhancement-v1' | 'portrait-v1';
+/** Person/background treatment. Geometry and segmentation masks remain transient in the renderer. */
+export type StudioSignature = { version: 1; strength: number; subjectExposure: number; backgroundExposure: number;
+  backgroundBlur: number; temperature: number };
+export type StudioRenderFeature = 'enhancement-v1' | 'portrait-v1' | 'cinematic-signature-v1';
 export type StudioPendingTake = {
   id: string; uri: string; name: string; sourceUri?: string; kind?: StudioAssetKind;
   sourceKind?: 'standard' | 'cinematic'; sourceStage?: StudioSourceStage; frameRate?: number; colorSpace?: string;
@@ -181,7 +184,7 @@ export type StudioMainClip = {
   id: string; assetId: string; name?: string; sourceStartTicks: number; sourceEndTicks: number;
   /** Still image hold; temporal originals derive duration from their source range. */
   durationTicks?: number; effect?: StudioEffect; grade?: StudioGrade; gain?: number;
-  enhancement?: StudioEnhancement; portrait?: StudioPortrait;
+  enhancement?: StudioEnhancement; portrait?: StudioPortrait; signature?: StudioSignature;
   /** Reversible framing of the original within the lesson canvas. */
   rect?: StudioRect; fit?: 'contain' | 'cover'; rotationDegrees?: number;
   playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; opacity?: number;
@@ -195,7 +198,7 @@ export type StudioLayerItem = {
   sourceStartTicks?: number; sourceEndTicks?: number; anchor?: StudioLayerAnchor;
   rect?: StudioRect; rotationDegrees?: number; fit?: 'contain' | 'cover'; opacity?: number;
   gain?: number; fadeInTicks?: number; fadeOutTicks?: number; effect?: StudioEffect; grade?: StudioGrade; text?: StudioTextStyle;
-  enhancement?: StudioEnhancement; portrait?: StudioPortrait;
+  enhancement?: StudioEnhancement; portrait?: StudioPortrait; signature?: StudioSignature;
   playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; motion?: StudioClipMotion;
   /** Elapsed animation/motion time before the visible range; never a source time. */
   animationOffsetTicks?: number; motionOffsetTicks?: number; motionDurationTicks?: number;
@@ -230,7 +233,7 @@ export type StudioRecipeClip = {
   sourceStartTicks: number; sourceEndTicks: number; zIndex: number; rect: StudioRect;
   rotationDegrees: number; fit: 'contain' | 'cover'; opacity: number; gain: number;
   fadeInTicks: number; fadeOutTicks: number; effect: StudioEffect; grade?: StudioGrade; text?: StudioTextStyle;
-  enhancement?: StudioEnhancement; portrait?: StudioPortrait;
+  enhancement?: StudioEnhancement; portrait?: StudioPortrait; signature?: StudioSignature;
   playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; motion?: StudioClipMotion;
   animationOffsetTicks?: number; motionOffsetTicks?: number; motionDurationTicks?: number;
 };
@@ -275,16 +278,29 @@ export function validateStudioPortrait(value: unknown): string[] {
     || !Number.isFinite(portrait.strength) || portrait.strength < 0 || portrait.strength > 1) return ['Revise o retoque facial do clip.'];
   return [];
 }
-type StudioVisualTreatment = Pick<Partial<StudioMainClip>, 'enhancement' | 'portrait'>;
+export function validateStudioSignature(value: unknown): string[] {
+  const signature = value as StudioSignature | null | undefined;
+  if (!signature || typeof signature !== 'object' || Array.isArray(signature)
+    || Object.keys(signature).some(key => !['version', 'strength', 'subjectExposure', 'backgroundExposure', 'backgroundBlur', 'temperature'].includes(key))
+    || signature.version !== 1
+    || ![signature.strength, signature.subjectExposure, signature.backgroundExposure, signature.backgroundBlur, signature.temperature].every(Number.isFinite)
+    || signature.strength < 0 || signature.strength > 1 || signature.subjectExposure < -.5 || signature.subjectExposure > 1
+    || signature.backgroundExposure < -2 || signature.backgroundExposure > 0 || signature.backgroundBlur < 0 || signature.backgroundBlur > 1
+    || Math.abs(signature.temperature) > 1) return ['Revise a assinatura cinematográfica do clip.'];
+  return [];
+}
+type StudioVisualTreatment = Pick<Partial<StudioMainClip>, 'enhancement' | 'portrait' | 'signature'>;
 function studioTreatmentProperties(clip: StudioVisualTreatment): StudioVisualTreatment {
   return { ...(clip.enhancement !== undefined ? { enhancement: { ...clip.enhancement } } : {}),
-    ...(clip.portrait !== undefined ? { portrait: { ...clip.portrait } } : {}) };
+    ...(clip.portrait !== undefined ? { portrait: { ...clip.portrait } } : {}),
+    ...(clip.signature !== undefined ? { signature: { ...clip.signature } } : {}) };
 }
 /** Ordered requirements derive from active fields, never from user-supplied capability declarations. */
 export function studioRequiredFeatures(value: StudioEditing | Pick<StudioRenderRecipe, 'clips'>): StudioRenderFeature[] {
   const clips = 'clips' in value ? value.clips : [...value.main, ...value.layers.flatMap(layer => layer.items)];
   return [...(clips.some(clip => (clip.enhancement?.strength ?? 0) > 0) ? ['enhancement-v1' as const] : []),
-    ...(clips.some(clip => (clip.portrait?.strength ?? 0) > 0) ? ['portrait-v1' as const] : [])];
+    ...(clips.some(clip => (clip.portrait?.strength ?? 0) > 0) ? ['portrait-v1' as const] : []),
+    ...(clips.some(clip => (clip.signature?.strength ?? 0) > 0) ? ['cinematic-signature-v1' as const] : [])];
 }
 /** Call before handing a recipe to a platform renderer; missing support may never produce an untreated export. */
 export function assertStudioRenderFeatures(recipe: StudioRenderRecipe, supported: readonly StudioRenderFeature[]): void {
@@ -431,7 +447,7 @@ export function reconcileStudioTakes(project: Pick<StudioProject, 'kind'> & Part
       const media = item.assetId ? byAsset.get(item.assetId) : undefined;
       const duration = Math.round((end - start) / rate), excluded = Math.round((start - sourceStart) / oldRate), itemRate = studioPlaybackRate(item.playbackRate);
       const shiftedSource = media && media.kind !== 'image' ? (item.sourceStartTicks ?? 0) + Math.round(excluded * itemRate) : undefined;
-      return [{ ...item, id: `${item.id}~${clip.id}`, durationTicks: duration,
+      return [{ ...item, ...studioTreatmentProperties(item), id: `${item.id}~${clip.id}`, durationTicks: duration,
         ...(shiftedSource !== undefined ? { sourceStartTicks: shiftedSource, sourceEndTicks: shiftedSource + Math.round(duration * itemRate) } : {}),
         ...(item.text?.animation && item.text.animation !== 'none' ? { animationOffsetTicks: (item.animationOffsetTicks ?? 0) + excluded } : {}),
         ...(item.motion && item.motion !== 'none' ? { motionOffsetTicks: (item.motionOffsetTicks ?? 0) + excluded,
@@ -580,7 +596,8 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
     if (clip.grade !== undefined && validateStudioGrade(clip.grade).length) push('Revise os ajustes de cor do clip.');
     if (clip.enhancement !== undefined && validateStudioEnhancement(clip.enhancement).length) push('Revise a melhoria automática do clip.');
     if (clip.portrait !== undefined && validateStudioPortrait(clip.portrait).length) push('Revise o retoque facial do clip.');
-    if ((clip.enhancement !== undefined || clip.portrait !== undefined) && !['video', 'image'].includes(clip.kind)) push('A melhoria e o retoque só podem ser aplicados em imagem ou vídeo.');
+    if (clip.signature !== undefined && validateStudioSignature(clip.signature).length) push('Revise a assinatura cinematográfica do clip.');
+    if ((clip.enhancement !== undefined || clip.portrait !== undefined || clip.signature !== undefined) && !['video', 'image'].includes(clip.kind)) push('A melhoria, o retoque e a assinatura cinematográfica só podem ser aplicados em imagem ou vídeo.');
     if (['text', 'caption'].includes(clip.kind) && (!clip.text || !clip.text.content.trim() || !Number.isFinite(clip.text.fontSize)
       || clip.text.fontSize <= 0 || clip.text.fontSize > 1 || typeof clip.text.fontFamily !== 'string' || !clip.text.fontFamily.trim()
       || !studioColor(clip.text.color) || !studioColor(clip.text.backgroundColor) || !['left', 'center', 'right'].includes(clip.text.alignment))) push('Revise os textos e as legendas.');
@@ -839,19 +856,19 @@ export function patchStudioClipGrade(editing: StudioEditing, id: string, patch: 
   if (!item) throw new Error('Este clip não está mais na montagem.');
   return patchStudioLayerItem(editing, id, { grade: { ...studioGrade(item.effect), ...item.grade, ...patch } });
 }
-function patchStudioVisualTreatment(editing: StudioEditing, id: string, key: 'enhancement' | 'portrait', value: StudioEnhancement | StudioPortrait | null): StudioEditing {
+function patchStudioVisualTreatment(editing: StudioEditing, id: string, key: 'enhancement' | 'portrait' | 'signature', value: StudioEnhancement | StudioPortrait | StudioSignature | null): StudioEditing {
   const main = editing.main.find(clip => clip.id === id), layer = editing.layers.flatMap(track => track.items).find(item => item.id === id);
   const target = main ?? layer;
   if (!target) throw new Error('Este clip não está mais na montagem.');
   if (value !== null) {
-    const issues = key === 'enhancement' ? validateStudioEnhancement(value) : validateStudioPortrait(value);
+    const issues = key === 'enhancement' ? validateStudioEnhancement(value) : key === 'portrait' ? validateStudioPortrait(value) : validateStudioSignature(value);
     if (issues.length) throw new Error(issues[0]);
     const kind = layer?.kind ?? editing.assets.find(asset => asset.id === main?.assetId)?.kind;
-    if (kind !== 'image' && kind !== 'video') throw new Error('A melhoria e o retoque só podem ser aplicados em imagem ou vídeo.');
+    if (kind !== 'image' && kind !== 'video') throw new Error('A melhoria, o retoque e a assinatura cinematográfica só podem ser aplicados em imagem ou vídeo.');
   }
   const current = target[key];
   if (value === null ? current === undefined : current !== undefined
-    && (key === 'enhancement' ? validateStudioEnhancement(current) : validateStudioPortrait(current)).length === 0
+    && (key === 'enhancement' ? validateStudioEnhancement(current) : key === 'portrait' ? validateStudioPortrait(current) : validateStudioSignature(current)).length === 0
     && Object.entries(value).every(([field, item]) => (current as unknown as Record<string, unknown>)[field] === item)) return editing;
   if (main) {
     const updated = { ...main };
@@ -868,6 +885,9 @@ export function patchStudioClipEnhancement(editing: StudioEditing, id: string, v
 }
 export function patchStudioClipPortrait(editing: StudioEditing, id: string, value: StudioPortrait | null): StudioEditing {
   return patchStudioVisualTreatment(editing, id, 'portrait', value);
+}
+export function patchStudioClipSignature(editing: StudioEditing, id: string, value: StudioSignature | null): StudioEditing {
+  return patchStudioVisualTreatment(editing, id, 'signature', value);
 }
 
 export type StudioClipPropertiesPatch = Partial<Pick<StudioMainClip,
@@ -966,7 +986,8 @@ export function validateStudioPendingTakes(pending: StudioProject['pendingTakes'
       if (entry.grade !== undefined || item.grade !== undefined && validateStudioGrade(item.grade).length
         || item.enhancement !== undefined && validateStudioEnhancement(item.enhancement).length
         || item.portrait !== undefined && validateStudioPortrait(item.portrait).length
-        || (item.enhancement !== undefined || item.portrait !== undefined) && !['video', 'image'].includes(item.kind)
+        || item.signature !== undefined && validateStudioSignature(item.signature).length
+        || (item.enhancement !== undefined || item.portrait !== undefined || item.signature !== undefined) && !['video', 'image'].includes(item.kind)
         || !item.id || !['video', 'image', 'audio'].includes(item.kind) || item.assetId !== entry.id
         || entry.kind !== undefined && entry.kind !== item.kind || !isTicks(item.atTicks) || !isTicks(item.durationTicks)
         || [item.sourceStartTicks, item.sourceEndTicks, item.fadeInTicks, item.fadeOutTicks, item.animationOffsetTicks, item.motionOffsetTicks].some(value => value !== undefined && !isTicks(value))

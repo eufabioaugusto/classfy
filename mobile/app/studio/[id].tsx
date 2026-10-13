@@ -17,7 +17,7 @@ import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
 import { importStudioMedia, importStudioLayer, importStudioCaptionFile, recoverPendingStudioTakes } from '@/features/studio/media';
 import { discardTransientStudioProject, getStudioProject, isTransientStudioProject, mutateStudioProject } from '@/features/studio/store';
 import { canSplitStudioTake, duplicateStudioTake, locateStudioTime, moveStudioTake, removeStudioTake, splitStudioTake } from '@/features/studio/timeline';
-import { addStudioLayerItem, compileStudioRecipe, createStudioTextItem, deriveStudioTakes, moveStudioLayerItemToLane, patchStudioClipGrade, patchStudioClipEnhancement, patchStudioClipPortrait, patchStudioClipProperties, setStudioClipPlaybackRate, studioPlaybackRate, patchStudioLayerItem, removeStudioLayerItem, setStudioLayerHidden, setStudioLayerMuted, setStudioMainMuted, studioEditing, studioSeconds, studioTicks, withStudioStandardOutput, formatStudioEditorTime, timelineDuration, type StudioEditing, type StudioProject, type StudioTake } from '@/features/studio/model';
+import { addStudioLayerItem, compileStudioRecipe, createStudioTextItem, deriveStudioTakes, moveStudioLayerItemToLane, patchStudioClipGrade, patchStudioClipEnhancement, patchStudioClipPortrait, patchStudioClipSignature, patchStudioClipProperties, setStudioClipPlaybackRate, studioPlaybackRate, patchStudioLayerItem, removeStudioLayerItem, setStudioLayerHidden, setStudioLayerMuted, setStudioMainMuted, studioEditing, studioSeconds, studioTicks, withStudioStandardOutput, formatStudioEditorTime, timelineDuration, type StudioEditing, type StudioProject, type StudioTake } from '@/features/studio/model';
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from '@/features/studio/StudioPreview';
 import { StudioCompositionPreview } from '@/features/studio/StudioCompositionPreview';
 import { StudioCanvasEditor, type StudioCanvasTransform } from '@/features/studio/StudioCanvasEditor';
@@ -406,7 +406,8 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       if (treating && item.grade) {
         let next = patchStudioClipGrade(latest, selectedLayerId, item.grade);
         next = patchStudioClipEnhancement(next, selectedLayerId, item.enhancement ?? null);
-        return patchStudioClipPortrait(next, selectedLayerId, item.portrait ?? null);
+        next = patchStudioClipPortrait(next, selectedLayerId, item.portrait ?? null);
+        return patchStudioClipSignature(next, selectedLayerId, item.signature ?? null);
       }
       let merged = patchStudioLayerItem(latest, selectedLayerId, item);
       if (item.text) {
@@ -425,7 +426,8 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       if (!clip?.grade || !latest.main.some(item => item.id === activeTake.id)) throw new Error('Este take não está mais na montagem.');
       let next = patchStudioClipGrade(latest, activeTake.id, clip.grade);
       next = patchStudioClipEnhancement(next, activeTake.id, clip.enhancement ?? null);
-      return patchStudioClipPortrait(next, activeTake.id, clip.portrait ?? null);
+      next = patchStudioClipPortrait(next, activeTake.id, clip.portrait ?? null);
+      return patchStudioClipSignature(next, activeTake.id, clip.signature ?? null);
     }
     if (selectedTakeId && clipTool) {
       const original = inlineDraftBaseline.current?.editing || studioEditing(current.current.project), base = original.main.find(item => item.id === selectedTakeId), target = draft.main.find(item => item.id === selectedTakeId);
@@ -962,7 +964,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
             <EditorTool label="Dividir" icon={<Split size={20} color={colors.text} strokeWidth={1.5} />} disabled={!canSplit || busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { void split(); }} />
             <EditorTool label="Duplicar" icon={<Copy size={20} color={colors.text} strokeWidth={1.5} />} disabled={busy || locked || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { void duplicate(); }} />
           </>}
-          <EditorTool label="Melhorar" icon={<WandSparkles size={20} color={colors.accent} strokeWidth={1.5} />} disabled={!advanced || busy || canvasInteracting || layerInteracting || locked || !!trimDraft || !activeTake} onPress={() => { void openTreatment('scene'); }} />
+          <EditorTool label="Assinatura" icon={<WandSparkles size={20} color={colors.accent} strokeWidth={1.5} />} disabled={!advanced || busy || canvasInteracting || layerInteracting || locked || !!trimDraft || !activeTake} onPress={() => { void openTreatment('scene'); }} />
           <EditorTool label="Filtros" icon={<Blend size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || canvasInteracting || layerInteracting || locked || !!trimDraft} onPress={() => { void openTreatment(); }} />
           <EditorTool label="Volume" icon={<Volume2 size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !!trimDraft} onPress={() => { void openClipTool('volume'); }} />
           <EditorTool label="Velocidade" icon={<Gauge size={20} color={colors.text} strokeWidth={1.5} />} disabled={!toolsEnabled || !advanced || busy || locked || !!trimDraft || activeTake.kind === 'image'} onPress={() => { void openClipTool('speed'); }} />
@@ -977,7 +979,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
           <EditorTool label="Texto" icon={<Type size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !project.takes.length} onPress={() => { void addLayer('text'); }} />
           <EditorTool label="Sobrepor" icon={<Layers size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !project.takes.length} onPress={() => openPanel('media')} />
           <EditorTool label="Legendas" icon={<Captions size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !project.takes.length} onPress={() => openPanel('captions')} />
-          <EditorTool label="Melhorar" icon={<WandSparkles size={20} color={colors.accent} strokeWidth={1.5} />} disabled={!advanced || busy || canvasInteracting || layerInteracting || locked || !!trimDraft || !activeTake} onPress={() => { void openTreatment('scene'); }} />
+          <EditorTool label="Assinatura" icon={<WandSparkles size={20} color={colors.accent} strokeWidth={1.5} />} disabled={!advanced || busy || canvasInteracting || layerInteracting || locked || !!trimDraft || !activeTake} onPress={() => { void openTreatment('scene'); }} />
           <EditorTool label="Filtros" icon={<Blend size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !activeTake} onPress={() => { void openTreatment(); }} />
           <EditorTool label="Ajustar" icon={<SlidersHorizontal size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !activeTake} onPress={() => { void openTreatment('adjust'); }} />
         </>}

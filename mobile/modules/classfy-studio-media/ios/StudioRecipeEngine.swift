@@ -52,6 +52,7 @@ struct StudioRecipe: Codable {
     var text: Text?; let grade: StudioImageGrade?
     var enhancement: StudioSceneEnhancement? = nil
     var portrait: StudioNaturalPortrait? = nil
+    var signature: StudioCinematicSignature? = nil
     var playbackRate: Double? = nil
     var flipHorizontal: Bool? = nil
     var flipVertical: Bool? = nil
@@ -208,7 +209,7 @@ struct StudioRecipeFrozenFrame {
       guard extent.width > 0, extent.height > 0, !extent.isInfinite else { continue }
       image = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
       image = try prepared.renderer.editorImage(image, grade: layer.clip.effectiveGrade,
-        enhancement: layer.clip.enhancement, portrait: layer.clip.portrait, sourceStage: layer.sourceStage)
+        enhancement: layer.clip.enhancement, portrait: layer.clip.portrait, signature: layer.clip.signature, sourceStage: layer.sourceStage)
       // Retaining the CI graph avoids an intermediate bitmap/color conversion
       // which changes antialiased alpha and clips extended grade values.
       pixels[layer.clip.id] = image
@@ -351,7 +352,7 @@ final class StudioRecipeCompositor: NSObject, AVVideoCompositing {
       image = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
       if !sourcesPreprocessed || animated != nil && overridden == nil {
         image = try renderer.editorImage(image, grade: layer.clip.effectiveGrade,
-          enhancement: layer.clip.enhancement, portrait: layer.clip.portrait, sourceStage: layer.sourceStage)
+          enhancement: layer.clip.enhancement, portrait: layer.clip.portrait, signature: layer.clip.signature, sourceStage: layer.sourceStage)
       }
       if layer.clip.flipHorizontal == true || layer.clip.flipVertical == true {
         image = image.transformed(by: CGAffineTransform(a: layer.clip.flipHorizontal == true ? -1 : 1, b: 0,
@@ -406,17 +407,28 @@ final class StudioRecipeEngine {
   /// Analyze only the untouched local source. Midpoints of equal bins avoid
   /// first-frame bias; no files, full-resolution bitmaps or landmarks persist.
   func analyzeScene(uri: String, kind: String, startSeconds: Double, endSeconds: Double,
-                    frameCount: Int) async throws -> [String: Any] {
+                    frameCount: Int, signature: Bool = false) async throws -> [String: Any] {
     guard StudioEffectRenderer.editorTreatmentsAvailable, ["image", "video"].contains(kind),
       startSeconds.isFinite, endSeconds.isFinite, startSeconds >= 0, endSeconds >= startSeconds,
       (1...12).contains(frameCount) else { throw StudioRecipeError.invalid("Escolha uma imagem ou um trecho válido para melhorar a cena.") }
     let url = try localURL(uri, mustExist: true)
     var samples: [[String: Double]] = []
+    var selective: [[String: Any]] = []
+    func measure(_ image: CIImage) throws {
+      if signature {
+        let masks = try renderer.signatureMasks(in: image)
+        let subjectMask = try masks.map { try renderer.signatureSubjectMeasurementMask($0) }
+        let subject = try subjectMask.flatMap { try measureScene(image, mask: $0, inverse: false) }
+        let background = try masks.flatMap { try measureScene(image, mask: $0.person, inverse: true) }
+        selective.append(["subject": subject as Any? ?? NSNull(), "background": background as Any? ?? NSNull(),
+          "personPresent": masks != nil, "facePresent": masks?.faceBounds != nil])
+      } else { samples.append(try measureScene(image)) }
+    }
     if kind == "image" {
       guard let image = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else {
         throw StudioRecipeError.invalid("Não foi possível ler a imagem original desta cena.")
       }
-      samples.append(try measureScene(image))
+      try measure(image)
     } else {
       let source = AVURLAsset(url: url), duration = try await source.load(.duration)
       guard endSeconds > startSeconds, endSeconds <= duration.seconds + 1.0/120_000 else {
@@ -439,15 +451,21 @@ final class StudioRecipeEngine {
           // runs in the Expo async worker, never a UI gesture callback.
           image = try generator.copyCGImage(at: time, actualTime: nil)
         }
-        samples.append(try measureScene(CIImage(cgImage: image)))
+        try measure(CIImage(cgImage: image))
       }
     }
-    return ["version": 1, "samples": samples]
+    return ["version": 1, "samples": signature ? selective : samples]
   }
 
   // Equivalent to shared/studio/autoEnhance.measureStudioScene, including its
   // percentile histogram, visible-alpha guard and neutral-pixel criteria.
   func measureScene(_ image: CIImage) throws -> [String: Double] {
+    guard let result = try measureScene(image, mask: nil, inverse: false) else {
+      throw StudioRecipeError.invalid("Esta cena não possui pixels visíveis para analisar.")
+    }
+    return result
+  }
+  func measureScene(_ image: CIImage, mask: CIImage?, inverse: Bool) throws -> [String: Double]? {
     let extent = image.extent
     guard extent.width > 0, extent.height > 0, !extent.isInfinite, !extent.isNull else {
       throw StudioRecipeError.invalid("Esta cena não possui pixels visíveis para analisar.")
@@ -460,9 +478,17 @@ final class StudioRecipeEngine {
     renderer.context.render(small, toBitmap: &pixels, rowBytes: width*4,
       bounds: CGRect(x: 0, y: 0, width: width, height: height), format: .RGBA8,
       colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+    var maskPixels = [UInt8](repeating: 0, count: width*height*4)
+    if let mask {
+      let smallMask = mask.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+        .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+      renderer.context.render(smallMask, toBitmap: &maskPixels, rowBytes: width*4,
+        bounds: CGRect(x: 0, y: 0, width: width, height: height), format: .RGBA8, colorSpace: nil)
+    }
     var histogram = [Int](repeating: 0, count: 256), count = 0, neutral = 0
     var saturation = 0.0, red = 0.0, green = 0.0, blue = 0.0
     for index in stride(from: 0, to: pixels.count, by: 4) where pixels[index+3] >= 128 {
+      if mask != nil && (inverse ? maskPixels[index] >= 31 : maskPixels[index] < 128) { continue }
       // RGBA8 is premultiplied; analysis matches JS straight RGBA pixels.
       let alpha = Double(pixels[index+3])/255
       let r = min(1, Double(pixels[index])/255/alpha), g = min(1, Double(pixels[index+1])/255/alpha), b = min(1, Double(pixels[index+2])/255/alpha)
@@ -471,7 +497,10 @@ final class StudioRecipeEngine {
       histogram[Int(max(0, min(255, (y*255).rounded())))]+=1; count+=1; saturation+=s
       if s < 0.22 && y > 0.12 && y < 0.88 { neutral+=1; red+=r; green+=g; blue+=b }
     }
-    guard count > 0 else { throw StudioRecipeError.invalid("Esta cena não possui pixels visíveis para analisar.") }
+    guard count >= (mask == nil ? 1 : 12) else {
+      if mask != nil { return nil }
+      throw StudioRecipeError.invalid("Esta cena não possui pixels visíveis para analisar.")
+    }
     func percentile(_ fraction: Double) -> Double {
       let threshold = max(1, Int(ceil(Double(count)*fraction))); var accumulated = 0
       for index in histogram.indices { accumulated+=histogram[index]; if accumulated >= threshold { return Double(index)/255 } }
@@ -497,11 +526,15 @@ final class StudioRecipeEngine {
     let features = Set(recipe.requiredFeatures ?? [])
     let activeEnhancement = recipe.clips.contains { ($0.enhancement?.strength ?? 0) > 0 }
     let activePortrait = recipe.clips.contains { ($0.portrait?.strength ?? 0) > 0 }
-    let expected = Set((activeEnhancement ? ["enhancement-v1"] : []) + (activePortrait ? ["portrait-v1"] : []))
+    let activeSignature = recipe.clips.contains { ($0.signature?.strength ?? 0) > 0 }
+    let expected = Set((activeEnhancement ? ["enhancement-v1"] : []) + (activePortrait ? ["portrait-v1"] : []) + (activeSignature ? ["cinematic-signature-v1"] : []))
     guard features == expected, features.count == (recipe.requiredFeatures ?? []).count,
       recipe.version == (expected.isEmpty ? 2 : 3),
       expected.isEmpty || StudioEffectRenderer.editorTreatmentsAvailable else {
       throw StudioRecipeError.invalid("Atualize o Classfy para processar os tratamentos desta montagem sem perder os efeitos.")
+    }
+    guard !activeSignature || StudioEffectRenderer.cinematicSignatureAvailable else {
+      throw StudioRecipeError.invalid("Atualize o Classfy para processar a Assinatura Classfy desta montagem sem perder o tratamento.")
     }
     guard recipe.timebase == 120_000,
           recipe.durationTicks > 0, recipe.durationTicks <= 120_000 * 43_200,
@@ -535,7 +568,8 @@ final class StudioRecipeEngine {
             StudioRecipeVisualEffects.valid(clip),
             ["contain", "cover"].contains(clip.fit), clip.effectiveGrade.isValid,
             clip.enhancement?.isValid != false, clip.portrait?.isValid != false,
-            (clip.enhancement == nil && clip.portrait == nil) || ["image", "video"].contains(clip.kind),
+            clip.signature?.isValid != false,
+            (clip.enhancement == nil && clip.portrait == nil && clip.signature == nil) || ["image", "video"].contains(clip.kind),
             [clip.rect.x, clip.rect.y, clip.rect.width, clip.rect.height].allSatisfy(\.isFinite),
             (-2...3).contains(clip.rect.x), (-2...3).contains(clip.rect.y),
             clip.rect.width > 0, clip.rect.width <= 3, clip.rect.height > 0, clip.rect.height <= 3,

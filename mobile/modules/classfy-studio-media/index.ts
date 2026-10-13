@@ -13,8 +13,17 @@ export function studioEnhancementCapabilities(value: unknown): StudioEnhancement
   return { version: 1, recipeVersion: 3, available: true, features: [...state.features], maximumAnalysisFrames: state.maximumAnalysisFrames! };
 }
 export function studioRecipeNeedsTreatments(recipe: StudioRenderRecipe) {
-  return recipe.version === 3 || !!recipe.requiredFeatures?.length || recipe.clips.some(clip => (clip.enhancement?.strength ?? 0) > 0 || (clip.portrait?.strength ?? 0) > 0);
+  return recipe.version === 3 || !!recipe.requiredFeatures?.length || recipe.clips.some(clip => (clip.enhancement?.strength ?? 0) > 0 || (clip.portrait?.strength ?? 0) > 0 || (clip.signature?.strength ?? 0) > 0);
 }
+export function studioRecipeTreatmentsSupported(recipe: StudioRenderRecipe, capabilities: StudioEnhancementCapabilities) {
+  if (!studioRecipeNeedsTreatments(recipe)) return true;
+  const required = new Set(recipe.requiredFeatures || []);
+  if (recipe.clips.some(clip => (clip.enhancement?.strength ?? 0) > 0)) required.add('enhancement-v1');
+  if (recipe.clips.some(clip => (clip.portrait?.strength ?? 0) > 0)) required.add('portrait-v1');
+  if (recipe.clips.some(clip => (clip.signature?.strength ?? 0) > 0)) required.add('cinematic-signature-v1');
+  return capabilities.available && required.size > 0 && [...required].every(feature => capabilities.features.includes(feature));
+}
+export type StudioSignatureSceneSample = { subject: StudioSceneSample | null; background: StudioSceneSample | null; personPresent: boolean; facePresent: boolean };
 
 export type StudioMediaInfo = {
   duration: number;
@@ -102,6 +111,7 @@ declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
   getStudioEditorCapabilitiesAsync?(): Promise<{ version: number; available: boolean }>;
   getStudioEnhancementCapabilitiesAsync?(): Promise<StudioEnhancementCapabilities>;
   analyzeStudioSceneAsync?(uri: string, kind: string, startSeconds: number, endSeconds: number, frameCount: number): Promise<{ version: number; samples: StudioSceneSample[] }>;
+  analyzeStudioSignatureSceneAsync?(uri: string, kind: string, startSeconds: number, endSeconds: number, frameCount: number): Promise<{ version: number; samples: StudioSignatureSceneSample[] }>;
   renderStudioRecipeThumbnailAsync?(recipeJSON: string, outputUri: string, seconds: number): Promise<{ uri: string; width: number; height: number; seconds: number }>;
   getStudioExportCapabilitiesAsync?(): Promise<StudioExportCapabilities>;
   getStudioInteractiveCompositionVersionAsync?(): Promise<{ version: number; available: boolean }>;
@@ -216,8 +226,8 @@ export async function getStudioEnhancementCapabilitiesAsync(): Promise<StudioEnh
   return enhancementCapabilityRequest;
 }
 async function assertStudioTreatmentsAvailable(recipe: StudioRenderRecipe) {
-  if (studioRecipeNeedsTreatments(recipe) && !(await getStudioEnhancementCapabilitiesAsync()).available) {
-    throw new Error('Atualize o Classfy para visualizar e exportar Melhorar cena e Retoque natural sem perder os tratamentos.');
+  if (!studioRecipeTreatmentsSupported(recipe, await getStudioEnhancementCapabilitiesAsync())) {
+    throw new Error('Atualize o Classfy para visualizar e exportar a Assinatura Classfy e os tratamentos sem perder os efeitos.');
   }
 }
 let sceneAnalysisLease: Promise<unknown> = Promise.resolve();
@@ -234,6 +244,19 @@ async function analyzeStudioScene(options: { uri: string; kind: 'image' | 'video
   if (result.version !== 1 || !Array.isArray(result.samples) || result.samples.length < 1 || result.samples.length > options.frameCount
     || result.samples.some(sample => !sample || ['p10', 'p50', 'p90', 'p99', 'saturation', 'neutralRed', 'neutralGreen', 'neutralBlue', 'neutralFraction'].some(key => !Number.isFinite(sample[key as keyof StudioSceneSample]) || sample[key as keyof StudioSceneSample] < 0 || sample[key as keyof StudioSceneSample] > 1))) throw new Error('A análise desta cena não foi confirmada pelo aparelho.');
   return result.samples;
+}
+export async function analyzeStudioSignatureSceneAsync(options: { uri: string; kind: 'image' | 'video'; startSeconds: number; endSeconds: number; frameCount: number }) {
+  const pending = sceneAnalysisLease.then(async () => {
+    const capabilities = await getStudioEnhancementCapabilitiesAsync();
+    if (!capabilities.available || !capabilities.features.includes('cinematic-signature-v1') || typeof native?.analyzeStudioSignatureSceneAsync !== 'function') throw new Error('Atualize o Classfy para aplicar a Assinatura Classfy neste aparelho.');
+    if (!Number.isInteger(options.frameCount) || options.frameCount < 1 || options.frameCount > capabilities.maximumAnalysisFrames) throw new Error('Escolha um trecho válido para analisar a cena.');
+    const result = await native.analyzeStudioSignatureSceneAsync(options.uri, options.kind, options.startSeconds, options.endSeconds, options.frameCount);
+    const validSample = (sample: StudioSceneSample | null) => sample === null || !!sample && ['p10', 'p50', 'p90', 'p99', 'saturation', 'neutralRed', 'neutralGreen', 'neutralBlue', 'neutralFraction'].every(key => Number.isFinite(sample[key as keyof StudioSceneSample]) && sample[key as keyof StudioSceneSample] >= 0 && sample[key as keyof StudioSceneSample] <= 1);
+    if (result.version !== 1 || !Array.isArray(result.samples) || result.samples.length < 1 || result.samples.length > options.frameCount || result.samples.some(sample => !sample || typeof sample.personPresent !== 'boolean' || typeof sample.facePresent !== 'boolean' || !validSample(sample.subject) || !validSample(sample.background))) throw new Error('A análise da pessoa e do cenário não foi confirmada pelo aparelho.');
+    return result.samples;
+  });
+  sceneAnalysisLease = pending.catch(() => undefined);
+  return pending;
 }
 export function studioRecipeNeedsEditorTools(recipe: StudioRenderRecipe) {
   return recipe.clips.some(clip => clip.kind === 'audio' && recipe.assets?.some(asset => asset.id === clip.assetId && asset.kind === 'video') || clip.zIndex === 0 && (clip.fadeInTicks > 0 || clip.fadeOutTicks > 0 || clip.opacity !== 1) || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal || clip.flipVertical || clip.motion && clip.motion !== 'none'

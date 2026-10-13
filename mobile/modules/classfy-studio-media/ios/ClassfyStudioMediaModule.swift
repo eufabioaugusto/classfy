@@ -141,10 +141,14 @@ public final class ClassfyStudioMediaModule: Module {
     }
     AsyncFunction("getStudioEnhancementCapabilitiesAsync") { () -> [String: Any] in
       ["version": 1, "recipeVersion": 3, "available": StudioEffectRenderer.editorTreatmentsAvailable,
-       "features": ["enhancement-v1", "portrait-v1"], "maximumAnalysisFrames": 12]
+       "features": ["enhancement-v1", "portrait-v1"] + (StudioEffectRenderer.cinematicSignatureAvailable ? ["cinematic-signature-v1"] : []), "maximumAnalysisFrames": 12]
     }
     AsyncFunction("analyzeStudioSceneAsync") { (uri: String, kind: String, startSeconds: Double, endSeconds: Double, frameCount: Int) async throws -> [String: Any] in
       try await self.recipeEngine.analyzeScene(uri: uri, kind: kind, startSeconds: startSeconds, endSeconds: endSeconds, frameCount: frameCount)
+    }
+    AsyncFunction("analyzeStudioSignatureSceneAsync") { (uri: String, kind: String, startSeconds: Double, endSeconds: Double, frameCount: Int) async throws -> [String: Any] in
+      guard StudioEffectRenderer.cinematicSignatureAvailable else { throw StudioEditorTreatmentError.unavailable }
+      return try await self.recipeEngine.analyzeScene(uri: uri, kind: kind, startSeconds: startSeconds, endSeconds: endSeconds, frameCount: frameCount, signature: true)
     }
     AsyncFunction("renderStudioRecipeThumbnailAsync") { (recipeJSON: String, outputUri: String, seconds: Double) async throws -> [String: Any] in
       try await self.recipeEngine.thumbnail(recipeJSON: recipeJSON, outputUri: outputUri, seconds: seconds)

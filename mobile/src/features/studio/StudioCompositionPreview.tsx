@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, u
 import { findNodeHandle, StyleSheet, Text, View } from 'react-native';
 import Animated, { runOnJS, runOnUI, useAnimatedProps, useEvent, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { requireNativeViewManager } from 'expo-modules-core';
-import { getStudioInteractiveCompositionVersionAsync, getStudioEnhancementCapabilitiesAsync, getCachedStudioEnhancementCapabilities, studioRecipeNeedsTreatments, isStudioCompositionAvailable, isStudioEditorToolsAvailable, studioRecipeNeedsEditorTools, isStudioInteractiveCompositionAvailable, previewStudioCompositionSourceAsync, seekStudioCompositionAsync, type StudioNativePlayback } from '../../../modules/classfy-studio-media';
+import { getStudioInteractiveCompositionVersionAsync, getStudioEnhancementCapabilitiesAsync, getCachedStudioEnhancementCapabilities, studioRecipeNeedsTreatments, studioRecipeTreatmentsSupported, isStudioCompositionAvailable, isStudioEditorToolsAvailable, studioRecipeNeedsEditorTools, isStudioInteractiveCompositionAvailable, previewStudioCompositionSourceAsync, seekStudioCompositionAsync, type StudioNativePlayback } from '../../../modules/classfy-studio-media';
 import { compileStudioRecipe, type StudioProject, type StudioRenderRecipe } from './model';
 import { studioUntreatedPreviewRecipe } from './sceneTreatments';
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from './StudioPreview';
@@ -71,16 +71,17 @@ function receivePlaybackOnUI(value: StudioNativePlayback, controls: SharedValue<
 export const StudioCompositionPreview = forwardRef<StudioPreviewHandle, Props>(function StudioCompositionPreview(props, ref) {
   const editing = props.project.editing;
   const needsTreatments = !!editing && studioRecipeNeedsTreatments(props.recipe || compileStudioRecipe(props.project));
-  const [treatmentsAvailable, setTreatmentsAvailable] = useState(false);
+  const [treatmentsCapabilities, setTreatmentsCapabilities] = useState(getCachedStudioEnhancementCapabilities);
   useEffect(() => {
     let current = true;
-    void getStudioEnhancementCapabilitiesAsync().then(value => { if (current) setTreatmentsAvailable(value.available); });
+    void getStudioEnhancementCapabilitiesAsync().then(value => { if (current) setTreatmentsCapabilities(value); });
     return () => { current = false; };
   }, []);
   // The treatment panel waits for this same capability ACK before publishing
   // a draft. Its synchronous bridge cache closes the React microtask gap: the
   // first treatment cannot temporarily replace/unmount the active player.
-  const missingTreatments = needsTreatments && !(treatmentsAvailable || getCachedStudioEnhancementCapabilities().available);
+  const treatmentRecipe = props.recipe || compileStudioRecipe(props.project);
+  const missingTreatments = needsTreatments && !studioRecipeTreatmentsSupported(treatmentRecipe, treatmentsCapabilities) && !studioRecipeTreatmentsSupported(treatmentRecipe, getCachedStudioEnhancementCapabilities());
   const missingTools = !!editing && studioRecipeNeedsEditorTools(props.recipe || compileStudioRecipe(props.project)) && !isStudioEditorToolsAvailable();
   const native = !!NativeCanvas && editing?.output.profile === 'standard' && props.project.kind !== 'podcast' && !missingTools && !missingTreatments;
   useLayoutEffect(() => {

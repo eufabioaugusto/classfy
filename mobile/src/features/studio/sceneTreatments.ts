@@ -12,6 +12,6 @@ export function studioSceneAnalysisRequest(editing: StudioEditing, targetId: str
 /** Compare while preserving all geometry, clocks, audio and target IDs. */
 export function studioUntreatedPreviewRecipe(recipe: StudioRenderRecipe): StudioRenderRecipe {
   return { ...recipe, version: 2, requiredFeatures: undefined, clips: recipe.clips.map(clip => ({ ...clip,
-    enhancement: undefined, portrait: undefined, effect: 'natural',
+    enhancement: undefined, portrait: undefined, signature: undefined, effect: 'natural',
     grade: { preset: 'natural', intensity: 0, exposure: 0, contrast: 0, saturation: 0, temperature: 0 } })) };
 }

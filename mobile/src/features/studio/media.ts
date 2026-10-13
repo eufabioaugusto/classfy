@@ -141,7 +141,7 @@ export async function exportStudioProject(project: StudioProject, onProgress?: (
   const recipe = compileStudioRecipe(project);
   const errors = validateStudioRecipe(recipe);
   if (errors.length) throw new Error(errors[0]);
-  if (editing.output.profile === 'legacy-source' && recipe.version === 3) throw new Error('Escolha o perfil de composição e a qualidade de saída para exportar Melhorar cena e Retoque natural sem perder os tratamentos.');
+  if (editing.output.profile === 'legacy-source' && recipe.version === 3) throw new Error('Escolha o perfil de composição e a qualidade de saída para exportar a Assinatura Classfy sem perder os tratamentos.');
   const requiresAudio = project.kind === 'podcast' || recipe.clips.some(clip => clip.kind === 'audio' && clip.gain > 0);
   const matchesOutput = (info: Awaited<ReturnType<typeof getMediaInfoAsync>>) => Number.isFinite(info.fileSize) && info.fileSize > 0
     && (!requiresAudio || info.hasAudio)

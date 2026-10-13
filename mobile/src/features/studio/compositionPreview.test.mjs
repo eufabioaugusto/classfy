@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { transformFileSync } from '@babel/core';
 import ts from 'typescript';
 import * as model from './model.ts';
-const sceneTreatments = { studioUntreatedPreviewRecipe: recipe => ({...recipe,version:2,requiredFeatures:undefined,clips:recipe.clips.map(clip=>({...clip,enhancement:undefined,portrait:undefined,effect:'natural',grade:{preset:'natural',intensity:0,exposure:0,contrast:0,saturation:0,temperature:0}}))}) };
+const sceneTreatments = { studioUntreatedPreviewRecipe: recipe => ({...recipe,version:2,requiredFeatures:undefined,clips:recipe.clips.map(clip=>({...clip,enhancement:undefined,portrait:undefined,signature:undefined,effect:'natural',grade:{preset:'natural',intensity:0,exposure:0,contrast:0,saturation:0,temperature:0}}))}) };
 import { initialStudioCanvasTransformChannel } from './canvasTransformChannel.ts';
 const require = createRequire(import.meta.url);
 const reanimatedSource = join(dirname(require.resolve('react-native-reanimated/package.json')), 'src');
@@ -153,7 +153,7 @@ function harness({ available = true, initialProject = project(), playbackChannel
       StyleSheet: { create: styles => styles, absoluteFill: {}, absoluteFillObject: {} } },
     'expo-modules-core': { requireNativeViewManager: () => 'native-canvas' },
     '../../../modules/classfy-studio-media': { isStudioCompositionAvailable: () => available, isStudioEditorToolsAvailable: () => editorTools,
-      studioRecipeNeedsTreatments: recipe => recipe.version===3, getStudioEnhancementCapabilitiesAsync: () => enhancementPromise || Promise.resolve(enhancements), getCachedStudioEnhancementCapabilities: () => enhancements, studioRecipeNeedsEditorTools: recipe => recipe.clips.some(clip => clip.kind === 'audio' && recipe.assets.some(asset => asset.id === clip.assetId && asset.kind === 'video') || clip.zIndex === 0 && (clip.fadeInTicks > 0 || clip.fadeOutTicks > 0 || clip.opacity !== 1) || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal || clip.flipVertical || clip.motion && clip.motion !== 'none' || clip.text && (clip.text.animation && clip.text.animation !== 'none' || clip.text.visualEffect && clip.text.visualEffect !== 'none' || clip.text.decoration && clip.text.decoration !== 'none' || clip.text.gradientColors)),
+      studioRecipeNeedsTreatments: recipe => recipe.version===3, studioRecipeTreatmentsSupported: (recipe,caps) => recipe.version!==3 || caps.available && (!recipe.requiredFeatures || !caps.features || recipe.requiredFeatures.every(feature=>caps.features.includes(feature))), getStudioEnhancementCapabilitiesAsync: () => enhancementPromise || Promise.resolve(enhancements), getCachedStudioEnhancementCapabilities: () => enhancements, studioRecipeNeedsEditorTools: recipe => recipe.clips.some(clip => clip.kind === 'audio' && recipe.assets.some(asset => asset.id === clip.assetId && asset.kind === 'video') || clip.zIndex === 0 && (clip.fadeInTicks > 0 || clip.fadeOutTicks > 0 || clip.opacity !== 1) || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal || clip.flipVertical || clip.motion && clip.motion !== 'none' || clip.text && (clip.text.animation && clip.text.animation !== 'none' || clip.text.visualEffect && clip.text.visualEffect !== 'none' || clip.text.decoration && clip.text.decoration !== 'none' || clip.text.gradientColors)),
       isStudioInteractiveCompositionAvailable: () => interactive,
       getStudioInteractiveCompositionVersionAsync: () => Promise.resolve(capability),
       seekStudioCompositionAsync: (...args) => command('seek', args),
@@ -971,4 +971,10 @@ test('primeiro tratamento usa o ACK de capacidade já confirmado sem substituir 
 test('restauro legacy-source com magia ativa nunca cai no player legado sem efeitos',async()=>{
  const original=project(),editing=model.patchStudioClipPortrait({...original.editing,output:{...original.editing.output,profile:'legacy-source',colorSpace:'source'}},'a',{version:1,strength:.4});
  const h=harness({initialProject:{...original,editing}});await h.pump();assert.equal(h.canvas(),undefined);assert.match(h.text(),/Atualize/);h.dispose();
+});
+
+test('capacidade anterior dos dois tratamentos não autoriza Assinatura Classfy desconhecida',async()=>{
+ const p=project(),signature={version:1,strength:.85,subjectExposure:.15,backgroundExposure:-1.2,backgroundBlur:.28,temperature:.18};
+ const editing=model.patchStudioClipSignature(p.editing,'a',signature),h=harness({initialProject:{...p,editing},enhancements:{available:true,features:['enhancement-v1','portrait-v1']}});
+ await h.pump();assert.equal(h.canvas(),undefined);assert.match(h.text(),/Atualize/);h.dispose();
 });

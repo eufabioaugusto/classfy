@@ -20,11 +20,12 @@ test('análise considera trecho original selecionado, sem efeitos, velocidade ou
  const long={...value,main:[{...value.main[0],sourceEndTicks:model.studioTicks(30)}]}; assert.equal(scenes.studioSceneAnalysisRequest(long,'c').frameCount,12);
  assert.throws(()=>scenes.studioSceneAnalysisRequest(value,'missing'),/Selecione/);
 });
-test('comparação remove três tratamentos mantendo IDs, fontes, áudio, geometria e relógios',()=>{
+test('comparação remove quatro tratamentos mantendo IDs, fontes, áudio, geometria e relógios',()=>{
  let value=fixture(); value=model.patchStudioClipEnhancement(value,'c',suggestStudioEnhancement([sample])); value=model.patchStudioClipPortrait(value,'c',{version:1,strength:.4});
+ value=model.patchStudioClipSignature(value,'c',{version:1,strength:.85,subjectExposure:.15,backgroundExposure:-1.2,backgroundBlur:.28,temperature:.18});
  const recipe=model.compileStudioRecipe({kind:'aula',takes:[],editing:value}), before=scenes.studioUntreatedPreviewRecipe(recipe);
  assert.equal(recipe.version,3); assert.equal(before.version,2); assert.equal(before.requiredFeatures,undefined);
- for(const clip of before.clips){assert.equal(clip.enhancement,undefined);assert.equal(clip.portrait,undefined);assert.equal(clip.grade.intensity,0);const original=recipe.clips.find(item=>item.id===clip.id);for(const key of ['id','assetId','startTicks','durationTicks','sourceStartTicks','sourceEndTicks','gain','rect','playbackRate'])assert.deepEqual(clip[key],original[key]);}
+ for(const clip of before.clips){assert.equal(clip.enhancement,undefined);assert.equal(clip.portrait,undefined);assert.equal(clip.signature,undefined);assert.equal(clip.grade.intensity,0);const original=recipe.clips.find(item=>item.id===clip.id);for(const key of ['id','assetId','startTicks','durationTicks','sourceStartTicks','sourceEndTicks','gain','rect','playbackRate'])assert.deepEqual(clip[key],original[key]);}
  assert.deepEqual(before.assets,recipe.assets); assert.ok(recipe.clips[0].enhancement);
 });
 test('ABI desconhecida, versão anterior ou features incompletas nunca liberam tratamento',async()=>{
@@ -51,4 +52,24 @@ test('correção estável usa mediana, ignora alpha invisível e retorna identid
  const original=measureStudioScene([0,0,0,0,100,100,100,255]), outlier=measureStudioScene([250,250,250,255]); assert.equal(original.neutralFraction,1);assert.throws(()=>measureStudioScene([1,2,3,0]),/visíveis/);
  const stable=suggestStudioEnhancement([original,original,outlier]);assert.equal(stable.analyzedFrames,3);assert.ok(stable.exposure>0);
  const rgb=[.2,.3,.4];assert.deepEqual(studioEnhancementPixel(rgb,{...stable,strength:0}),rgb);assert.ok(studioEnhancementPixel(rgb,stable).every(value=>value>=0&&value<=1));
+});
+
+test('binário da primeira fase disponível não certifica assinatura seletiva que não reconhece',async()=>{
+ let called=0;const api=bridge({...base,getStudioEnhancementCapabilitiesAsync:async()=>capability,analyzeStudioSceneAsync(){},exportRecipeAsync(){called++;},getStudioEditorCapabilitiesAsync:async()=>({version:1,available:true}),renderStudioRecipeThumbnailAsync(){called++;}});
+ const recipe={version:3,requiredFeatures:['cinematic-signature-v1'],clips:[{signature:{version:1,strength:.85}}],assets:[]};
+ assert.equal((await api.getStudioEnhancementCapabilitiesAsync()).available,true);
+ assert.equal(api.studioRecipeTreatmentsSupported(recipe,await api.getStudioEnhancementCapabilitiesAsync()),false);
+ await assert.rejects(api.exportRecipeAsync({requestId:'new',recipeJSON:JSON.stringify(recipe),outputUri:'file:///out.mp4'}),/Atualize/);
+ await assert.rejects(api.renderStudioRecipeThumbnailAsync(JSON.stringify(recipe),'file:///out.jpg',0),/Atualize/);
+ await assert.rejects(api.analyzeStudioSignatureSceneAsync({uri:'file:///original.mov',kind:'video',startSeconds:0,endSeconds:1,frameCount:1}),/Atualize/);assert.equal(called,0);
+});
+test('assinatura analisa pessoa e cenário reais; amostra incompatível nunca vira configuração',async()=>{
+ const caps={...capability,features:[...capability.features,'cinematic-signature-v1']}, measurement={subject:sample,background:sample,personPresent:true,facePresent:true};
+ const request={uri:'file:///source.mov',kind:'video',startSeconds:0,endSeconds:1,frameCount:1};
+ const api=bridge({...base,getStudioEnhancementCapabilitiesAsync:async()=>caps,analyzeStudioSceneAsync(){},analyzeStudioSignatureSceneAsync:async()=>({version:1,samples:[measurement]})});
+ assert.deepEqual(await api.analyzeStudioSignatureSceneAsync(request),[measurement]);
+ for(const invalid of [{...measurement,subject:{...sample,p99:NaN}},{...measurement,facePresent:'yes'},{...measurement,background:{p50:.3}},null]){
+ const bad=bridge({...base,getStudioEnhancementCapabilitiesAsync:async()=>caps,analyzeStudioSceneAsync(){},analyzeStudioSignatureSceneAsync:async()=>({version:1,samples:[invalid]})});
+ await assert.rejects(bad.analyzeStudioSignatureSceneAsync(request),/confirmada/);
+ }
 });
