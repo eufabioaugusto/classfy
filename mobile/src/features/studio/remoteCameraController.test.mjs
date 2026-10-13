@@ -5,7 +5,7 @@ const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{reso
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const sessionId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',takeId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function harness(patch={}){
-  let current=true,time=10000,commands=[],failAck=false,writeGate,actualRecording=false;
+  let current=true,time=10000,commands=[],failAck=false,writeGate,actualRecording=false,hardware=structuredClone(patch.nativeState||{});
   let journal={version:1,owner:'owner',deviceId:'device',sessionId,sequence:0,receipts:{},takes:[],...patch.journal};
   const started=deferred(),finished=deferred(),calls=[],writes=[];
   const session={id:sessionId,ownerId:'owner',controllerId:'controller',deviceId:'device',kind:'aula',status:'ready',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
@@ -28,7 +28,10 @@ function harness(patch={}){
     upload:async(_session,take,onProgress)=>{calls.push({action:'upload',take:clone(take)});onProgress?.(5);await patch.upload?.(take);},
   };
   const native={configure:async configuration=>{calls.push({action:'configure',configuration});return{width:3840,height:2160,fps:30,recording:false};},
-    snapshot:async()=>({width:3840,height:2160,fps:30,recording:actualRecording}),
+    snapshot:async()=>({width:3840,height:2160,fps:30,recording:actualRecording,...structuredClone(hardware)}),
+    selectAudioInput:async inputId=>{calls.push({action:'select-audio',inputId});await patch.selectAudio?.(inputId);const currentInput=hardware.audioInput?.available.find(input=>input.id===(inputId??'builtin'));
+      if(!currentInput)throw Error('Microfone não disponível');hardware={...hardware,audioInput:{...hardware.audioInput,preferredId:inputId,current:currentInput,confirmed:true,selecting:false},configuration:{...session.configuration,audioInputId:inputId}};
+      return {width:3840,height:2160,fps:30,recording:false,...structuredClone(hardware)};},
     focus:async point=>{calls.push({action:'focus',point});await patch.focus?.(point);return {width:3840,height:2160,fps:30,recording:actualRecording,focusLocked:point.locked};},
     begin:id=>{calls.push({action:'native-start',id});actualRecording=true;return{started:started.promise,finished:finished.promise};},
     stop:async id=>{calls.push({action:'native-stop',id});actualRecording=false;finished.resolve({uri:`file:///Documents/classfy-studio-remote/owner/${sessionId}/${id}.mov`});},
@@ -41,6 +44,30 @@ function harness(patch={}){
     ready:async()=>{await controller.join('opaque-code');await controller.cameraReady(native);},
   };
 }
+
+const selectedAudio=()=>({supportsAudioInputSelection:true,audioInput:{version:1,available:[{id:'builtin',name:'iPhone',type:'MicrophoneBuiltIn'},{id:'usb',name:'USB',type:'USBAudio'}],preferredId:null,current:{id:'builtin',name:'iPhone',type:'MicrophoneBuiltIn'},confirmed:true,selecting:false,warning:null}});
+test('escolha local publica apenas a entrada nativa confirmada e sincroniza no navegador',async()=>{
+  const h=harness({nativeState:selectedAudio()});await h.ready();
+  const selected=await h.controller.selectAudioInput('usb');
+  assert.equal(selected.audioInput.current.id,'usb');assert.equal(h.controller.getSnapshot().state.configuration.audioInputId,'usb');
+  const heartbeat=h.calls.filter(c=>c.action==='heartbeat').at(-1);
+  assert.equal(heartbeat.body.state.audioInput.current.id,'usb');assert.equal(heartbeat.body.state.configuration.audioInputId,'usb');
+  assert.equal(h.calls.filter(c=>c.action==='native-start').length,0);await h.controller.dispose();
+});
+test('microfone desconectado impede reservar e começar um take; REC em andamento não aceita troca',async()=>{
+  const disconnected={...selectedAudio(),audioInput:{...selectedAudio().audioInput,preferredId:'usb',current:null,confirmed:false,warning:'Microfone desconectado.'}};
+  const h=harness({nativeState:disconnected});await h.ready();h.queue([h.command('start')]);await h.controller.poll();
+  assert.equal(h.journal().takes.length,0);assert.equal(h.calls.filter(c=>c.action==='native-start').length,0);
+  assert.match(h.calls.find(c=>c.action==='ack').body.result.error,/Microfone desconectado/);await h.controller.dispose();
+  const rec=harness({nativeState:selectedAudio()});await rec.ready();rec.started.resolve(10050);rec.queue([rec.command('start')]);await rec.controller.poll();
+  await assert.rejects(rec.controller.selectAudioInput('usb'),/antes de iniciar/);assert.equal(rec.calls.filter(c=>c.action==='select-audio').length,0);await rec.controller.dispose();
+});
+test('troca de conta durante ACK de microfone não publica preferência tardia nem heartbeat',async()=>{
+  const gate=deferred(),h=harness({nativeState:selectedAudio(),selectAudio:()=>gate.promise});await h.ready();
+  const selecting=h.controller.selectAudioInput('usb');await tick();const before=h.controller.getSnapshot(),requests=h.calls.length;
+  h.invalidate();gate.resolve();await assert.rejects(selecting,/conexão mudou/);
+  assert.deepEqual(h.controller.getSnapshot(),before);assert.equal(h.calls.length,requests);await h.controller.dispose();
+});
 
 test('START precisa de journal durável e didStart real; duplicate command reenvia ACK sem outra gravação',async()=>{
   const h=harness();await h.ready();h.queue([h.command('start')]);const gate=h.blockWrite();const run=h.controller.poll();await gate.entered.promise;

@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import type { ReactNode } from 'react';
 import { Mic } from 'lucide-react-native';
 
 export type StudioCaptureAudioMonitorProps = {
@@ -7,6 +8,7 @@ export type StudioCaptureAudioMonitorProps = {
   status: 'waiting' | 'live' | 'unavailable' | 'interrupted';
   message?: string;
   compact?: boolean;
+  accessory?: ReactNode;
 };
 
 const scale = [-48, -36, -24, -12, -6, 0] as const;
@@ -22,7 +24,7 @@ export function studioAudioMeterPosition(db: number): number | null {
   return Number.isFinite(db) ? Math.max(0, Math.min(1, (db + 48) / 48)) : null;
 }
 
-export function StudioCaptureAudioMonitor({ input, channels, status, message, compact }: StudioCaptureAudioMonitorProps) {
+export function StudioCaptureAudioMonitor({ input, channels, status, message, compact, accessory }: StudioCaptureAudioMonitorProps) {
   const name = input?.name.trim() || 'Entrada de áudio';
   const samples = channels.slice(0, 8);
   const live = status === 'live' && samples.some(sample => Number.isFinite(sample.averageDb) && Number.isFinite(sample.peakDb));
@@ -38,6 +40,7 @@ export function StudioCaptureAudioMonitor({ input, channels, status, message, co
       <Mic color="#D6D6D6" size={12} strokeWidth={1.5} />
       <Text numberOfLines={1} style={styles.input}>{name}</Text>
       {live && <Text style={styles.unit}>dBFS</Text>}
+      {accessory}
     </View>
     {live ? <View style={styles.meters}>
       {!compact && <View style={styles.scaleRow}>

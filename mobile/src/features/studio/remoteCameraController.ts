@@ -6,6 +6,7 @@ export type RemoteCameraNative = {
   configure(configuration:StudioRemoteConfiguration):Promise<StudioRemoteDeviceState>;
   snapshot():Promise<StudioRemoteDeviceState>;
   focus?(point:{x:number;y:number;locked:boolean}):Promise<StudioRemoteDeviceState>;
+  selectAudioInput?(inputId:string|null):Promise<StudioRemoteDeviceState>;
   begin(takeId:string):{started:Promise<number>;finished:Promise<{uri:string}>};
   stop(takeId:string):Promise<void>;
   preview(connection:NonNullable<StudioRemoteResponse['connection']>):Promise<void>;
@@ -182,6 +183,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
         const uri=deps.masterUri(session.id,takeId);
         const beforeTake=await native.snapshot();check();
         if(beforeTake.imageGradeConfirmed===false)throw new Error('Confirme o tratamento da imagem antes de gravar.');
+        if(beforeTake.supportsAudioInputSelection===true&&(!beforeTake.audioInput?.confirmed||beforeTake.audioInput.selecting||!beforeTake.audioInput.current))throw new Error(beforeTake.audioInput?.warning||'Confirme o microfone antes de gravar.');
         const imageGrade=beforeTake.imageGrade ?? beforeTake.configuration?.imageGrade ?? session.configuration.imageGrade;
         await deps.mutate(session.id,value=>({...value,takes:[...value.takes,{id:takeId,uri,phase:'reserved',...(imageGrade?{imageGrade:structuredClone(imageGrade) as StudioRemoteConfiguration['imageGrade']}:{})}]}));check();
         const recording=native.begin(takeId);
@@ -265,6 +267,26 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       const work=commandWork.catch(()=>undefined).then(async()=>{check();if(native!==owned)throw new Error('A câmera mudou.');
         const focused=await owned.focus!(point);check();publish({state:focused,error:null});
         await request('heartbeat',{sessionId:state.session!.id,role:'device',clientId:deps.deviceId,state:{...focused,...transferState()}}).catch(cause=>{check();publish({error:failure(cause)});});check();return focused;});
+      commandWork=work.then(()=>undefined,()=>undefined);return work;
+    },
+    async selectAudioInput(inputId:string|null){
+      check();
+      const canSelect=()=>!!native?.selectAudioInput&&!!state.session&&state.phase==='ready'&&!active&&!state.processing;
+      if(!canSelect())throw new Error('Escolha o microfone antes de iniciar o take.');
+      const owned=native!,sessionId=state.session!.id;
+      const previous=state.state?.audioInput;
+      if(previous)publish({state:{...state.state,audioInput:{...previous,selecting:true,confirmed:false}},error:null});
+      const work=commandWork.catch(()=>undefined).then(async()=>{
+        check();if(native!==owned||state.session?.id!==sessionId||!canSelect())throw new Error('Escolha o microfone antes de iniciar o take.');
+        const selected=await owned.selectAudioInput!(inputId);check();
+        publish({state:selected,error:null});
+        await request('heartbeat',{sessionId,role:'device',clientId:deps.deviceId,state:{...selected,...transferState()}});check();return selected;
+      }).catch(async cause=>{
+        if(current()&&native===owned&&state.session?.id===sessionId){
+          const actual=await owned.snapshot().catch(()=>undefined);
+          if(current())publish({...(actual?{state:actual}:{}),error:failure(cause)});
+        }throw cause;
+      });
       commandWork=work.then(()=>undefined,()=>undefined);return work;
     },
     async stopLocal(){if(active&&native){active.stopping=true;const owned=active;publish({phase:'saving'});await native.stop(owned.id);await owned.finished;publish({phase:'ready'});void uploads(owned.id);}},

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { StudioCaptureAudioEvent } from '../../../modules/classfy-studio-media';
+import type { StudioCaptureAudioEvent, StudioAudioInputPort, StudioAudioInputState } from '../../../modules/classfy-studio-media';
 
 export const studioAudioFreshnessMs = 1500;
 type MonitorStatus = 'waiting' | 'live' | 'unavailable' | 'interrupted';
@@ -7,9 +7,26 @@ type Monitor = {
   scope: string; epoch: number; generation: number; revision: number; sequence: number; timestampMs: number;
   input: StudioCaptureAudioEvent['input']; channels: StudioCaptureAudioEvent['channels'];
   status: MonitorStatus; message?: string; warningUntil?: number;
+  audioInput?: StudioAudioInputState;
 };
 const initial = (scope: string, epoch = 0): Monitor => ({ scope, epoch, generation: -1, revision: -1, sequence: -1, timestampMs: 0,
   input: null, channels: [], status: 'waiting' });
+
+function validAudioInputPort(value: unknown): value is StudioAudioInputPort {
+  if (!value || typeof value !== 'object') return false;
+  const port = value as StudioAudioInputPort;
+  return [port.id, port.name, port.type].every(field => typeof field === 'string' && field.trim().length > 0 && field.length <= 512);
+}
+export function validStudioAudioInputState(value: unknown): value is StudioAudioInputState {
+  if (!value || typeof value !== 'object') return false;
+  const state = value as StudioAudioInputState;
+  return state.version === 1 && Array.isArray(state.available) && state.available.length <= 32
+    && state.available.every(validAudioInputPort) && new Set(state.available.map(port => port.id)).size === state.available.length
+    && (state.preferredId === null || typeof state.preferredId === 'string' && state.preferredId.length > 0 && state.preferredId.length <= 512)
+    && (state.current === null || validAudioInputPort(state.current)) && typeof state.confirmed === 'boolean'
+    && typeof state.selecting === 'boolean' && (!state.confirmed || state.current !== null)
+    && (state.warning === null || typeof state.warning === 'string' && state.warning.length <= 512);
+}
 
 /** Accept device observations only; a preference or a connected accessory is not an active input. */
 export function validStudioCaptureAudioEvent(value: unknown): value is StudioCaptureAudioEvent {
@@ -23,6 +40,7 @@ export function validStudioCaptureAudioEvent(value: unknown): value is StudioCap
     || event.ageMs !== null && (typeof event.ageMs !== 'number' || !Number.isFinite(event.ageMs) || event.ageMs < 0)
     || event.sampleRate !== null && (typeof event.sampleRate !== 'number' || !Number.isFinite(event.sampleRate) || event.sampleRate <= 0)
     || event.reason !== undefined && !['routeChanged', 'inputLost', 'interrupted', 'inactive', 'preparing', 'unavailable'].includes(event.reason)) return false;
+  if (event.audioInput !== undefined && !validStudioAudioInputState(event.audioInput)) return false;
   if (event.input !== null && (!event.input || !['id', 'name', 'type'].every(key =>
     typeof event.input?.[key as keyof NonNullable<StudioCaptureAudioEvent['input']>] === 'string'
       && event.input[key as keyof NonNullable<StudioCaptureAudioEvent['input']>].trim().length > 0))) return false;
@@ -63,12 +81,12 @@ export function useStudioCaptureAudioMonitor({ active, available, scopeKey, gene
       const lost = value.reason === 'inputLost';
       const warningUntil = lost ? now + 8000 : owned.warningUntil;
       const warning = lost ? 'Microfone desconectado. Confira a entrada.'
-        : warningUntil && warningUntil > now ? owned.message : undefined;
+        : value.audioInput?.warning || (warningUntil && warningUntil > now ? owned.message : undefined);
       const status: MonitorStatus = value.reason === 'unavailable' ? 'unavailable'
         : value.reason === 'interrupted' || value.reason === 'inactive' ? 'interrupted' : fresh ? 'live' : 'waiting';
       return { scope: scopeKey, epoch, generation: value.generation, revision: value.revision, sequence: value.sequence, timestampMs: value.timestampMs,
         input: value.active ? value.input : null, channels: fresh ? value.channels : [], status,
-        message: warning, warningUntil };
+        message: warning, warningUntil, audioInput: value.audioInput };
     });
   }, [scopeKey, epoch]);
   useEffect(() => {
@@ -79,7 +97,8 @@ export function useStudioCaptureAudioMonitor({ active, available, scopeKey, gene
       setMonitor(previous => {
         if (previous.scope !== scopeKey || previous.epoch !== epoch) return previous;
         if (previous.status === 'live' && now - previous.timestampMs > studioAudioFreshnessMs)
-          return { ...previous, input: null, channels: [], status: 'interrupted', message: 'Áudio sem leitura. Confira o microfone.' };
+          return { ...previous, input: null, channels: [], status: 'interrupted', message: 'Áudio sem leitura. Confira o microfone.',
+            ...(previous.audioInput ? { audioInput: { ...previous.audioInput, current: null, confirmed: false } } : {}) };
         if (previous.warningUntil && now >= previous.warningUntil && previous.status === 'live')
           return { ...previous, message: undefined, warningUntil: undefined };
         return previous;
@@ -91,5 +110,5 @@ export function useStudioCaptureAudioMonitor({ active, available, scopeKey, gene
     && (generation === undefined || monitor.generation >= generation) ? monitor : initial(scopeKey, epoch);
   return { input: current.input, channels: current.channels,
     status: available ? current.status : 'unavailable' as MonitorStatus,
-    message: available ? current.message : 'Atualize o app para identificar o microfone.', onAudioMonitor };
+    message: available ? current.message : 'Atualize o app para identificar o microfone.', audioInput: current.audioInput, onAudioMonitor };
 }

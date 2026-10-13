@@ -14,10 +14,21 @@ function compile(file,dependencies){
 function nativeHarness(options={}){
   const calls=[],recording=deferred(),data=new Map();let current=true;
   const state={position:'back',qualities:[{quality:'2160p',width:3840,height:2160,fps:[30]}],quality:'2160p',width:3840,height:2160,fps:30,isRecording:false,
-    minZoom:1,maxZoom:7.5,zoom:1,generation:2,proConfirmed:true,pro:{supportsExposure:true,iso:100,shutterSeconds:1/60}};
+    minZoom:1,maxZoom:7.5,zoom:1,generation:2,proConfirmed:true,pro:{supportsExposure:true,iso:100,shutterSeconds:1/60},
+    ...(options.audioState?{supportsAudioInputSelection:true,audioInput:structuredClone(options.audioState)}:{})};
   const native={getStudioNativeCameraCapabilitiesAsync:async()=>state,
     configureStudioNativeCameraAsync:async(tag,config)=>{calls.push({kind:'configure',tag,config});return state;},
     isStudioNativeCameraEffectsAvailable:()=>true,isStudioCompositionAvailable:()=>true,
+    isStudioNativeAudioInputSelectionAvailable:()=>options.audioSupport!==false,
+    setStudioNativeAudioInputAsync:async(tag,inputId)=>{
+      calls.push({kind:'audio-input',tag,inputId});
+      if(!state.audioInput)throw Error('Entradas indisponíveis');
+      const actual=state.audioInput.available.find(input=>input.id===(inputId??'builtin'));
+      if(!actual)throw Error('Microfone desconectado');
+      state.audioInput={...state.audioInput,selecting:true,confirmed:false};await options.audioGate?.();
+      state.audioInput={...state.audioInput,preferredId:inputId,current:options.wrongAudio?state.audioInput.available[0]:actual,selecting:false,confirmed:!options.failAudioAck};
+      return state;
+    },
     setStudioNativeCameraEffectAsync:async(tag,json)=>{calls.push({kind:'grade',tag,grade:JSON.parse(json)});if(options.failGrade?.())throw Error('Imagem recusada');state.imageGrade=JSON.parse(json);state.imageGradeConfirmed=true;return {previewProcessed:true,grade:state.imageGrade,generation:state.generation,effectRevision:1};},
     setStudioNativeCameraFocusAsync:async(tag,point)=>{calls.push({kind:'focus',tag,point});return {...state,supportsFocus:true,focusLocked:point.locked};},
     setStudioNativeCameraProSettingsAsync:async(tag,pro)=>{calls.push({kind:'pro',tag,pro});if(options.failPro?.())throw Error('Ajuste recusado');return state;},
@@ -44,7 +55,7 @@ function nativeHarness(options={}){
   });
   const session={id:'session',kind:'short',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
   const port=runtime.createRemoteNativePort('owner',session,()=>77,{isCurrent:()=>current});
-  return {runtime,port,session,calls,recording,invalidate:()=>{current=false;}};
+  return {runtime,port,session,state,calls,recording,invalidate:()=>{current=false;}};
 }
 test('pista remota é fornecida pelo mesmo native view, apenas vídeo; SDK não abre câmera ou microfone',async()=>{
   const h=nativeHarness();await h.port.port.configure(h.session.configuration);
@@ -104,4 +115,30 @@ test('ponto remoto usa imagem orientada; toque local usa view e não reenvia man
   const configured=(await h.port.port.snapshot()).configuration;assert.equal(configured.pro.focusPoint,undefined);assert.equal(configured.pro.autoFocus,true);assert.equal(configured.pro.lensPosition,undefined);
   await h.port.port.focus({x:.4,y:.6,locked:false});assert.deepEqual(h.calls.filter(x=>x.kind==='focus').at(-1).point,{x:.4,y:.6,locked:false});
   await assert.rejects(h.port.port.focus({x:Infinity,y:.5,locked:false}),/Toque/);await h.port.port.disconnect();
+});
+const audioState=()=>({version:1,available:[{id:'builtin',name:'Microfone do iPhone',type:'MicrophoneBuiltIn'},{id:'usb',name:'Microfone USB',type:'USBAudio'}],preferredId:null,current:{id:'builtin',name:'Microfone do iPhone',type:'MicrophoneBuiltIn'},confirmed:true,selecting:false,warning:null});
+test('microfone externo confirmado após câmera/grade persiste na configuração e não altera captura do master',async()=>{
+  const h=nativeHarness({audioState:audioState()});
+  const configured=await h.port.port.configure({...h.session.configuration,audioInputId:'usb'});
+  assert.ok(h.calls.findIndex(c=>c.kind==='audio-input')>h.calls.findIndex(c=>c.kind==='grade'));
+  assert.equal(configured.audioInput.current.id,'usb');assert.equal(configured.configuration.audioInputId,'usb');assert.equal(configured.capabilities.audioInputSelection,true);
+  const count=h.calls.filter(c=>c.kind==='configure').length;
+  const automatic=await h.port.port.selectAudioInput(null);
+  assert.equal(automatic.configuration.audioInputId,null);assert.equal(automatic.audioInput.current.id,'builtin');
+  assert.equal(h.calls.filter(c=>c.kind==='configure').length,count);assert.equal(h.calls.filter(c=>c.kind==='REC').length,0);
+});
+test('seleção pendente bloqueia REC e ACK de outro microfone não confirma a preferência',async()=>{
+  const gate=deferred(),h=nativeHarness({audioState:audioState(),audioGate:()=>gate.promise});await h.port.port.configure(h.session.configuration);
+  const selection=h.port.port.selectAudioInput('usb');await Promise.resolve();
+  assert.throws(()=>h.port.port.begin('take'),/Confirme o microfone/);assert.equal(h.calls.filter(c=>c.kind==='REC').length,0);
+  gate.resolve();await selection;
+  const wrong=nativeHarness({audioState:audioState(),wrongAudio:true});await wrong.port.port.configure(wrong.session.configuration);
+  await assert.rejects(wrong.port.port.selectAudioInput('usb'),/não confirmou/);assert.equal((await wrong.port.port.snapshot()).configuration.audioInputId,undefined);
+});
+test('microfone removido ou confirmação falha conserva configuração e não inventa entrada',async()=>{
+  const h=nativeHarness({audioState:audioState(),failAudioAck:true});await h.port.port.configure(h.session.configuration);
+  await assert.rejects(h.port.port.selectAudioInput('missing'),/desconectado/);
+  await assert.rejects(h.port.port.selectAudioInput('usb'),/não confirmou/);assert.throws(()=>h.port.port.begin('take'),/Confirme o microfone/);
+  assert.equal((await h.port.port.snapshot()).configuration.audioInputId,undefined);assert.equal(h.calls.filter(c=>c.kind==='REC').length,0);
+  h.invalidate();await assert.rejects(h.port.port.selectAudioInput(null),/stale/);
 });

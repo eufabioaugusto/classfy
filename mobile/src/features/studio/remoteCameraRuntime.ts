@@ -8,6 +8,7 @@ import {withLiveDeadline} from '@/features/live/request';
 import {configureStudioNativeCameraAsync,getStudioNativeCameraCapabilitiesAsync,getMediaInfoAsync,setStudioNativeCameraProSettingsAsync,setStudioNativeCameraZoomAsync,
   startStudioRemoteCameraRecordingAsync,stopStudioNativeCameraRecordingAsync,startStudioRemoteCameraPreviewAsync,stopStudioRemoteCameraPreviewAsync,
   setStudioNativeCameraFocusAsync,setStudioNativeCameraEffectAsync,isStudioNativeCameraEffectsAvailable,isStudioCompositionAvailable,
+  setStudioNativeAudioInputAsync,isStudioNativeAudioInputSelectionAvailable,
   type StudioCameraProSettings,type StudioCameraState} from '../../../modules/classfy-studio-media';
 import {createRemoteCameraController,type RemoteCameraNative} from './remoteCameraController';
 import {remoteCameraRequest,remoteCameraDiscoveryRequest,createRemoteUploadFetch,type RemoteCameraScope,assertRemoteCameraScope} from './remoteCameraApi';
@@ -18,7 +19,7 @@ import {studioGrade,validateStudioGrade,type StudioGrade} from './model';
 import {prepareRemoteCameraGradedMaster} from './remoteCameraGrade';
 import {decodeBase64Bytes} from './uploadTransport';
 import {uploadRemoteCameraOriginal} from './remoteCameraUpload';
-import type {StudioRemoteConfiguration,StudioRemoteDeviceState,StudioRemoteSession} from './remoteCameraProtocol';
+import type {StudioRemoteAudioInputState,StudioRemoteConfiguration,StudioRemoteDeviceState,StudioRemoteSession} from './remoteCameraProtocol';
 
 const resolutions={ '720p':'720p','1080p':'1080p','2k':'1440p','4k':'2160p'} as const;
 let remoteSDK:{client:typeof import('livekit-client');rtc:typeof import('@livekit/react-native-webrtc');native:typeof import('@livekit/react-native')}|null=null;
@@ -29,10 +30,11 @@ export const remoteDeviceState=(state:StudioCameraState,configuration?:StudioRem
   ...(configuration?{configuration}:{}),width:state.width,height:state.height,fps:state.fps||0,recording:state.isRecording,
   generation:state.generation,supportsFocus:state.supportsFocus,supportsFocusLock:state.supportsFocusLock,focusLocked:state.focusLocked,
   ...(state.imageGrade?{imageGrade:state.imageGrade}:{}),imageGradeConfirmed:state.imageGradeConfirmed,remoteGradeConfirmed:state.remoteGradeConfirmed,
+  ...(state.audioInput?{audioInput:state.audioInput}:{}),supportsAudioInputSelection:state.supportsAudioInputSelection===true&&isStudioNativeAudioInputSelectionAvailable(),
   pro:{...state.pro,supportsFocusPoint:state.supportsFocus===true,supportsFocusLock:state.supportsFocusLock===true,supportsZoom:Number.isFinite(state.minZoom)&&Number.isFinite(state.maxZoom)&&state.maxZoom>state.minZoom,
     minZoom:state.minZoom,maxZoom:state.maxZoom,zoom:state.zoom},
   capabilities:{resolutions:state.qualities.map(value=>resolution(value.quality)),frameRates:state.qualities.find(value=>value.quality===state.quality)?.fps||[],
-    supportsImageGrade:state.supportsImageGrade!==false&&isStudioNativeCameraEffectsAvailable()&&isStudioCompositionAvailable(),supportsFocus:state.supportsFocus,supportsFocusLock:state.supportsFocusLock,
+    audioInputSelection:state.supportsAudioInputSelection===true&&isStudioNativeAudioInputSelectionAvailable(),supportsImageGrade:state.supportsImageGrade!==false&&isStudioNativeCameraEffectsAvailable()&&isStudioCompositionAvailable(),supportsFocus:state.supportsFocus,supportsFocusLock:state.supportsFocusLock,
     qualityProfiles:state.qualities.map(value=>({resolution:resolution(value.quality),fps:value.fps,width:value.width,height:value.height})),supportsExposure:state.supportsExposure},
 });
 export async function remoteCameraDeviceId(owner:string){const key=`classfy:remote-camera:device:${owner}`;let id=await AsyncStorage.getItem(key);if(!id){id=randomUUID();await AsyncStorage.setItem(key,id);}return id;}
@@ -42,8 +44,12 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
   const waiting=new Map<string,{resolve:(time:number)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>;recovery?:string}>();
   let configuration=session.configuration;
   let configurationConfirmed=false,confirmedGrade:StudioGrade=studioGrade('natural');
-  const gradeState=(state:StudioCameraState)=>({...remoteDeviceState(state,configurationConfirmed?configuration:undefined),
-    imageGrade:state.imageGrade||confirmedGrade,imageGradeConfirmed:configurationConfirmed&&state.imageGradeConfirmed!==false&&(!room||state.remoteGradeConfirmed!==false),configurationConfirmed});
+  let selectingAudio=false,audioSelectionSupported=false,lastAudio:StudioRemoteAudioInputState|undefined;
+  const gradeState=(state:StudioCameraState)=>{
+    lastAudio=state.audioInput;audioSelectionSupported=state.supportsAudioInputSelection===true&&isStudioNativeAudioInputSelectionAvailable();
+    return {...remoteDeviceState(state,configurationConfirmed?configuration:undefined),
+      imageGrade:state.imageGrade||confirmedGrade,imageGradeConfirmed:configurationConfirmed&&state.imageGradeConfirmed!==false&&(!room||state.remoteGradeConfirmed!==false),configurationConfirmed};
+  };
   async function applyGrade(target:number,requested:StudioGrade){
     if(validateStudioGrade(requested).length)throw new Error('Escolha um tratamento de imagem válido.');
     if(!isStudioNativeCameraEffectsAvailable()||!isStudioCompositionAvailable()){
@@ -56,6 +62,11 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
   }
   const check=()=>{assertRemoteCameraScope(scope);if(disposed)throw new Error('A câmera foi desconectada.');};
   const tag=()=>{check();const value=getTag();if(!value)throw new Error('Aguarde a câmera preparar a imagem.');return value;};
+  function requireAudioInput(state:StudioCameraState,inputId:string|null){
+    const audio=state.audioInput;
+    if(!audio?.confirmed||audio.selecting||!audio.current||audio.preferredId!==inputId||inputId!==null&&audio.current.id!==inputId)
+      throw new Error(audio?.warning||'O iPhone não confirmou o microfone escolhido.');
+  }
   function rememberFocus(state:StudioCameraState){
     const pro:Record<string,unknown>={...configuration.pro,autoFocus:!state.focusLocked,autoExposure:!state.exposureLocked};
     delete pro.lensPosition;delete pro.iso;delete pro.shutterSeconds;
@@ -78,17 +89,34 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
           confirmed=await setStudioNativeCameraFocusAsync(target,{...point,imageCoordinates:true});check();
         }
         await applyGrade(target,next.imageGrade||studioGrade('natural'));
+        if(next.audioInputId!==undefined){
+          if(!isStudioNativeAudioInputSelectionAvailable())throw new Error('Atualize o app Classfy para escolher o microfone do iPhone.');
+          confirmed=await setStudioNativeAudioInputAsync(target,next.audioInputId);check();gradeState(confirmed);
+          requireAudioInput(confirmed,next.audioInputId);
+        }
         confirmed=await getStudioNativeCameraCapabilitiesAsync(target);check();
         if(confirmed.proConfirmed===false)throw new Error('Confirme os ajustes físicos antes de gravar.');
         const {focusPoint:_point,...durablePro}=next.pro||{};
         configuration={...next,imageGrade:confirmedGrade,...(next.pro?{pro:durablePro}:{})};if(focusPoint!==undefined)rememberFocus(confirmed);configurationConfirmed=true;return gradeState(confirmed);
       }catch(cause){configurationConfirmed=false;throw cause;}},
     async snapshot(){return {...gradeState(await getStudioNativeCameraCapabilitiesAsync(tag())),previewConnection:room?.state||'disconnected',...(getAudio?{audioMonitor:getAudio()}:{} )};},
+    async selectAudioInput(inputId){const target=tag();
+      if(!isStudioNativeAudioInputSelectionAvailable())throw new Error('Atualize o app Classfy para escolher o microfone do iPhone.');
+      if(inputId!==null&&(typeof inputId!=='string'||!inputId.trim()||inputId.length>256))throw new Error('Escolha uma entrada de áudio disponível no iPhone.');
+      if(selectingAudio)throw new Error('Aguarde o iPhone confirmar o microfone.');
+      selectingAudio=true;
+      try{
+        const confirmed=await setStudioNativeAudioInputAsync(target,inputId);check();gradeState(confirmed);
+        requireAudioInput(confirmed,inputId);
+        configuration={...configuration,audioInputId:inputId};return gradeState(confirmed);
+      }finally{selectingAudio=false;}
+    },
     async focus(point){const target=tag();
       if(![point.x,point.y].every(value=>Number.isFinite(value)&&value>=0&&value<=1)||typeof point.locked!=='boolean')throw new Error('Toque dentro da imagem para focar.');
       const focused=await setStudioNativeCameraFocusAsync(target,point);check();rememberFocus(focused);return gradeState(focused);},
     begin(takeId){const target=tag();
       if(!configurationConfirmed)throw new Error('Reconfirme os ajustes da câmera antes de iniciar o take.');
+      if(selectingAudio||audioSelectionSupported&&(!lastAudio?.confirmed||lastAudio.selecting||!lastAudio.current))throw new Error(lastAudio?.warning||'Confirme o microfone antes de gravar.');
       const started=new Promise<number>((resolve,reject)=>{const timer=setTimeout(()=>{waiting.delete(takeId);reject(new Error('A câmera não confirmou o início do take.'));void stopStudioNativeCameraRecordingAsync(target,takeId).catch(()=>undefined);},12000);waiting.set(takeId,{resolve,reject,timer});});
       void started.catch(()=>undefined);
       const finished=startStudioRemoteCameraRecordingAsync(target,takeId,owner,session.id).then(value=>({uri:value.uri}),async cause=>{

@@ -140,6 +140,41 @@ test('evento real do wrapper entrega microfone/mono e dBFS de silêncio sem grav
   } finally { h.unmount(); }
 });
 
+test('seletor mantém preferência separada da rota em uso e só apresenta receipt atual por conta', () => {
+  const h = harness(), builtIn = { id: 'qa-built-in-mic', name: 'Microfone do iPhone', type: 'MicrophoneBuiltIn' },
+    usb = { id: 'usb-real', name: 'Receptor USB', type: 'USBAudio' };
+  const selecting = { version: 1, available: [builtIn, usb], preferredId: usb.id, current: builtIn,
+    confirmed: false, selecting: true, warning: null };
+  try {
+    h.event({ audioInput: selecting });
+    assert.equal(h.value().input.id, builtIn.id); assert.deepEqual(h.value().audioInput, selecting);
+    h.event({ sequence: 2, input: usb, audioInput: { ...selecting, current: usb, confirmed: true, selecting: false } });
+    assert.equal(h.value().input.id, usb.id); assert.equal(h.value().audioInput.confirmed, true);
+    h.event({ sequence: 1, audioInput: selecting }); assert.equal(h.value().audioInput.current.id, usb.id);
+    h.event({ sequence: 3, audioInput: { ...selecting, selecting: false, warning: 'A entrada de áudio mudou no iPhone.' } });
+    assert.match(h.value().message, /entrada de áudio mudou/);
+    const old = h.value().onAudioMonitor;
+    h.update({ scopeKey: 'other-owner:project' }); old(h.payload({ sequence: 4, audioInput: selecting })); h.settle();
+    assert.equal(h.value().audioInput, undefined); assert.equal(h.value().input, null);
+    assert.deepEqual(h.commands, []);
+  } finally { h.unmount(); }
+});
+
+test('seletor inválido é rejeitado e receipt sem PCM atual não mantém confirmação após timeout', () => {
+  const h = harness(), usb = { id: 'usb-real', name: 'Receptor USB', type: 'USBAudio' },
+    selected = { version: 1, available: [usb], preferredId: usb.id, current: usb, confirmed: true, selecting: false, warning: null };
+  try {
+    for (const invalid of [{ ...selected, version: 2 }, { ...selected, available: [usb, usb] },
+      { ...selected, current: null }, { ...selected, selecting: 'yes' }, { ...selected, warning: {} }]) {
+      h.event({ audioInput: invalid }); assert.equal(h.value().audioInput, undefined); assert.deepEqual(h.value().channels, []);
+    }
+    h.event({ sequence: 2, input: usb, audioInput: selected }); assert.equal(h.value().audioInput.confirmed, true);
+    h.advance(2000); assert.equal(h.value().audioInput.confirmed, false); assert.equal(h.value().audioInput.current, null);
+    assert.deepEqual(h.value().channels, []);
+    h.update({ active: false }); assert.equal(h.value().audioInput, undefined);
+  } finally { h.unmount(); }
+});
+
 test('generation e sequence obsoletos não substituem a medição atual', () => {
   const h = harness();
   try {

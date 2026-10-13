@@ -2,9 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
-import { remoteCameraFocusPoint, remoteCameraMonitorLayout, remoteCameraQualityLabel } from './remoteCameraMonitorLayout.ts';
+import { remoteCameraFocusPoint, remoteCameraModalOrientations, remoteCameraMonitorLayout, remoteCameraQualityLabel } from './remoteCameraMonitorLayout.ts';
+import { remoteCameraAudioInputSelected, remoteCameraAudioInputState, remoteCameraAudioPortLabel } from './remoteCameraAudioPicker.ts';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
+const builtIn = { id: 'qa-built-in', name: 'Microfone do iPhone', type: 'MicrophoneBuiltIn' };
+const usb = { id: 'qa-usb', name: 'USB Audio', type: 'USBAudio' };
+const audioRoute = { version: 1, available: [builtIn, usb], preferredId: null, current: builtIn, confirmed: true, selecting: false, warning: null };
+const audioDevice = audioInput => ({ width: 3840, height: 2160, fps: 30, supportsFocus: true, supportsFocusLock: true, supportsAudioInputSelection: true, audioInput });
 function harness(patch = {}, options = {}) {
   const calls = [], slots = [], timers = new Map(); let cursor = 0, tree, dirty = false, effects = [], timerId = 0;
   const window = options.window || { width: 390, height: 844 }, insets = options.insets || { top: 47, left: 0, right: 0, bottom: 34 };
@@ -22,9 +27,10 @@ function harness(patch = {}, options = {}) {
   const dependencies = { react, 'react/jsx-runtime': { jsx, jsxs: jsx },
     'react-native': { ActivityIndicator: 'spinner', Modal: 'modal', Pressable: 'pressable', ScrollView: 'scroll', Text: 'text', View: 'view', useWindowDimensions: () => window, StyleSheet: { create: value => value, absoluteFill: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 } } },
     'react-native-safe-area-context': { useSafeAreaInsets: () => insets }, 'expo-status-bar': { StatusBar: 'status-bar' },
-    'lucide-react-native': Object.fromEntries(['Check', 'ChevronRight', 'CloudUpload', 'Monitor', 'MoreHorizontal', 'RotateCw', 'Unplug', 'X'].map(name => [name, 'icon'])),
+    'lucide-react-native': Object.fromEntries(['Check', 'ChevronRight', 'CloudUpload', 'Mic', 'Monitor', 'MoreHorizontal', 'RotateCw', 'Unplug', 'X'].map(name => [name, 'icon'])),
     './StudioCaptureAudioMonitor': { StudioCaptureAudioMonitor: 'audio-monitor' },
-    './remoteCameraMonitorLayout': { remoteCameraFocusPoint, remoteCameraMonitorLayout, remoteCameraQualityLabel },
+    './remoteCameraMonitorLayout': { remoteCameraFocusPoint, remoteCameraModalOrientations, remoteCameraMonitorLayout, remoteCameraQualityLabel },
+    './remoteCameraAudioPicker': { remoteCameraAudioInputSelected, remoteCameraAudioInputState, remoteCameraAudioPortLabel },
   };
   const code = ts.transpileModule(readFileSync(new URL('./StudioRemoteCameraMonitor.tsx', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   const module = { exports: {} };
@@ -36,12 +42,13 @@ function harness(patch = {}, options = {}) {
   function control(label) { return nodes('pressable').find(node => node.props.accessibilityLabel === label || node.props.testID === label); }
   const press = async label => { const node = control(label); assert.ok(node, `Missing ${label}`); assert.equal(!!node.props.disabled, false, `Disabled ${label}`); node.props.onPress?.(); await pump(); };
   render(); return { calls, nodes, control, pump, press, root: () => tree,
+    radio: label => nodes('pressable').find(node => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel.startsWith(label)),
     update: async patch => { props = { ...props, ...patch }; dirty = true; await pump(); },
     state: async patch => { props = { ...props, state: { ...props.state, ...patch } }; dirty = true; await pump(); },
     focus: async (x, y, locked = false) => { const node = control('remote-camera-focus-surface'); assert.ok(node); const event = { nativeEvent: { locationX: x, locationY: y } }; node.props.onPressIn(); if (locked) node.props.onLongPress(event); node.props.onPress(event); await pump(); },
     runTimers: async () => { for (const [id, callback] of [...timers]) { timers.delete(id); callback(); } await pump(); },
     text: () => nodes('text').map(node => Array.isArray(node.props.children) ? node.props.children.join('') : String(node.props.children)).join(' '),
-    unmount: () => slots.forEach(slot => slot?.cleanup?.()),
+    unmount: () => { slots.forEach(slot => slot?.cleanup?.()); tree = null; dirty = false; },
   };
 }
 
@@ -52,7 +59,7 @@ test('monitor deixa cena livre: ações em sheet fechado, qualidade real e áudi
       const target = h.control(label).props.style; assert.ok(target.width >= 44 && target.height >= 44, label);
     }
     const audio = h.nodes('audio-monitor')[0]; assert.equal(audio.props.compact, true);
-    const corner = h.nodes('view').find(node => node.props.children?.at?.(-1) === audio);
+    const corner = h.nodes('view').find(node => node.props.testID === 'remote-camera-audio-corner');
     assert.deepEqual(corner.props.style[1], { left: 16, bottom: 44, width: 180 });
     await h.press('Opções da câmera remota'); assert.equal(h.nodes('modal').length, 1); assert.equal(h.nodes('modal')[0].props.children.props.children[1].props.accessibilityViewIsModal, true);
     for (const label of ['Enviar original', 'Reconectar prévia', 'Desvincular computador']) {
@@ -117,4 +124,59 @@ test('layout retrato/paisagem respeita notch, áudio, botão parar e sheet posit
   assert.equal(remoteCameraQualityLabel(3840, 2160), '4K'); assert.equal(remoteCameraQualityLabel(2160, 3840), '4K'); assert.equal(remoteCameraQualityLabel(2560, 1440), '2K'); assert.equal(remoteCameraQualityLabel(1920, 1080), 'HD'); assert.equal(remoteCameraQualityLabel(), '—');
   assert.deepEqual(remoteCameraFocusPoint({ x: 422, y: 195 }, { width: 844, height: 390 }, { width: 2160, height: 3840 }, false), { x: .5, y: .5, locked: false });
   assert.equal(remoteCameraFocusPoint({ x: 10, y: 195 }, { width: 844, height: 390 }, { width: 2160, height: 3840 }, false), null);
+});
+
+test('todos os modals suportam máscara da câmera em retrato/landscape e fechamento próprio', async () => {
+  for (const window of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+    const h = harness({ state: { phase: 'ready', state: audioDevice(audioRoute), previewConnected: true, takeCount: 0 }, onAudioSelect: async () => audioRoute }, { window });
+    try { await h.press('Opções da câmera remota'); let modal = h.nodes('modal')[0];
+      assert.deepEqual(modal.props.supportedOrientations, ['portrait', 'landscape-left', 'landscape-right']); assert.equal(modal.props.presentationStyle, 'overFullScreen');
+      modal.props.onRequestClose(); await h.pump(); assert.equal(h.nodes('modal').length, 0);
+      await h.press('remote-camera-audio-selector'); modal = h.nodes('modal')[0]; assert.deepEqual(modal.props.supportedOrientations, remoteCameraModalOrientations);
+      assert.equal(modal.props.presentationStyle, 'overFullScreen'); modal.props.onRequestClose(); await h.pump(); assert.equal(h.nodes('modal').length, 0);
+    } finally { h.unmount(); }
+  }
+});
+
+test('barra abre inputs reais; seleção é single-flight e o check segue apenas snapshot confirmado', async () => {
+  const gate = deferred(), calls = [], h = harness({ state: { phase: 'ready', state: audioDevice(audioRoute), previewConnected: true, takeCount: 0 },
+    onAudioSelect: id => { calls.push(id); return gate.promise; } });
+  try { await h.press('remote-camera-audio-selector'); assert.equal(h.radio('Automático.').props.accessibilityState.selected, true); assert.equal(h.radio('USB Audio.').props.accessibilityState.selected, false);
+    assert.ok(h.text().includes('Em uso: Microfone do iPhone')); const row = h.radio('USB Audio.'); assert.ok(row.props.style({ pressed: false })[0].minHeight >= 44);
+    row.props.onPress(); row.props.onPress(); await h.pump(); assert.deepEqual(calls, [usb.id]); assert.equal(h.radio('USB Audio.').props.accessibilityState.busy, true);
+    assert.equal(h.radio('USB Audio.').props.accessibilityState.selected, false); assert.equal(h.radio('Automático.').props.disabled, true);
+    const confirmed = { ...audioRoute, preferredId: usb.id, current: usb, confirmed: true };
+    gate.resolve(confirmed); await h.pump(); assert.equal(h.radio('USB Audio.').props.accessibilityState.selected, false, 'promise alone must not invent subscribed route');
+    await h.state({ state: audioDevice(confirmed) }); assert.equal(h.radio('USB Audio.').props.accessibilityState.selected, true); assert.equal(h.radio('Automático.').props.accessibilityState.selected, false);
+    assert.ok(h.text().includes('Em uso: USB Audio')); assert.equal(h.radio('USB Audio.').props.disabled, false);
+  } finally { h.unmount(); }
+});
+
+test('lista do picker acompanha desconexão real e falha de troca não indica microfone confirmado', async () => {
+  const missing = { ...audioRoute, available: [builtIn], preferredId: null, warning: 'Microfone USB desconectado.' }, h = harness({ state: { phase: 'ready', state: audioDevice(audioRoute), previewConnected: true, takeCount: 0 },
+    onAudioSelect: async () => ({ ...audioRoute, preferredId: usb.id, confirmed: false, warning: 'O iPhone manteve a entrada anterior.' }) });
+  try { await h.press('remote-camera-audio-selector'); h.radio('USB Audio.').props.onPress(); await h.pump(); assert.ok(h.text().includes('O iPhone manteve a entrada anterior.'));
+    assert.equal(h.radio('USB Audio.').props.accessibilityState.selected, false); await h.state({ state: audioDevice(missing) }); assert.equal(h.radio('USB Audio.'), undefined); assert.ok(h.text().includes('Microfone USB desconectado.'));
+    assert.equal(h.radio('Automático.').props.accessibilityState.selected, true);
+  } finally { h.unmount(); }
+});
+
+test('REC/saving/processing fecham picker e bloqueiam mudança sem esconder monitor ou Parar', async () => {
+  const calls = [], h = harness({ state: { phase: 'ready', state: audioDevice(audioRoute), previewConnected: true, takeCount: 0 }, onAudioSelect: async id => { calls.push(id); return audioRoute; } });
+  try { for (const patch of [{ phase: 'starting' }, { phase: 'recording' }, { phase: 'saving' }, { phase: 'ready', processing: true }]) {
+      await h.state({ phase: 'ready', processing: false }); await h.press('remote-camera-audio-selector'); assert.equal(h.nodes('modal').length, 1); await h.state(patch);
+      assert.equal(h.nodes('modal').length, 0); assert.equal(h.control('remote-camera-audio-selector').props.disabled, true); assert.equal(h.nodes('audio-monitor').length, 1);
+      if (patch.phase !== 'ready') assert.ok(h.control('Encerrar e salvar take')); assert.deepEqual(calls, []);
+    }
+  } finally { h.unmount(); }
+});
+
+test('troca de sessão/blur/REC e unmount rejeitam erro ou ACK tardio de input', async () => {
+  for (const change of ['session', 'active', 'recording', 'processing', 'unmount']) {
+    const gate = deferred(), h = harness({ state: { phase: 'ready', state: audioDevice(audioRoute), previewConnected: true, takeCount: 0 }, onAudioSelect: () => gate.promise });
+    await h.press('remote-camera-audio-selector'); h.radio('USB Audio.').props.onPress(); await h.pump();
+    if (change === 'session') await h.update({ captureScope: 'owner:other-session' }); else if (change === 'active') await h.update({ active: false });
+    else if (change === 'recording') await h.state({ phase: 'recording' }); else if (change === 'processing') await h.state({ processing: true }); else h.unmount();
+    gate.reject(Error('Erro de uma conexão antiga.')); await h.pump(); assert.equal(h.text().includes('Erro de uma conexão antiga.'), false, change); assert.equal(h.nodes('modal').length, 0, change); h.unmount();
+  }
 });

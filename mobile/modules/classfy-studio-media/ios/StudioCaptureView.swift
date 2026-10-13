@@ -300,6 +300,15 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   func configure(_ configuration: StudioCaptureConfiguration, completion: @escaping StudioCaptureSession.Completion) {
     capture.configure(configuration, completion: completion)
   }
+  func setAudioInput(_ inputId: String?, completion: @escaping StudioCaptureSession.Completion) {
+    guard requestedActive, !inBackground, window != nil else {
+      completion(.failure(StudioCaptureAudioInputError.inactive)); return
+    }
+    guard !recordingEffectLocked, pendingEffect == nil else {
+      completion(.failure(StudioCaptureAudioInputError.busy)); return
+    }
+    capture.setAudioInput(inputId, completion: completion)
+  }
   func startRecording(_ operationId: String, completion: @escaping StudioCaptureSession.Completion) {
     startOwnedRecording(operationId, durableOwner: nil, durableSession: nil, completion: completion)
   }

@@ -1,3 +1,8 @@
+import type { ModalProps } from 'react-native';
+
+/** Native modal masks must intersect the orientation of the locked camera. */
+export const remoteCameraModalOrientations: NonNullable<ModalProps['supportedOrientations']> = ['portrait', 'landscape-left', 'landscape-right'];
+
 export type RemoteCameraFocusPoint = { x: number; y: number; locked: boolean };
 export type RemoteCameraMonitorSize = { width: number; height: number };
 

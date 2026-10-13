@@ -35,6 +35,9 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   private let movie = AVCaptureMovieFileOutput()
   private let audioFrames = AVCaptureAudioDataOutput()
   private let audioMonitor = StudioCaptureAudioMonitor()
+  private let audioInputSelection = StudioCaptureAudioInputSelection()
+  private var pendingAudioInput: (request: StudioCaptureAudioInputSelection.Request, previousId: String?, completion: Completion)?
+  private var audioInputTimeout: DispatchWorkItem?
   private lazy var speech = StudioCaptureSpeech(queue: audioQueue)
   private var speechEnabled = false
   private var speechSessionId = ""
@@ -132,6 +135,8 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
           self.startAudioMonitor()
         } catch { self.emit("onError", ["code": "E_STUDIO_CAPTURE", "message": error.localizedDescription]) }
       } else {
+        self.failAudioInputSelection(StudioCaptureAudioInputError.cancelled, restore: false)
+        self.audioInputSelection.invalidate()
         self.stopAudioMonitor(reason: "inactive")
         self.invalidateFrames()
         if let operation = self.operation {
@@ -167,6 +172,8 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     queue.async {
       guard !self.disposed else { return }
       self.disposed = true; self.active = false
+      self.failAudioInputSelection(StudioCaptureAudioInputError.cancelled, restore: false)
+      self.audioInputSelection.invalidate()
       self.stopAudioMonitor(reason: "inactive")
       self.invalidateFrames()
       if let operation = self.operation { self.stopOwned(operation) }
@@ -179,6 +186,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     frames.setSampleBufferDelegate(nil, queue: nil)
     audioFrames.setSampleBufferDelegate(nil, queue: nil)
     audioTimer?.cancel(); audioTimer = nil
+    audioInputTimeout?.cancel(); audioInputTimeout = nil
     metadata.setMetadataObjectsDelegate(nil, queue: nil)
     pressureObservation?.invalidate(); pressureObservation = nil
     observers.forEach { NotificationCenter.default.removeObserver($0) }; observers.removeAll()
@@ -211,7 +219,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     queue.async {
       do {
         guard self.active, !self.disposed else { throw StudioCaptureError.unavailable("Abra a câmera para escolher a qualidade.") }
-        guard self.operation == nil, !self.proControlPending else { throw StudioCaptureError.busy }
+        guard self.operation == nil, !self.proControlPending, self.pendingAudioInput == nil else { throw StudioCaptureError.busy }
         try self.requirePermissions()
         try self.applyConfiguration(request)
         if !self.session.isRunning { self.session.startRunning() }
@@ -221,6 +229,68 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         completion(.success(state))
       } catch { completion(.failure(error)) }
     }
+  }
+
+  /// Uses the active capture audio session; does not open another microphone or
+  /// change the application's category, mode, output route, or audio engine.
+  func setAudioInput(_ inputId: String?, completion: @escaping Completion) {
+    queue.async {
+      do {
+        guard self.active, !self.disposed, self.session.isRunning, !self.session.isInterrupted,
+          self.audioInputSelectionSupported else { throw StudioCaptureAudioInputError.inactive }
+        guard self.operation == nil, !self.proControlPending, self.pendingAudioInput == nil else {
+          throw StudioCaptureAudioInputError.busy
+        }
+        self.observeAudioInput()
+        let audio = AVAudioSession.sharedInstance()
+        let previousId = audio.preferredInput?.uid
+        let request = try self.audioInputSelection.begin(inputId: inputId, now: StudioCaptureAudioMonitor.now())
+        self.pendingAudioInput = (request, previousId, completion)
+        do {
+          let port = inputId.flatMap { id in audio.availableInputs?.first(where: { $0.uid == id }) }
+          if inputId != nil && port == nil { throw StudioCaptureAudioInputError.unavailable }
+          try audio.setPreferredInput(port)
+          // Even an unchanged route needs PCM recorded after this request.
+          self.revision += 1
+          self.refreshAudioMonitor(reason: "preparing")
+          self.observeAudioInput()
+          self.emitState()
+          let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.pendingAudioInput?.request.id == request.id else { return }
+            self.failAudioInputSelection(StudioCaptureAudioInputError.timeout, restore: true)
+          }
+          self.audioInputTimeout = timeout
+          self.queue.asyncAfter(deadline: .now() + 3, execute: timeout)
+        } catch { self.failAudioInputSelection(error, restore: true) }
+      } catch { completion(.failure(error)) }
+    }
+  }
+
+  private var audioInputSelectionSupported: Bool {
+    if #available(iOS 16.0, *) { return configured && audioMonitoringAvailable && session.usesApplicationAudioSession }
+    return false
+  }
+
+  private func observeAudioInput(reason: String? = nil) {
+    let audio = AVAudioSession.sharedInstance()
+    let ports = (audio.availableInputs ?? []).map { StudioCaptureAudioInputPort(id: $0.uid, name: $0.portName, type: $0.portType.rawValue) }
+    let current = audio.currentRoute.inputs.first.map { StudioCaptureAudioInputPort(id: $0.uid, name: $0.portName, type: $0.portType.rawValue) }
+    audioInputSelection.observe(available: ports, current: current, preferredId: audio.preferredInput?.uid,
+      active: active && !disposed && session.isRunning && !session.isInterrupted,
+      generation: generation, now: StudioCaptureAudioMonitor.now(), reason: reason)
+  }
+
+  private func failAudioInputSelection(_ error: Error, restore: Bool) {
+    guard let pending = pendingAudioInput else { return }
+    pendingAudioInput = nil; audioInputTimeout?.cancel(); audioInputTimeout = nil
+    _ = audioInputSelection.fail(pending.request.id, error: error)
+    // A late callback must never change the route owned by another screen.
+    if restore, active, !disposed, generation == pending.request.generation, operation == nil {
+      let audio = AVAudioSession.sharedInstance()
+      let previous = pending.previousId.flatMap { id in audio.availableInputs?.first(where: { $0.uid == id }) }
+      try? audio.setPreferredInput(previous)
+    }
+    observeAudioInput(); emitState(); pending.completion(.failure(error))
   }
 
   private func captureOrientation(_ value: String) throws -> AVCaptureVideoOrientation {
@@ -446,6 +516,9 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   private func snapshot() throws -> [String: Any] {
     var state = try controls.snapshot(session)
+    observeAudioInput()
+    state["supportsAudioInputSelection"] = audioInputSelectionSupported
+    state["audioInput"] = audioInputSelection.snapshot(now: StudioCaptureAudioMonitor.now())
     state["proConfirmed"] = !proUnconfirmed && !proControlPending
     if let device = videoInput?.device {
       let source = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
@@ -495,8 +568,12 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         guard self.active, !self.disposed, self.session.isRunning, !self.session.isInterrupted else {
           throw StudioCaptureError.unavailable("A câmera foi interrompida. Abra o Studio novamente para gravar.")
         }
-        guard self.operation == nil, !self.proControlPending else { throw StudioCaptureError.busy }
+        guard self.operation == nil, !self.proControlPending, self.pendingAudioInput == nil else { throw StudioCaptureError.busy }
         guard !self.proUnconfirmed else { throw StudioCaptureError.unavailable("Confirme os ajustes PRO ou retorne ao automático antes de gravar.") }
+        self.observeAudioInput()
+        if self.audioInputSelection.hasSelection && !self.audioInputSelection.confirmed(now: StudioCaptureAudioMonitor.now()) {
+          throw StudioCaptureError.unavailable("Confirme o microfone em uso no iPhone ou escolha Automático antes de gravar.")
+        }
         guard !operationId.isEmpty, operationId.count <= 128 else { throw StudioCaptureError.invalid("A identificação do take é inválida.") }
         try self.requirePermissions()
         let durable = durableOwner != nil || durableSession != nil
@@ -754,16 +831,20 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         // only the shared capture output after it has resumed.
         self.refreshSpeech(forceInactive: true)
         self.refreshAudioMonitor(reason: lost ? "inputLost" : "routeChanged")
+        self.observeAudioInput(reason: lost ? "inputLost" : "routeChanged")
         self.refreshSpeech()
         // Audio samples can arrive between reset and snapshot. The route-loss
         // notice must still be delivered even if the new input is already live.
         self.emitAudioMonitor(reason: lost ? "inputLost" : "routeChanged")
+        self.emitState()
       }
     })
     observers.append(center.addObserver(forName: .AVCaptureSessionWasInterrupted, object: session, queue: nil) { [weak self] notice in
       let reason = (notice.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue ?? 0
       self?.queue.async { [weak self] in
         guard let self else { return }
+        self.failAudioInputSelection(StudioCaptureAudioInputError.cancelled, restore: false)
+        self.audioInputSelection.invalidate()
         self.stopAudioMonitor(reason: "interrupted")
         if let operation = self.operation { self.stopOwned(operation) }
         self.emit("onInterruption", ["reason": reason, "message": "A gravação foi interrompida. Estamos finalizando o take para recuperação."])
@@ -779,6 +860,8 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       let error = notice.userInfo?[AVCaptureSessionErrorKey] as? Error
       self?.queue.async { [weak self] in
         guard let self else { return }
+        self.failAudioInputSelection(StudioCaptureAudioInputError.cancelled, restore: false)
+        self.audioInputSelection.invalidate()
         self.stopAudioMonitor(reason: "interrupted")
         if let operation = self.operation { self.stopOwned(operation) }
         self.emit("onError", ["code": "E_STUDIO_CAPTURE_RUNTIME", "message": error?.localizedDescription ?? "A câmera foi interrompida."])
@@ -798,8 +881,30 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   }
 
   private func emitAudioMonitor(reason: String? = nil) {
-    var value = audioMonitor.snapshot()
+    // Keep the age and its host-clock origin together. Reading a later clock
+    // after route observation would incorrectly move an old PCM sample ahead.
+    let sampleSnapshotNow = StudioCaptureAudioMonitor.now()
+    var value = audioMonitor.snapshot(now: sampleSnapshotNow)
     if let reason { value["reason"] = reason }
+    observeAudioInput(reason: reason)
+    let now = StudioCaptureAudioMonitor.now()
+    if value["active"] as? Bool == true, value["generation"] as? Int == generation,
+      let input = value["input"] as? [String: String], let id = input["id"],
+      let age = value["ageMs"] as? Double, age.isFinite, age >= 0 {
+      _ = audioInputSelection.receivePCM(inputId: id, generation: generation, hostPTS: sampleSnapshotNow - age / 1000, now: now)
+    }
+    if let pending = pendingAudioInput, audioInputSelection.finish(pending.request.id, now: now) {
+      pendingAudioInput = nil; audioInputTimeout?.cancel(); audioInputTimeout = nil
+      do {
+        let state = try snapshot()
+        // USB can disappear between the PCM receipt and the snapshot. Never
+        // resolve success with a route that is already unconfirmed.
+        guard audioInputSelection.confirmed(now: StudioCaptureAudioMonitor.now()) else { throw StudioCaptureAudioInputError.unavailable }
+        emit("onState", state); pending.completion(.success(state))
+      }
+      catch { pending.completion(.failure(error)) }
+    }
+    value["audioInput"] = audioInputSelection.snapshot(now: now)
     emit("onAudioMonitor", value)
   }
 

@@ -8,6 +8,12 @@ export type StudioRemoteConfiguration = {
   cameraFacing: 'front' | 'back';
   pro?: Record<string, unknown>;
   imageGrade?: StudioGrade;
+  audioInputId?: string | null;
+};
+export type StudioRemoteAudioInputState = {
+  version: 1; available: {id:string;name:string;type:string}[];
+  preferredId: string | null; current: {id:string;name:string;type:string} | null;
+  confirmed: boolean; selecting: boolean; warning: string | null;
 };
 export type StudioRemoteMetadata = {
   bytes: number; mime: string; width: number; height: number; fps: number; duration: number;
@@ -18,6 +24,7 @@ export type StudioRemoteDeviceState = {
   width?: number; height?: number; fps?: number;
   recording?: boolean; deviceName?: string;
   capabilities?: Record<string, unknown>; pro?: Record<string, unknown>;
+  audioInput?: StudioRemoteAudioInputState; supportsAudioInputSelection?: boolean;
   error?: string | null;
   [key: string]: unknown;
 };

@@ -103,7 +103,7 @@ export default function StudioRemoteCameraScreen(){
   function nativeReady(){const current=controller.current,session=current?.getSnapshot().session;if(!current||!session||port.current)return;
     const epoch=lifecycle.current.epoch,owner=user?.id;if(!owner)return;
     const value=createRemoteNativePort(owner,session,()=>findNodeHandle(nativeRef.current),{isCurrent:()=>lifecycle.current.mounted&&lifecycle.current.owner===owner&&lifecycle.current.epoch===epoch&&lifecycle.current.foreground&&lifecycle.current.focused},()=>({
-      status:audioRef.current.status,input:audioRef.current.input?{name:audioRef.current.input.name,type:audioRef.current.input.type}:null,channels:audioRef.current.channels,
+      status:audioRef.current.status,input:audioRef.current.input?{id:audioRef.current.input.id,name:audioRef.current.input.name,type:audioRef.current.input.type}:null,channels:audioRef.current.channels,
     }));
     port.current=value;void current.cameraReady(value.port);
   }
@@ -124,7 +124,11 @@ export default function StudioRemoteCameraScreen(){
     onReconnect={()=>{setFailure('');void controller.current?.reconnectPreview().catch(cause=>setFailure(cause.message));}}
     onUnpair={()=>setConfirmUnpair(true)} onFocus={async point=>{
       const current=controller.current;if(!current)throw new Error('Aguarde a câmera preparar o foco.');return current.focusLocal(point);
-    }} onFocusError={setFailure}>
+    }} onFocusError={setFailure} onAudioSelect={async inputId=>{
+      const current=controller.current;if(!current)throw new Error('Aguarde a câmera preparar o microfone.');
+      const selected=await current.selectAudioInput(inputId);
+      if(!selected.audioInput)throw new Error('O iPhone não confirmou a entrada de áudio.');return selected.audioInput;
+    }}>
       {NativeCamera&&cameraActive?<NativeCamera ref={nativeRef} active style={s.camera}
         onReady={nativeReady} onState={()=>{}} onInterruption={(event:{nativeEvent?:{message?:string}})=>{if(event.nativeEvent?.message)setFailure(event.nativeEvent.message);}} onError={(event:{nativeEvent?:{message?:string}})=>setFailure(event.nativeEvent?.message||'A câmera foi interrompida.')}
         onAudioMonitor={(event:{nativeEvent:StudioCaptureAudioEvent})=>audioMonitor.onAudioMonitor(event.nativeEvent)}
@@ -147,7 +151,7 @@ export default function StudioRemoteCameraScreen(){
       {error?<Text accessibilityLiveRegion="polite" style={s.error}>{error}</Text>:null}
       <Text style={s.hint}>{state.phase==='unpaired'?'Leia o QR para vincular este iPhone ao computador. Seus originais continuam preservados.':'O vínculo fica salvo na sua conta. Fechar a câmera pausa a sessão; desvincular exige um novo QR.'}</Text>
     </View></AppScreen>}
-    <Modal transparent visible={confirmUnpair} animationType="fade" onRequestClose={()=>{if(!unpairing)setConfirmUnpair(false);}}>
+    <Modal transparent visible={confirmUnpair} animationType="fade" presentationStyle="overFullScreen" supportedOrientations={['portrait','landscape-left','landscape-right']} onRequestClose={()=>{if(!unpairing)setConfirmUnpair(false);}}>
       <View style={s.dialogBackdrop}><View accessibilityViewIsModal style={s.dialog}>
         <View style={s.dialogHeader}><Text style={s.dialogTitle}>Desvincular computador?</Text><Pressable accessibilityLabel="Fechar confirmação" disabled={unpairing} onPress={()=>setConfirmUnpair(false)} style={s.close}><X size={20} color={colors.text}/></Pressable></View>
         <Text style={s.hint}>Para usar este computador novamente, será necessário ler outro QR. Seus projetos e originais permanecem salvos.</Text>

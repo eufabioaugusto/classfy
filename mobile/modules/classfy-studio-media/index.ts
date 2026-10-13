@@ -27,6 +27,11 @@ export type StudioCameraProState = {
 };
 export type StudioCameraFPS = 24 | 30 | 60;
 export type StudioRemotePreviewDescriptor = { streamId: string; streamReactTag: string; tracks: { id: string; kind: 'video'; remote: false; enabled: boolean; readyState: 'live'; peerConnectionId: number; constraints: object; settings: object }[] };
+export type StudioAudioInputPort = { id: string; name: string; type: string };
+export type StudioAudioInputState = {
+  version: 1; available: StudioAudioInputPort[]; preferredId: string | null;
+  current: StudioAudioInputPort | null; confirmed: boolean; selecting: boolean; warning: string | null;
+};
 export type StudioCameraState = {
   deviceId: string;
   position: 'front' | 'back' | 'unspecified';
@@ -55,6 +60,7 @@ export type StudioCameraState = {
   generation?: number; revision?: number; phase?: string;
   supportsImageGrade?: boolean; imageGrade?: StudioGrade; imageGradeConfirmed?: boolean; remoteGradeConfirmed?: boolean;
   supportsCinematicCapture?: boolean; cinematic?: boolean; cinematicUnavailableReason?: string; previewProcessed?: boolean;
+  supportsAudioInputSelection?: boolean; audioInput?: StudioAudioInputState;
 };
 export type StudioExportOptions = {
   requestId: string;
@@ -76,6 +82,8 @@ declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
   getStudioNativeCameraSpeechVersionAsync?(): Promise<{ version: number; available: boolean; onDeviceOnly: boolean }>;
   requestStudioCaptureSpeechPermissionAsync?(): Promise<{ granted: boolean; canAskAgain: boolean }>;
   getStudioNativeCameraAudioMonitorVersionAsync?(): Promise<{ version: number; available: boolean }>;
+  getStudioNativeAudioInputSelectionVersionAsync?(): Promise<{ version: number; available: boolean }>;
+  setStudioNativeAudioInputAsync?(tag: number, inputId: string | null): Promise<StudioCameraState>;
   getStudioEditorCapabilitiesAsync?(): Promise<{ version: number; available: boolean }>;
   renderStudioRecipeThumbnailAsync?(recipeJSON: string, outputUri: string, seconds: number): Promise<{ uri: string; width: number; height: number; seconds: number }>;
   getStudioExportCapabilitiesAsync?(): Promise<StudioExportCapabilities>;
@@ -221,6 +229,24 @@ export function isStudioNativeCameraEffectsAvailable() {
 export function isStudioNativeCameraAudioMonitorAvailable() {
   return isStudioNativeCameraAvailable() && typeof native?.getStudioNativeCameraAudioMonitorVersionAsync === 'function';
 }
+export function isStudioNativeAudioInputSelectionAvailable() {
+  return isStudioNativeCameraAvailable() && typeof native?.getStudioNativeAudioInputSelectionVersionAsync === 'function'
+    && typeof native?.setStudioNativeAudioInputAsync === 'function';
+}
+export async function getStudioNativeAudioInputSelectionVersionAsync() {
+  if (!isStudioNativeAudioInputSelectionAvailable()) return { version: 0, available: false };
+  const value = await native!.getStudioNativeAudioInputSelectionVersionAsync!();
+  return { version: value.version, available: value.version === 1 && value.available === true };
+}
+export async function setStudioNativeAudioInputAsync(tag: number, inputId: string | null): Promise<StudioCameraState> {
+  if (!isStudioNativeAudioInputSelectionAvailable() || !(await getStudioNativeAudioInputSelectionVersionAsync()).available) {
+    throw new Error('Atualize o Classfy Dev para escolher o microfone do iPhone.');
+  }
+  if (inputId !== null && (typeof inputId !== 'string' || !inputId.length || inputId.length > 512)) {
+    throw new Error('Escolha uma entrada de áudio disponível no iPhone.');
+  }
+  return native!.setStudioNativeAudioInputAsync!(tag, inputId);
+}
 export function isStudioNativeCameraSpeechAvailable() {
   return isStudioNativeCameraAvailable() && typeof native?.getStudioNativeCameraSpeechVersionAsync === 'function'
     && typeof native?.requestStudioCaptureSpeechPermissionAsync === 'function';
@@ -241,6 +267,7 @@ export type StudioCaptureAudioEvent = {
   input: { id: string; name: string; type: string } | null;
   channels: { averageDb: number; peakDb: number }[];
   sampleRate: number | null; channelCount: number; ageMs: number | null;
+  audioInput?: StudioAudioInputState;
   reason?: 'routeChanged' | 'inputLost' | 'interrupted' | 'inactive' | 'preparing' | 'unavailable';
 };
 export type StudioNativeCameraEffectAck = { effectRevision: number; previewProcessed: boolean; grade: StudioGrade; generation: number };

@@ -183,6 +183,13 @@ public final class ClassfyStudioMediaModule: Module {
       if #available(iOS 16.0, *) { return ["version": 1, "available": true] }
       return ["version": 1, "available": false]
     }
+    AsyncFunction("getStudioNativeAudioInputSelectionVersionAsync") { () -> [String: Any] in
+      if #available(iOS 16.0, *) { return ["version": 1, "available": true] }
+      return ["version": 1, "available": false]
+    }
+    AsyncFunction("setStudioNativeAudioInputAsync") { (tag: Int, inputId: String?, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.setAudioInput(inputId) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
     AsyncFunction("getStudioNativeCameraSpeechVersionAsync") { () -> [String: Any] in
       ["version": 1, "available": true, "onDeviceOnly": true]
     }
