@@ -7,7 +7,9 @@ export function duplicateStudioLayer(editing: StudioEditing, id: string, duplica
   if (!item) throw new Error('Este elemento não está mais na montagem.');
   const copy = { ...item, id: duplicateId, ...(item.rect ? { rect: { ...item.rect } } : {}),
     ...(item.text ? { text: { ...item.text, ...(item.text.gradientColors ? { gradientColors: [...item.text.gradientColors] as [string, string] } : {}) } } : {}), ...(item.anchor ? { anchor: { ...item.anchor } } : {}),
-    ...(item.grade ? { grade: { ...item.grade } } : {}) };
+    ...(item.grade ? { grade: { ...item.grade } } : {}),
+    ...(item.enhancement ? { enhancement: { ...item.enhancement } } : {}),
+    ...(item.portrait ? { portrait: { ...item.portrait } } : {}) };
   return addStudioLayerItem(editing, copy, `layer:item:${duplicateId}`);
 }
 

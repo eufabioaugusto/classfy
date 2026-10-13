@@ -1,16 +1,17 @@
 import {
   addStudioLayerItem, applyStudioLayerTimelineRange, compileStudioRecipe, createStudioEditingHistory, createStudioTextItem,
   deriveStudioTakes, duplicateStudioLayer, duplicateStudioTake, locateStudioTime, moveStudioLayerItemToLane, moveStudioTake,
-  patchStudioClipGrade, patchStudioClipProperties, patchStudioLayerItem, reconcileStudioTakes, removeStudioLayerItem,
+  patchStudioClipGrade, patchStudioClipEnhancement, patchStudioClipPortrait, patchStudioClipProperties, patchStudioLayerItem, reconcileStudioTakes, removeStudioLayerItem,
   removeStudioTake, setStudioLayerHidden, setStudioLayerMuted, setStudioMainMuted, splitStudioLayer, splitStudioTake,
   studioEditing, studioSeconds, studioTicks, validateStudioEditing, withStudioTakes,
   type StudioAsset, type StudioClipPropertiesPatch, type StudioEditing, type StudioEffect, type StudioGrade,
-  type StudioLayerItem, type StudioProject, type StudioRect, type StudioTextStyle,
+  type StudioLayerItem, type StudioProject, type StudioRect, type StudioTextStyle, type StudioEnhancement, type StudioPortrait,
 } from '../../../../shared/studio';
 
 export { createStudioEditingHistory };
 export type StudioWebClipPatch = StudioClipPropertiesPatch & {
   name?: string; rect?: Partial<StudioRect>; grade?: Partial<StudioGrade>; effect?: StudioEffect; text?: Partial<StudioTextStyle>;
+  enhancement?: StudioEnhancement | null; portrait?: StudioPortrait | null;
 };
 export type StudioWebItemIds = { itemId?: string; layerId?: string };
 const uuid = (): string => crypto.randomUUID();
@@ -106,12 +107,14 @@ export function duplicateClip(project: StudioProject, id: string, duplicateId = 
     ? reconcileStudioTakes(project, duplicateStudioTake(deriveStudioTakes(editing), id, duplicateId)) : duplicateStudioLayer(editing, id, duplicateId));
 }
 export function patchClip(project: StudioProject, id: string, patch: StudioWebClipPatch): StudioProject {
-  const allowed = new Set(['name', 'rect', 'grade', 'effect', 'text', 'playbackRate', 'flipHorizontal', 'flipVertical', 'opacity', 'gain', 'fadeInTicks', 'fadeOutTicks', 'motion', 'fit', 'rotationDegrees']);
+  const allowed = new Set(['name', 'rect', 'grade', 'effect', 'text', 'enhancement', 'portrait', 'playbackRate', 'flipHorizontal', 'flipVertical', 'opacity', 'gain', 'fadeInTicks', 'fadeOutTicks', 'motion', 'fit', 'rotationDegrees']);
   if (Object.keys(patch).some(key => !allowed.has(key))) throw new Error('Use uma operação de corte ou movimento para alterar o intervalo do clip.');
-  const { name, rect, grade, effect, text: textPatch, ...properties } = patch;
+  const { name, rect, grade, effect, text: textPatch, enhancement, portrait, ...properties } = patch;
   let editing = studioEditing(project);
   if (Object.keys(properties).length) editing = patchStudioClipProperties(editing, id, properties);
   if (grade) editing = patchStudioClipGrade(editing, id, grade);
+  if (enhancement !== undefined) editing = patchStudioClipEnhancement(editing, id, enhancement);
+  if (portrait !== undefined) editing = patchStudioClipPortrait(editing, id, portrait);
   const main = editing.main.find(value => value.id === id);
   if (main) {
     if (textPatch) throw new Error('Selecione um texto para editar seu conteúdo.');

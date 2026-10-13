@@ -27,6 +27,10 @@ function clipDuration(take: StudioTake) {
 function requireNewIds(takes: readonly StudioTake[], ids: string[]) {
   if (ids.some(id => !id || takes.some(take => take.id === id)) || new Set(ids).size !== ids.length) throw new Error('Os novos takes precisam de identificações diferentes.');
 }
+function takeTreatments(take: StudioTake) {
+  return { ...(take.enhancement ? { enhancement: { ...take.enhancement } } : {}),
+    ...(take.portrait ? { portrait: { ...take.portrait } } : {}) };
+}
 
 function studioSplitLocation(takes: readonly StudioTake[], takeId: string, sourceSeconds: number) {
   const { take, index } = requireTake(takes, takeId);
@@ -49,9 +53,9 @@ export function splitStudioTake(takes: readonly StudioTake[], takeId: string, so
   const result = [...takes];
   const fade = (take.fadeInTicks ?? 0) > 0 || (take.fadeOutTicks ?? 0) > 0;
   const motion = take.motion && take.motion !== 'none';
-  result.splice(index, 1, { ...take, id: leftId, end: point, ...(fade ? { fadeOutTicks: 0 } : {}),
+  result.splice(index, 1, { ...take, ...takeTreatments(take), id: leftId, end: point, ...(fade ? { fadeOutTicks: 0 } : {}),
     ...(motion ? { motionDurationTicks: take.motionDurationTicks ?? durationTicks } : {}) },
-    { ...take, id: rightId, start: point, ...(fade ? { fadeInTicks: 0 } : {}),
+    { ...take, ...takeTreatments(take), id: rightId, start: point, ...(fade ? { fadeInTicks: 0 } : {}),
       ...(motion ? { motionOffsetTicks: (take.motionOffsetTicks ?? 0) + localTicks, motionDurationTicks: take.motionDurationTicks ?? durationTicks } : {}) });
   return result;
 }
@@ -61,7 +65,7 @@ export function duplicateStudioTake(takes: readonly StudioTake[], takeId: string
   clipDuration(take);
   requireNewIds(takes, [newId]);
   const result = [...takes];
-  result.splice(index + 1, 0, { ...take, id: newId });
+  result.splice(index + 1, 0, { ...take, ...takeTreatments(take), id: newId });
   return result;
 }
 
