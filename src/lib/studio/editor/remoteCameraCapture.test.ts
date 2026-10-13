@@ -38,7 +38,7 @@ function fixture(paired = true, transferTimeoutMs = 500) {
   const controller = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client, preview, inspect, persist: false, commandTimeoutMs: 500, transferTimeoutMs }); controllers.push(controller);
   let state!: StudioCaptureState, remote!: StudioRemoteView;
   controller.subscribe(value => state = value); controller.subscribeRemote(value => remote = value);
-  return { controller, client, request, download, inspect, preview, disconnect, data, state: () => state, remote: () => remote, pending() { autoAck = false; }, uploading() { upload = false; }, uploaded() { upload = true; }, staleResume() { staleResume = true; } };
+  return { controller, client, request, download, inspect, preview, disconnect, data, state: () => state, remote: () => remote, pending() { autoAck = false; }, applied() { autoAck = true; }, uploading() { upload = false; }, uploaded() { upload = true; }, staleResume() { staleResume = true; } };
 }
 beforeEach(() => { controllers = []; localStorage.clear(); vi.useFakeTimers(); vi.setSystemTime(NOW); vi.stubGlobal('MediaStream', Stream); });
 afterEach(() => { controllers.forEach(controller => controller.dispose()); vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks(); });
@@ -207,6 +207,85 @@ describe('câmera remota preserva o original nativo e a autoridade do iPhone', (
     await expect(h.controller.remoteStart()).rejects.toMatchObject({ code: 'configuration_pending' });
     expect(h.data.takes).toHaveLength(0); expect(h.data.commands.filter(value => value.type === 'start')).toHaveLength(0); expect(h.remote().pendingTakeId).toBeNull();
     h.data.commands[0].status = 'applied'; await h.controller.reconnect(); expect(h.state().videoControls?.busy).toBe(false);
+  });
+  it('arrastes rápidos conservam o último ISO e outro controle sem comandos simultâneos ou REC prematuro', async () => {
+    const h = fixture(); await h.controller.prepare(); h.pending();
+    const first = h.controller.configureRemote({ pro: { autoExposure: false, iso: 200 } });
+    await vi.advanceTimersByTimeAsync(0);
+    const middle = h.controller.configureRemote({ pro: { autoExposure: false, iso: 80 } });
+    const balance = h.controller.configureRemote({ pro: { autoWhiteBalance: false, temperatureKelvin: 5900 } });
+    const endpoint = h.controller.configureRemote({ pro: { autoExposure: false, iso: 20 } });
+    expect(h.data.commands.filter(item => item.type === 'configure')).toHaveLength(1);
+    await expect(h.controller.remoteStart()).rejects.toMatchObject({ code: 'configuration_pending' });
+    h.data.commands[0].status = 'applied'; h.applied();
+    await vi.advanceTimersByTimeAsync(210); await Promise.all([first, middle, balance, endpoint]);
+    const changes = h.data.commands.filter(item => item.type === 'configure');
+    expect(changes).toHaveLength(2); expect(changes[1].payload).toEqual({ pro: { autoExposure: false, iso: 20, autoWhiteBalance: false, temperatureKelvin: 5900 } });
+    expect(h.state().videoControls?.busy).toBe(false); expect(h.preview).toHaveBeenCalledTimes(1); expect(h.disconnect).not.toHaveBeenCalled();
+    expect(h.data.commands.filter(item => item.type === 'start')).toHaveLength(0);
+  });
+  it('Auto escolhido durante um ajuste remove valores manuais da fila antes de enviar', async () => {
+    const h = fixture(); await h.controller.prepare(); h.pending();
+    const first = h.controller.configureRemote({ pro: { autoExposure: false, iso: 200 } }); await vi.advanceTimersByTimeAsync(0);
+    const manual = h.controller.configureRemote({ pro: { autoExposure: false, iso: 20, shutterSeconds: 1 / 60 } });
+    const automatic = h.controller.configureRemote({ pro: { autoExposure: true } });
+    h.data.commands[0].status = 'applied'; h.applied(); await vi.advanceTimersByTimeAsync(210); await Promise.all([first, manual, automatic]);
+    expect(h.data.commands[1].payload).toEqual({ pro: { autoExposure: true } });
+  });
+  it('falha no ajuste rejeita também os arrastes seguintes e permite repetir exatamente o mesmo valor', async () => {
+    const h = fixture(); await h.controller.prepare(); h.pending();
+    const first = h.controller.configureRemote({ pro: { iso: 200 } }).catch(error => error); await vi.advanceTimersByTimeAsync(0);
+    const final = h.controller.configureRemote({ pro: { iso: 20 } }).catch(error => error);
+    h.data.commands[0].status = 'failed'; h.data.commands[0].result = { error: 'Ajuste recusado pelo sensor.' };
+    await vi.advanceTimersByTimeAsync(210);
+    expect((await first).message).toContain('sensor'); expect((await final).message).toContain('sensor'); expect(h.data.commands).toHaveLength(1);
+    h.applied(); await h.controller.configureRemote({ pro: { iso: 20 } });
+    expect(h.data.commands[1].payload).toEqual({ pro: { iso: 20 } }); expect(h.state().videoControls?.busy).toBe(false);
+  });
+  it('cancelamento rejeita a fila, ignora ACK atrasado e não altera a próxima sessão', async () => {
+    const h = fixture(); await h.controller.prepare(); h.pending();
+    const first = h.controller.configureRemote({ pro: { iso: 200 } }).catch(error => error); await vi.advanceTimersByTimeAsync(0);
+    const final = h.controller.configureRemote({ pro: { iso: 20 } }).catch(error => error);
+    h.controller.cancel(); expect(await final).toMatchObject({ name: 'AbortError' }); expect(await first).toMatchObject({ name: 'AbortError' });
+    h.data.commands[0].status = 'applied'; h.applied(); await h.controller.prepare(); await h.controller.configureRemote({ pro: { iso: 40 } });
+    expect(h.data.commands.filter(item => item.type === 'configure').map(item => item.payload)).toEqual([{ pro: { iso: 200 } }, { pro: { iso: 40 } }]);
+    expect(h.state().videoControls?.busy).toBe(false);
+  });
+  it('ACK recebido pelo status conclui o ajuste sem mais 200 ms de espera', async () => {
+    const h = fixture(); await h.controller.prepare(); h.pending();
+    const request = h.request.getMockImplementation()!;
+    h.request.mockImplementation(async body => {
+      if (body.action === 'status' && h.data.commands.length) h.data.commands.at(-1)!.status = 'applied';
+      return request(body);
+    });
+    const startedAt = Date.now(); await h.controller.configureRemote({ pro: { iso: 20 } });
+    expect(Date.now()).toBe(startedAt); expect(h.state().videoControls?.busy).toBe(false);
+  });
+  it('resposta antiga no mesmo sequence não desfaz recibo aplicado nem o ISO confirmado', async () => {
+    const h = fixture(); await h.controller.prepare(); await h.controller.configureRemote({ pro: { iso: 20 } });
+    const old = structuredClone(h.data); old.commands[0].status = 'pending'; old.session.deviceState = { ...old.session.deviceState, configuration: { ...old.session.configuration, pro: { iso: 200 } } };
+    h.request.mockResolvedValueOnce(old); await h.controller.reconnect();
+    expect(h.controller.getEnvelope()!.commands[0].status).toBe('applied'); expect(h.remote().session!.deviceState!.configuration!.pro).toEqual({ iso: 20 });
+    expect(h.state().videoControls?.busy).toBe(false);
+  });
+  it('POST aceito com resposta perdida conserva pendência até o ACK tardio, sem outro ajuste ou REC', async () => {
+    const h = fixture(); await h.controller.prepare(); h.pending(); const request = h.request.getMockImplementation()!;
+    h.request.mockImplementationOnce(async body => { await request(body); throw new StudioRemoteCameraError('Resposta perdida.', 'transport'); });
+    await expect(h.controller.configureRemote({ pro: { iso: 20 } })).rejects.toThrow('Resposta perdida');
+    expect(h.state().videoControls?.busy).toBe(true);
+    await expect(h.controller.configureRemote({ pro: { iso: 30 } })).rejects.toMatchObject({ code: 'configuration_pending' });
+    await expect(h.controller.remoteStart()).rejects.toMatchObject({ code: 'configuration_pending' }); expect(h.data.commands).toHaveLength(1);
+    h.data.commands[0].status = 'applied'; await h.controller.reconnect(); expect(h.state().videoControls?.busy).toBe(false);
+    expect(h.data.commands.filter(command => command.type === 'start')).toHaveLength(0);
+  });
+  it('POST perdido antes de chegar ao servidor repete o mesmo UUID e alvo ao reconciliar', async () => {
+    const h = fixture(); await h.controller.prepare();
+    h.request.mockRejectedValueOnce(new StudioRemoteCameraError('Conexão interrompida.', 'transport'));
+    await expect(h.controller.configureRemote({ pro: { iso: 20 } })).rejects.toThrow('Conexão interrompida');
+    const first = h.request.mock.calls.at(-1)![0]; expect(h.state().videoControls?.busy).toBe(true); expect(h.data.commands).toHaveLength(0);
+    await h.controller.reconnect(); const changes = h.request.mock.calls.map(([body]) => body).filter(body => body.action === 'command');
+    expect(changes).toHaveLength(2); expect(changes[1]).toMatchObject({ commandId: first.commandId, payload: { pro: { iso: 20 } } });
+    expect(h.data.commands).toHaveLength(1); expect(h.state().videoControls?.busy).toBe(false);
   });
   it('snapshots não permitem alterar configuração/qualidades internas e o relógio usa server midpoint', async () => {
     const h = fixture(); await h.controller.prepare(); const external = h.controller.getEnvelope()!; external.session.configuration.resolution = '720p'; expect(h.controller.getEnvelope()!.session.configuration.resolution).toBe('4k');
