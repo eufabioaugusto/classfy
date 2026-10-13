@@ -52,8 +52,12 @@ export function recoverStudioRemoteScene(owner: string, key: string, options: St
   const existing = active.get(key); if (existing) return existing;
   const work = (async () => {
     const store = options.store ?? createStudioRemoteSceneStore(), inspect = options.inspect ?? inspectStudioMedia;
-    const entry = await store.get(owner, key); if (!entry) throw new Error('Os originais deste take não foram encontrados neste navegador.');
+    const stored = await store.get(owner, key); if (!stored) throw new Error('Os originais deste take não foram encontrados neste navegador.');
+    const entry: StudioRemoteSceneRecovery = { ...stored, output: { ...stored.output }, events: structuredClone(stored.events) };
     assertStudioActive(options.signal); if (entry.outputFile) return entry.outputFile;
+    // Freeze the recorded audio choice/mutes before downloads. UI changes or retry must never
+    // reinterpret a legacy RAW microphone as native narration, nor add both microphones.
+    const recordedTimeline: StudioRemoteSceneTimeline = { output: { ...entry.output }, events: structuredClone(entry.events), startedAtServerMs: entry.startedAtServerMs, screenStartedAtServerMs: entry.screenStartedAtServerMs, cameraOffsetSeconds: entry.cameraOffsetSeconds, ...(entry.narrationSource !== undefined ? { narrationSource: entry.narrationSource } : {}) };
     let ownedRemote: StudioRemoteCaptureController | null = null;
     let screenFailure: unknown = null;
     try {
@@ -91,7 +95,7 @@ export function recoverStudioRemoteScene(owner: string, key: string, options: St
       entry.screenMetadata ??= await inspect(entry.screenFile, { signal: options.signal });
       entry.cameraMetadata ??= await inspect(entry.cameraFile!, { signal: options.signal });
       entry.status = 'exporting'; entry.error = undefined; await store.save(entry); assertStudioActive(options.signal);
-      const file = await (options.render ?? renderStudioRemoteScene)(entry, entry.take!, entry.cameraFile!, entry.screenFile, entry.cameraMetadata, entry.screenMetadata, { signal: options.signal, name: entry.title });
+      const file = await (options.render ?? renderStudioRemoteScene)(recordedTimeline, entry.take!, entry.cameraFile!, entry.screenFile, entry.cameraMetadata, entry.screenMetadata, { signal: options.signal, name: entry.title });
       assertStudioActive(options.signal); entry.outputFile = file; entry.status = 'complete'; await store.save(entry); return file;
     } catch (error) { entry.status = 'recoverable'; entry.error = error instanceof Error ? error.message : 'Não foi possível montar este take. Seus originais foram preservados.'; await store.save(entry).catch(() => undefined); throw error; }
     finally { ownedRemote?.dispose(); }

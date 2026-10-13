@@ -104,7 +104,7 @@ describe('teleprompter real com reconhecimento na fronteira do navegador', () =>
     await render(); await render({ recording: true }); const old = Recognition.instances.at(-1)!;
     await act(async () => old.onerror?.({ error: 'network' })); expect(host.textContent).toMatch(/voz|conexão|reconhecimento/i);
     expect(onGuides).not.toHaveBeenCalled(); expect(track.stop).not.toHaveBeenCalled();
-    await click('Tentar voz novamente'); expect(Recognition.instances.at(-1)!.start).toHaveBeenCalledWith(track); expect(getUserMedia).not.toHaveBeenCalled();
+    await click('Retomar leitura por voz'); expect(Recognition.instances.at(-1)!.start).toHaveBeenCalledWith(track); expect(getUserMedia).not.toHaveBeenCalled();
   });
 
   it('desmontagem encerra reconhecimento e resultados já enfileirados não publicam nem param microfone', async () => {
@@ -147,11 +147,19 @@ describe('teleprompter real com reconhecimento na fronteira do navegador', () =>
 
   it('troca explícita após falha remove aviso de voz e usa automático sem reiniciar reconhecimento', async () => {
     await render(); await render({ recording: true }); const recognition = Recognition.instances.at(-1)!;
-    await act(async () => recognition.onerror?.({ error: 'network' })); expect(button('Tentar voz novamente')).toBeTruthy();
+    await act(async () => recognition.onerror?.({ error: 'network' })); expect(button('Retomar leitura por voz')).toBeTruthy();
     await click('Usar rolagem automática'); const patch = onGuides.mock.calls.at(-1)![0];
     await render({ guides: { ...props.guides, ...patch } });
-    expect(button('Tentar voz novamente')).toBeUndefined(); expect(host.querySelector('.se-recording-reading-notice')).toBeNull();
+    expect(button('Retomar leitura por voz')).toBeUndefined(); expect(host.querySelector('.se-recording-reading-notice')).toBeNull();
     expect(Recognition.instances).toHaveLength(1); expect(frames.size).toBe(0);
     await click('Retomar leitura'); expect(frames.size).toBe(1); expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it('áudio remoto sem pista local explica a leitura automática sem abrir outro microfone', async () => {
+    getMicrophoneTrack.mockReturnValue(null);
+    await render({ voiceUnavailableReason: 'Com o áudio do iPhone, use a rolagem automática.' }); await click('Ensaiar leitura');
+    expect(host.textContent).toContain('Com o áudio do iPhone'); expect(button('Retomar leitura por voz')).toBeUndefined();
+    expect(getUserMedia).not.toHaveBeenCalled(); expect(Recognition.instances).toHaveLength(0);
+    await click('Usar rolagem automática'); expect(onGuides).toHaveBeenCalledWith(expect.objectContaining({ scriptMode: 'timed' }));
   });
 });

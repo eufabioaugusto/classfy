@@ -6,11 +6,18 @@ import { StudioRenderKernel } from './renderer';
 import { drawStudioScene } from './sceneCompositionRender';
 import { normalizeStudioSceneConfiguration, studioSceneOutputProfile, type StudioCaptureScene, type StudioSceneConfiguration, type StudioSceneOutputProfile } from './sceneTypes';
 
-export type StudioRemoteSceneEvent = { atSeconds: number; scene: StudioCaptureScene; configuration: StudioSceneConfiguration; grade: StudioGrade; zoom: number };
+export type StudioRemoteSceneEvent = { atSeconds: number; scene: StudioCaptureScene; configuration: StudioSceneConfiguration; grade: StudioGrade; zoom: number; microphoneEnabled?: boolean };
 export type StudioRemoteSceneTimeline = {
   output: StudioSceneOutputProfile; events: StudioRemoteSceneEvent[];
   startedAtServerMs: number | null; screenStartedAtServerMs: number | null; cameraOffsetSeconds: number | null;
+  /** Missing on older takes whose raw screen already includes the browser microphone. */
+  narrationSource?: 'iphone' | 'browser';
 };
+export function studioRemoteSceneNarrationSource(timeline: StudioRemoteSceneTimeline) {
+  if (timeline.narrationSource === undefined) return 'browser';
+  if (timeline.narrationSource !== 'iphone' && timeline.narrationSource !== 'browser') throw new Error('A fonte de voz deste take não foi preservada. Seus originais continuam disponíveis.');
+  return timeline.narrationSource;
+}
 /** Only a real native START acknowledgement establishes the relationship between originals. */
 export function studioRemoteSceneOffset(screenStartedAtServerMs: number, startedAtServerMs: number) {
   if (![screenStartedAtServerMs, startedAtServerMs].every(Number.isFinite) || startedAtServerMs <= 0 || screenStartedAtServerMs < startedAtServerMs) throw new Error('Não foi possível confirmar a sincronização dos originais. Eles continuam disponíveis para recuperação.');
@@ -18,19 +25,21 @@ export function studioRemoteSceneOffset(screenStartedAtServerMs: number, started
 }
 export function validateStudioRemoteSceneSources(timeline: StudioRemoteSceneTimeline, take: StudioRemoteTake, camera: StudioMediaMetadata, screen: StudioMediaMetadata) {
   const { output, startedAtServerMs, screenStartedAtServerMs, cameraOffsetSeconds } = timeline;
+  const narration = studioRemoteSceneNarrationSource(timeline);
   studioSceneOutputProfile(output.width < output.height ? '9:16' : '16:9', output, {});
-  if (startedAtServerMs === null || screenStartedAtServerMs === null || cameraOffsetSeconds === null || Math.abs(studioRemoteSceneOffset(screenStartedAtServerMs, startedAtServerMs) - cameraOffsetSeconds) > .001) throw new Error('A sincronização deste take não foi confirmada. Baixe os originais para preservar sua gravação.');
+  if (startedAtServerMs === null || screenStartedAtServerMs === null || cameraOffsetSeconds === null || !Number.isFinite(cameraOffsetSeconds) || Math.abs(studioRemoteSceneOffset(screenStartedAtServerMs, startedAtServerMs) - cameraOffsetSeconds) > .001) throw new Error('A sincronização deste take não foi confirmada. Baixe os originais para preservar sua gravação.');
   const original = take.metadata;
   if (!original || take.status !== 'uploaded' || camera.kind !== 'video' || !camera.width || !camera.height || !camera.frameRate || camera.width !== original.width || camera.height !== original.height || Math.abs(camera.frameRate - original.fps) > Math.max(.05, original.fps * .01)) throw new Error('A resolução ou a cadência do original do iPhone não corresponde ao take confirmado.');
   if (original.startedAtServerMs !== undefined && Math.abs(original.startedAtServerMs - startedAtServerMs) > 50) throw new Error('Os relógios deste take não correspondem. Os originais foram preservados.');
-  if (screen.kind !== 'video' || !screen.width || !screen.height || !screen.hasAudio || !Number.isFinite(screen.duration) || screen.duration < .1) throw new Error('A tela original não contém vídeo e áudio válidos.');
+  if (narration === 'iphone' && camera.hasAudio !== true) throw new Error('O original do iPhone não contém a voz gravada. Seus originais foram preservados.');
+  if (screen.kind !== 'video' || !screen.width || !screen.height || narration === 'browser' && screen.hasAudio !== true || !Number.isFinite(screen.duration) || screen.duration < .1) throw new Error('A tela original não contém vídeo e áudio válidos.');
   // Never manufacture extra camera frames to fill a missing tail or unknown clock.
   if (!Number.isFinite(camera.duration) || cameraOffsetSeconds + screen.duration > camera.duration + .05) throw new Error('O original do iPhone não cobre toda a gravação da tela. Baixe os dois originais para recuperar o trecho.');
   if (Math.min(camera.width, camera.height) < Math.min(output.width, output.height) || camera.frameRate < output.frameRate - .05) throw new Error('O original do iPhone não entrega a resolução e os FPS escolhidos. Os originais foram preservados.');
   let last = -1;
   if (!timeline.events.length || timeline.events[0].atSeconds !== 0) throw new Error('A cena inicial não foi preservada.');
   for (const event of timeline.events) {
-    if (!Number.isFinite(event.atSeconds) || event.atSeconds < last || event.atSeconds < 0 || !['camera', 'screen', 'screen-camera'].includes(event.scene) || validateStudioGrade(event.grade).length || !Number.isFinite(event.zoom) || event.zoom < 1 || event.zoom > 4) throw new Error('O histórico das cenas está incompleto.');
+    if (!Number.isFinite(event.atSeconds) || event.atSeconds < last || event.atSeconds < 0 || !['camera', 'screen', 'screen-camera'].includes(event.scene) || validateStudioGrade(event.grade).length || !Number.isFinite(event.zoom) || event.zoom < 1 || event.zoom > 4 || event.microphoneEnabled !== undefined && typeof event.microphoneEnabled !== 'boolean') throw new Error('O histórico das cenas está incompleto.');
     const normalized = normalizeStudioSceneConfiguration(event.configuration, {}, output.width, output.height);
     if (Math.abs(normalized.size - event.configuration.size) > .000001 || Math.abs(normalized.position.x - event.configuration.position.x) > .000001 || Math.abs(normalized.position.y - event.configuration.position.y) > .000001) throw new Error('O enquadramento de uma cena não é válido.');
     last = event.atSeconds;
@@ -54,11 +63,13 @@ function sourceRecipe(asset: StudioAsset, duration: number, offset: number, gain
 /** Native camera and raw screen are decoded independently; the transport preview is never an asset. */
 export class StudioRemoteSceneRenderKernel implements StudioExportKernel {
   private camera: StudioRenderKernel; private screen: StudioRenderKernel;
+  private narration: 'iphone' | 'browser';
   private cameraCanvas: HTMLCanvasElement; private screenCanvas: HTMLCanvasElement; private previousCanvas: HTMLCanvasElement;
   constructor(recipe: StudioRenderRecipe, resolver: StudioAssetResolver, private timeline: StudioRemoteSceneTimeline, private signal?: AbortSignal) {
     const duration = recipe.durationTicks / STUDIO_TIMEBASE, camera = recipe.assets.find(asset => asset.id === 'remote-camera-original')!, screen = recipe.assets.find(asset => asset.id === 'remote-screen-original')!;
-    this.camera = new StudioRenderKernel(sourceRecipe(camera, duration, timeline.cameraOffsetSeconds!, 0), resolver, signal);
-    this.screen = new StudioRenderKernel(sourceRecipe(screen, duration, 0, 1), resolver, signal);
+    this.narration = studioRemoteSceneNarrationSource(timeline);
+    this.camera = new StudioRenderKernel(sourceRecipe(camera, duration, timeline.cameraOffsetSeconds!, this.narration === 'iphone' ? 1 : 0), resolver, signal);
+    this.screen = new StudioRenderKernel(sourceRecipe(screen, duration, 0, screen.hasAudio ? 1 : 0), resolver, signal);
     this.cameraCanvas = studioCanvas(camera.width!, camera.height!); this.screenCanvas = studioCanvas(screen.width!, screen.height!); this.previousCanvas = studioCanvas(recipe.output.width, recipe.output.height);
   }
   private async scene(canvas: HTMLCanvasElement, event: StudioRemoteSceneEvent, seconds: number) {
@@ -78,12 +89,29 @@ export class StudioRemoteSceneRenderKernel implements StudioExportKernel {
     await this.scene(canvas, current, seconds);
     if (previous && blend < 1) { const ctx = canvas.getContext('2d')!; ctx.save(); ctx.globalAlpha = 1 - blend; ctx.drawImage(this.previousCanvas, 0, 0); ctx.restore(); }
   }
-  mixAudio(start: number, duration: number, sampleRate: number) { return this.screen.mixAudio(start, duration, sampleRate); }
+  async mixAudio(start: number, duration: number, sampleRate: number) {
+    // Browser takes already contain narration and system mute in RAW. Never add a second voice.
+    const system = await this.screen.mixAudio(start, duration, sampleRate);
+    if (this.narration === 'browser') return system;
+    // Camera source trim already applies the authoritative offset, exactly once, for every scene.
+    const voice = await this.camera.mixAudio(start, duration, sampleRate);
+    assertStudioActive(this.signal);
+    let eventIndex = 0;
+    while (eventIndex + 1 < this.timeline.events.length && this.timeline.events[eventIndex + 1].atSeconds <= start) eventIndex++;
+    for (let i = 0; i < system[0].length; i++) {
+      const seconds = start + i / sampleRate;
+      while (eventIndex + 1 < this.timeline.events.length && this.timeline.events[eventIndex + 1].atSeconds <= seconds) eventIndex++;
+      const microphoneEnabled = this.timeline.events[eventIndex].microphoneEnabled !== false;
+      for (let channel = 0; channel < system.length; channel++) system[channel][i] = Math.max(-1, Math.min(1, system[channel][i] + (microphoneEnabled ? voice[channel][i] : 0)));
+    }
+    return system;
+  }
   dispose() { this.camera.dispose(); this.screen.dispose(); for (const canvas of [this.cameraCanvas, this.screenCanvas, this.previousCanvas]) { canvas.width = 1; canvas.height = 1; } }
 }
 export async function renderStudioRemoteScene(timeline: StudioRemoteSceneTimeline, take: StudioRemoteTake, cameraFile: File, screenFile: File, cameraMetadata: StudioMediaMetadata, screenMetadata: StudioMediaMetadata, options: StudioExportOptions & { name?: string } = {}) {
   const snapshot = structuredClone(timeline), duration = validateStudioRemoteSceneSources(snapshot, take, cameraMetadata, screenMetadata);
-  const camera = sourceAsset('remote-camera-original', cameraFile, cameraMetadata, false), screen = sourceAsset('remote-screen-original', screenFile, screenMetadata, true), { output } = snapshot;
-  const recipe: StudioRenderRecipe = { version: 2, timebase: STUDIO_TIMEBASE, durationTicks: studioTicks(duration), mediaType: 'video', canvas: { aspectRatio: output.width < output.height ? 'portrait' : 'landscape', backgroundColor: '#000000' }, output: { profile: 'standard', width: output.width, height: output.height, frameRateNumerator: output.frameRate, frameRateDenominator: 1, colorSpace: 'rec709' }, assets: [camera, screen], clips: [clip(camera, duration, snapshot.cameraOffsetSeconds!, 0), clip(screen, duration, 0, 1)] };
+  const cameraAudio = studioRemoteSceneNarrationSource(snapshot) === 'iphone', screenAudio = screenMetadata.hasAudio === true;
+  const camera = sourceAsset('remote-camera-original', cameraFile, cameraMetadata, cameraAudio), screen = sourceAsset('remote-screen-original', screenFile, screenMetadata, screenAudio), { output } = snapshot;
+  const recipe: StudioRenderRecipe = { version: 2, timebase: STUDIO_TIMEBASE, durationTicks: studioTicks(duration), mediaType: 'video', canvas: { aspectRatio: output.width < output.height ? 'portrait' : 'landscape', backgroundColor: '#000000' }, output: { profile: 'standard', width: output.width, height: output.height, frameRateNumerator: output.frameRate, frameRateDenominator: 1, colorSpace: 'rec709' }, assets: [camera, screen], clips: [clip(camera, duration, snapshot.cameraOffsetSeconds!, cameraAudio ? 1 : 0), clip(screen, duration, 0, screenAudio ? 1 : 0)] };
   return exportStudioRecipe(recipe, async id => id === camera.id ? cameraFile : id === screen.id ? screenFile : null, { ...options, kernelFactory: (value, resolver, signal) => new StudioRemoteSceneRenderKernel(value, resolver, snapshot, signal) });
 }

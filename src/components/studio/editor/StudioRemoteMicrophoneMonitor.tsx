@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronUp, Loader2, Mic, X } from 'lucide-react';
+import { Check, ChevronUp, Loader2, Mic, MicOff, X } from 'lucide-react';
 import type { StudioRemoteView } from '@/lib/studio/editor/remoteCameraCapture';
 
 const portKind = (type: string) => /usb/i.test(type) ? 'USB · Conectado ao iPhone' : /built.?in/i.test(type) ? 'Microfone integrado' : /bluetooth/i.test(type) ? 'Bluetooth · Conectado ao iPhone' : 'Conectado ao iPhone';
 const percent = (db: number) => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
 
 /** The original's input and levels belong to the iPhone, never the Mac's microphone. */
-export function StudioRemoteMicrophoneMonitor({ state, disabled, onSelect }: {
-  state: StudioRemoteView; disabled: boolean; onSelect(id: string | null): Promise<void>;
+export function StudioRemoteMicrophoneMonitor({ state, disabled, microphoneEnabled = true, onSelect }: {
+  state: StudioRemoteView; disabled: boolean; microphoneEnabled?: boolean; onSelect(id: string | null): Promise<void>;
 }) {
   const device = state.session?.deviceState, audio = device?.audioInput, monitor = device?.audioMonitor;
   const capable = device?.capabilities?.audioInputSelection === true;
@@ -37,12 +37,12 @@ export function StudioRemoteMicrophoneMonitor({ state, disabled, onSelect }: {
   const confirmed = capable ? audio?.confirmed === true && !!audio.current && !audio.selecting && (audio.preferredId === null || audio.preferredId === audio.current.id) : !!monitor?.input;
   const name = confirmed ? capable ? audio!.current!.name : monitor!.input!.name : 'Microfone do iPhone';
   const matchingInput = !capable || !!audio?.current && monitor?.input?.id === audio.current.id;
-  const channels = fresh && confirmed && matchingInput && !selecting && !audio?.selecting && state.connection === 'connected' && monitor?.status === 'live' ? monitor.channels.filter(channel => Number.isFinite(channel.averageDb) && Number.isFinite(channel.peakDb)).slice(0, 2) : [];
+  const channels = microphoneEnabled && fresh && confirmed && matchingInput && !selecting && !audio?.selecting && state.connection === 'connected' && monitor?.status === 'live' ? monitor.channels.filter(channel => Number.isFinite(channel.averageDb) && Number.isFinite(channel.peakDb)).slice(0, 2) : [];
   const warning = error || audio?.warning;
-  const detail = selecting || audio?.selecting ? 'Confirmando microfone…' : !fresh || monitor?.status === 'waiting' || !confirmed ? 'Aguardando áudio no iPhone' : monitor?.status === 'interrupted' ? 'Entrada interrompida' : monitor?.status === 'unavailable' ? 'Medidor indisponível' : channels.length ? `${Math.round(channels[0].averageDb)} dBFS` : 'Aguardando amostra';
+  const detail = selecting || audio?.selecting ? 'Confirmando microfone…' : !microphoneEnabled ? 'Microfone desativado' : !fresh || monitor?.status === 'waiting' || !confirmed ? 'Aguardando áudio no iPhone' : monitor?.status === 'interrupted' ? 'Entrada interrompida' : monitor?.status === 'unavailable' ? 'Medidor indisponível' : channels.length ? `${Math.round(channels[0].averageDb)} dBFS` : 'Aguardando amostra';
   return <div ref={container} className="src-audio">
     <button ref={trigger} type="button" className="src-audio-trigger" aria-label="Selecionar microfone do iPhone" aria-expanded={open} aria-haspopup="dialog" disabled={blocked} onClick={() => { setError(null); setOpen(value => !value); }}>
-      <span className="src-audio-heading"><Mic size={14} /><strong>{name}</strong>{!disabled && <ChevronUp size={12} />}</span>
+      <span className="src-audio-heading">{microphoneEnabled ? <Mic size={14} /> : <MicOff size={14} />}<strong>{name}</strong>{!disabled && <ChevronUp size={12} />}</span>
       {channels.length ? channels.map((channel, index) => <span key={index} className="src-audio-meter" role="meter" aria-label={`Nível do microfone do iPhone${channels.length > 1 ? ` · canal ${index + 1}` : ''}`} aria-valuemin={-60} aria-valuemax={0} aria-valuenow={Math.max(-60, Math.min(0, channel.averageDb))}><i style={{ width: `${percent(channel.averageDb)}%`, background: channel.peakDb >= -3 ? '#f36f76' : undefined }} /><b style={{ left: `${percent(channel.peakDb)}%` }} /></span>) : <span className="src-audio-meter is-waiting" aria-hidden="true" />}
       <small className={warning ? 'src-audio-warning' : ''}>{selecting && <Loader2 size={11} className="se-spin" />}{warning || detail}</small>
     </button>

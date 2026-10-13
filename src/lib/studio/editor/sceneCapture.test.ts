@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBIndex } from 'fake-indexeddb';
 import { Blob as NodeBlob, File as NodeFile } from 'node:buffer';
 import { createStudioCapture, type StudioCaptureState } from './capture';
+import { createStudioSceneCapture } from './sceneCapture';
 const mocks = vi.hoisted(() => ({ inspect: vi.fn(), compositions: [] as unknown[], readyError: null as Error | null, configureError: null as Error | null, readyWait: null as Promise<void> | null }));
 vi.mock('./media', () => ({ inspectStudioMedia: mocks.inspect }));
 vi.mock('./sceneComposition', () => ({ createStudioSceneComposition: vi.fn((options: unknown) => {
@@ -12,6 +13,7 @@ class Track {
   readyState = 'live'; muted = false; enabled = true; id: string; onended: (() => void) | null = null; onmute: (() => void) | null = null; onunmute: (() => void) | null = null;
   constructor(public kind: string, public deviceId: string, public label: string) { this.id = deviceId; }
   stop = vi.fn(() => { this.readyState = 'ended'; });
+  clone = vi.fn(() => new Track(this.kind, `${this.deviceId}-clone`, this.label));
   getSettings() { return { deviceId: this.deviceId, width: 1920, height: 1080, frameRate: 30 }; }
   getCapabilities() { return { width: { min: 640, max: 1920 }, height: { min: 360, max: 1080 }, frameRate: { min: 24, max: 30 } }; }
   getConstraints() { return {}; } applyConstraints = vi.fn(async (_constraints: MediaTrackConstraints) => {});
@@ -49,6 +51,32 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); visibility('visible'); });
 describe('sessão única de cenas Premium', () => {
+  it('narração nativa não abre micMac, conserva áudio da tela e nunca para a track emprestada do iPhone', async () => {
+    const s = sources(); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen, s.system]));
+    const capture = createStudioSceneCapture({ externalCamera: { track: s.camera as unknown as MediaStreamTrack, name: 'iPhone' }, externalNarration: 'iphone' });
+    let state!: StudioCaptureState; capture.subscribe(value => state = value); await capture.prepare(); await capture.prepareScreen!();
+    expect(media.getUserMedia).not.toHaveBeenCalled(); expect(capture.getMicrophoneTrack()).toBeNull(); expect(state.input).toBeNull(); expect(state.levels).toEqual([]);
+    expect(Audio.instances[0].sources).toHaveLength(1); expect(Audio.instances[0].sources[0].stream.getAudioTracks()).toEqual([s.system]);
+    const destination = state.stream!.getAudioTracks()[0], program = state.stream;
+    capture.selectScene!('screen-camera'); capture.start(); await vi.waitFor(() => expect(state.elapsed).toBeGreaterThan(0)); capture.selectScene!('camera'); expect(Audio.instances[0].gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 0, .015);
+    capture.selectScene!('screen'); expect(Audio.instances[0].gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 0, .015); expect(state.stream).toBe(program); expect(capture.getScreenOriginalStream!()!.getAudioTracks()[0]).toBe(destination);
+    capture.setMicrophoneEnabled(false); expect(s.system.enabled).toBe(true); expect(state.microphoneEnabled).toBe(false); expect(media.getUserMedia).not.toHaveBeenCalled();
+    await expect(capture.setExternalNarration('browser', 'mac-usb')).rejects.toThrow('antes de iniciar'); await capture.stop(); capture.dispose(); expect(s.camera.stop).not.toHaveBeenCalled();
+  });
+  it('troca explícita para Mac abre apenas o UID escolhido e retorno ao iPhone conserva Program e tela', async () => {
+    const s = sources(); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen, s.system])); media.getUserMedia.mockResolvedValue(new Stream([s.mic]));
+    const capture = createStudioSceneCapture({ externalCamera: { track: s.camera as unknown as MediaStreamTrack, name: 'iPhone' }, externalNarration: 'iphone' });
+    let state!: StudioCaptureState; capture.subscribe(value => state = value); await capture.prepare(); await capture.prepareScreen!(); const program = state.stream, mixed = program!.getAudioTracks()[0];
+    await capture.setExternalNarration('browser', 'mac-usb'); expect(media.getUserMedia).toHaveBeenCalledTimes(1); expect(media.getUserMedia).toHaveBeenCalledWith({ video: false, audio: { deviceId: { exact: 'mac-usb' }, echoCancellation: true } });
+    expect(capture.getMicrophoneTrack()).toBe(s.mic); expect(state.input?.id).toBe(s.mic.id); expect(state.levels[0].averageDb).toBeCloseTo(-6.02); expect(state.stream).toBe(program);
+    await capture.setExternalNarration('iphone'); expect(capture.getMicrophoneTrack()).toBeNull(); expect(state.input).toBeNull(); expect(state.levels).toEqual([]); expect(s.mic.stop).toHaveBeenCalledOnce(); expect(state.stream).toBe(program); expect(state.scenes?.screenReady).toBe(true); expect(capture.getScreenOriginalStream!()!.getAudioTracks()[0]).toBe(mixed); expect(media.getDisplayMedia).toHaveBeenCalledOnce(); capture.dispose();
+  });
+  it('permissãoMac negada ou resposta tardia mantém fonte anterior e não conecta nem vaza track nova', async () => {
+    const s = sources(); const capture = createStudioSceneCapture({ externalCamera: { track: s.camera as unknown as MediaStreamTrack, name: 'iPhone' }, externalNarration: 'iphone' });
+    let state!: StudioCaptureState; capture.subscribe(value => state = value); await capture.prepare(); const program = state.stream;
+    media.getUserMedia.mockRejectedValueOnce(new DOMException('Negado', 'NotAllowedError')); await expect(capture.setExternalNarration('browser', 'mac-usb')).rejects.toMatchObject({ name: 'NotAllowedError' }); expect(state.stream).toBe(program); expect(state.input).toBeNull(); expect(capture.getMicrophoneTrack()).toBeNull(); expect(Audio.instances[0].sources).toHaveLength(0);
+    const late = pending<Stream>(); media.getUserMedia.mockReturnValueOnce(late.promise); const changing = capture.setExternalNarration('browser', 'late'); capture.dispose(); late.resolve(new Stream([s.mic])); await expect(changing).rejects.toMatchObject({ name: 'AbortError' }); expect(s.mic.stop).toHaveBeenCalledOnce(); expect(s.camera.stop).not.toHaveBeenCalled();
+  });
   it.each(['16:9', '9:16'] as const)('reconfigura todos os formatos de saída em %s sem nova permissão e conserva REC durante trocas de cena', async aspect => {
     const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen, s.system])); const h = watch(aspect);
     await h.capture.prepare(); await h.capture.prepareScreen!(); h.capture.selectScene!('screen-camera');

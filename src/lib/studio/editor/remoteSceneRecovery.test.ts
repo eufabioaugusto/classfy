@@ -5,6 +5,7 @@ import type { StudioRemoteResponse } from '../../../../shared/studio/remoteCamer
 import { createStudioRemoteSceneStore, recoverStudioRemoteScene, studioRemoteScreenFileName, type StudioRemoteSceneRecovery, type StudioRemoteSceneStore } from './remoteSceneRecovery';
 import { studioDefaultSceneConfiguration } from './sceneTypes';
 import type { StudioRemoteClient } from './remoteCameraClient';
+import type { renderStudioRemoteScene } from './remoteSceneRender';
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {} }));
 const raw = vi.hoisted(() => ({ file: vi.fn(), prepare: vi.fn(async () => undefined), dispose: vi.fn() }));
 vi.mock('./sceneRecordingBuffer', () => ({ createStudioSceneRecordingBuffer: () => raw }));
@@ -18,7 +19,7 @@ function fixture(withFiles = true) {
   const writes: StudioRemoteSceneRecovery[] = [], store: StudioRemoteSceneStore = { get: vi.fn(async () => saved), list: vi.fn(async () => [saved]), save: vi.fn(async value => { saved = { ...value }; writes.push(saved); }) };
   const response = { session: { id: 'session', activeTakeId: 'take', kind: 'aula', controllerId: 'controller' }, takes: [{ id: 'take', status: 'uploaded', metadata: { bytes: camera.size, width: 3840, height: 2160, fps: 30, duration: 6, mime: 'video/mp4' } }], download: { parts: [], bytes: camera.size, nextPartIndex: null }, commands: [], serverAt: '' } as unknown as StudioRemoteResponse;
   const client: StudioRemoteClient = { request: vi.fn(async () => response), download: vi.fn(async () => camera) };
-  const inspect = vi.fn(async () => metadata), output = new File(['composed'], 'Final.mp4'), render = vi.fn(async () => output);
+  const inspect = vi.fn(async () => metadata), output = new File(['composed'], 'Final.mp4'), render = vi.fn<typeof renderStudioRemoteScene>(async () => output);
   return { store, client, inspect, render, output, screen, camera, writes, saved: () => saved };
 }
 afterEach(() => { raw.file.mockReset(); raw.dispose.mockClear(); vi.clearAllMocks(); });
@@ -27,10 +28,40 @@ describe('recuperação durável das cenas remotas', () => {
     const store = createStudioRemoteSceneStore(new IDBFactory(), `recovery-${crypto.randomUUID()}`), first = entry(); await store.save(first); await store.save({ ...first, key: 'other:session:intent', owner: 'other' });
     expect((await store.list('owner')).map(value => value.key)).toEqual([first.key]); await expect(store.get('other', first.key)).rejects.toThrow('outra conta'); expect((await store.get('owner', first.key))!.bufferId).toBe('raw-buffer');
   });
+  it('IndexedDB conserva fonte de voz e mute do take sem reinterpretar legados', async () => {
+    const store = createStudioRemoteSceneStore(new IDBFactory(), `audio-policy-${crypto.randomUUID()}`), native = { ...entry(), narrationSource: 'iphone' as const };
+    native.events.push({ ...native.events[0], atSeconds: 1, microphoneEnabled: false });
+    await store.save(native);
+    expect(await store.get('owner', native.key)).toMatchObject({ narrationSource: 'iphone', events: [{ atSeconds: 0 }, { atSeconds: 1, microphoneEnabled: false }] });
+    const legacy = { ...entry(), key: 'owner:session:legacy' }; await store.save(legacy);
+    expect((await store.get('owner', legacy.key))!.narrationSource).toBeUndefined();
+  });
   it('falha deexport preserva ambosoriginais e retry retorna mesmoarquivo sem novoREC', async () => {
     const h = fixture(); h.render.mockRejectedValueOnce(new Error('Encoder ocupado'));
     await expect(recoverStudioRemoteScene('owner', entry().key, h)).rejects.toThrow('Encoder ocupado'); expect(h.saved()).toMatchObject({ status: 'recoverable', cameraFile: h.camera, screenFile: h.screen }); expect(h.client.request).not.toHaveBeenCalled();
     expect(await recoverStudioRemoteScene('owner', entry().key, h)).toBe(h.output); expect(await recoverStudioRemoteScene('owner', entry().key, h)).toBe(h.output); expect(h.render).toHaveBeenCalledTimes(2); expect(h.saved().status).toBe('complete');
+  });
+  it('retry mantém áudio nativo e histórico mute congelados, sem pedir outro REC', async () => {
+    const h = fixture(); h.saved().narrationSource = 'iphone'; h.saved().events[0].microphoneEnabled = false;
+    h.render.mockRejectedValueOnce(new Error('Encoder ocupado'));
+    await expect(recoverStudioRemoteScene('owner', entry().key, h)).rejects.toThrow('Encoder ocupado');
+    expect(await recoverStudioRemoteScene('owner', entry().key, h)).toBe(h.output);
+    for (const call of h.render.mock.calls) expect(call[0]).toMatchObject({ narrationSource: 'iphone', cameraOffsetSeconds: .25, events: [{ microphoneEnabled: false }] });
+    expect(h.saved().narrationSource).toBe('iphone'); expect(h.client.request).not.toHaveBeenCalled();
+  });
+  it('snapshot antes dos awaits impede escolha atual de mudar fonte e mute do take em recuperação', async () => {
+    const h = fixture(); h.saved().narrationSource = 'iphone'; h.saved().screenMetadata = undefined;
+    let resolve!: (value: typeof metadata) => void; h.inspect.mockImplementationOnce(() => new Promise(value => { resolve = value; }));
+    const recovering = recoverStudioRemoteScene('owner', entry().key, h); await vi.waitFor(() => expect(h.inspect).toHaveBeenCalledOnce());
+    h.saved().narrationSource = 'browser'; h.saved().events[0].microphoneEnabled = false;
+    resolve(metadata); expect(await recovering).toBe(h.output);
+    expect(h.render.mock.calls[0][0]).toMatchObject({ narrationSource: 'iphone' });
+    expect(h.render.mock.calls[0][0].events[0].microphoneEnabled).toBeUndefined();
+    expect(h.saved().narrationSource).toBe('iphone'); expect(h.saved().events[0].microphoneEnabled).toBeUndefined();
+  });
+  it('recuperação legada não inventa escolha de microfone', async () => {
+    const h = fixture(); expect(await recoverStudioRemoteScene('owner', entry().key, h)).toBe(h.output);
+    expect(h.render.mock.calls[0][0].narrationSource).toBeUndefined(); expect(h.saved().narrationSource).toBeUndefined();
   });
   it('recebe masterprivado mesmo sem tela/ACK e oferece originalsem inventar montagem', async () => {
     const h = fixture(false); h.saved().takeId = null; h.saved().startedAtServerMs = null; raw.file.mockRejectedValueOnce(new Error('Tela incompleta'));
