@@ -16,7 +16,7 @@ import { StudioSceneControls } from './StudioSceneControls';
 import { useStudioSceneDirector } from './useStudioSceneDirector';
 import { createStudioRemoteCapture, type StudioRemoteCaptureController, type StudioRemoteView } from '@/lib/studio/editor/remoteCameraCapture';
 import { createStudioRemoteSceneCapture } from '@/lib/studio/editor/remoteSceneCapture';
-import { StudioRemoteCameraPairing, StudioRemoteCameraStatus } from './StudioRemoteCameraPairing';
+import { StudioRemoteCameraPairing, StudioRemoteCameraStatus, studioRemoteTransferLabel } from './StudioRemoteCameraPairing';
 import { StudioRemoteCameraControls } from './StudioRemoteCameraControls';
 import { StudioRemoteSceneRecoveryList, type StudioRemoteSceneRecoveredSource } from './StudioRemoteSceneRecoveryList';
 import '@/styles/studio-recording.css';
@@ -176,7 +176,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
         if (capture.current === ownedCapture) { remoteCapture.current?.discardRemoteRecovery(); ownedCapture?.cancel(); } candidate.current = null;
         const params = new URLSearchParams(latest.current.location.search); params.set('project', saved.id); params.set('kind', saved.kind);
         navigate({ pathname: '/studio/record', search: `?${params}` }, { replace: true }); return true;
-      } catch (cause) { if (active()) setError(cause instanceof Error ? cause.message : 'O trecho ainda não foi salvo. Tente novamente.'); return false; }
+      } catch (cause) { if (active()) setError(cause instanceof Error ? cause.message : 'O trecho ainda não foi salvo. Salve o take para continuar.'); return false; }
       finally { if (live(entry.token) && session.current === entry.session) { saveBusy.current = false; setBusy(null); } }
     })(); entry.work = work; void work.finally(() => { if (entry.work === work) entry.work = null; }); return work;
   };
@@ -220,7 +220,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
           if (['recording', 'stopping'].includes(captureSnapshot.current.phase) || candidate.current || captureSnapshot.current.file) return false;
           owned?.cancel(); deviceWork.current = null; setChangingDevice(false);
         } else if (!candidate.current && (state.file || state.pendingRecovery)) {
-          if (!await ask({ title: 'Salvar o trecho antes de sair?', description: 'Vamos tentar recuperar e salvar o original. Se o salvamento falhar, você continuará aqui com o trecho disponível.', confirmLabel: 'Salvar e sair', tone: 'accent', icon: 'exit' }) || !current()) return false;
+          if (!await ask({ title: 'Salvar o trecho antes de sair?', description: 'Vamos recuperar e salvar o original. Se o salvamento falhar, você continuará aqui com o trecho disponível.', confirmLabel: 'Salvar e sair', tone: 'accent', icon: 'exit' }) || !current()) return false;
           saveApproved = true;
         }
         // The browser may stop and autosave a partial take while the dialog is open.
@@ -237,7 +237,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
           if (!current() || !await saveCandidate(file)) return false;
         }
         if (!current()) return false; owned?.cancel(); return true;
-      } catch (cause) { if (current()) setError(cause instanceof Error ? cause.message : 'O trecho permanece disponível para tentar novamente.'); return false; }
+      } catch (cause) { if (current()) setError(cause instanceof Error ? cause.message : 'O trecho permanece disponível para salvar.'); return false; }
     })(); exitWork.current = work; void work.finally(() => { if (exitWork.current === work) exitWork.current = null; }); return work;
   };
   const riskRef = useRef(hasRisk), exitRef = useRef(prepareExit); riskRef.current = hasRisk; exitRef.current = prepareExit;
@@ -252,7 +252,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     if (!live(token) || capture.current !== owned) return;
     if (cause instanceof Error && cause.name === 'AbortError') return;
     const denied = cause instanceof DOMException && cause.name === 'NotAllowedError';
-    setError(captureSnapshot.current.error ?? (denied ? 'Permita câmera e microfone nas permissões deste site e tente novamente.' : cause instanceof Error ? cause.message : 'Não foi possível abrir esta entrada.'));
+    setError(captureSnapshot.current.error ?? (denied ? 'Permita câmera e microfone nas permissões deste site e abra a captura.' : cause instanceof Error ? cause.message : 'Não foi possível abrir esta entrada.'));
   };
   const authorizeScenes = () => {
     if (isRemote && !latest.current.canUseScenes) { (latest.current.onUpgradeRemote ?? latest.current.onUpgradeScenes)?.(); return false; }
@@ -278,6 +278,20 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     const current = owned.getEnvelope();
     if (!current?.session.deviceId && Date.parse(remoteState?.pairing?.expiresAt ?? '') < Date.now()) { owned.cancel(); void owned.prepare().catch(cause => reportCapture(cause, token, capture.current!)); }
     else void owned.reconnect().catch(cause => { if (live(token)) setError(cause instanceof Error ? cause.message : 'Não foi possível reconectar o iPhone.'); });
+  };
+  const cancelRemoteConnection = () => {
+    if (!isRemote || confirmationOperation.current || exitWork.current || exitIntent.current || saveBusy.current || captureSnapshot.current.pendingRecovery || ['recording', 'stopping'].includes(captureSnapshot.current.phase)) return;
+    capture.current?.cancel(); setError(null); setNotice(null); setToolsOpen(false);
+    setStage(projectSnapshot.current?.takes.length ? 'production' : 'setup');
+  };
+  const unlinkRemote = async () => {
+    const owned = remoteCapture.current, token = epoch.current;
+    if (!owned || confirmationOperation.current || exitWork.current || exitIntent.current || saveBusy.current || captureSnapshot.current.pendingRecovery || ['recording', 'stopping'].includes(captureSnapshot.current.phase)) return;
+    if (!await ask({ title: 'Desvincular este iPhone?', description: 'Este computador deixará de conectar automaticamente. Seus takes salvos e os originais no iPhone continuam preservados. Para vincular novamente, leia um novo QR.', confirmLabel: 'Desvincular iPhone', tone: 'accent', icon: 'exit' }) || !live(token) || remoteCapture.current !== owned) return;
+    setChangingDevice(true); setError(null);
+    try { await owned.unlinkRemote(); if (live(token)) { capture.current?.cancel(); setStage(projectSnapshot.current?.takes.length ? 'production' : 'setup'); } }
+    catch (cause) { report(cause, token); }
+    finally { if (live(token)) setChangingDevice(false); }
   };
   const configureRemote = (patch: Parameters<StudioRemoteCaptureController['configureRemote']>[0]) => {
     if (confirmationOperation.current || occupied || pendingFile || exitIntent.current) return;
@@ -410,10 +424,12 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
   };
   const reviewing = !!reviewURL && !captureState.stream, recording = captureState.phase === 'recording';
   const occupied = confirmationPending || loading || !!busy || changingDevice || leaving || countdown !== null || captureState.scenes?.preparingScreen === true || captureState.videoControls?.busy === true || captureState.phase === 'preparing' || captureState.phase === 'stopping';
-  const pendingFile = !!candidate.current || captureState.phase === 'error' && (!!captureState.file || captureState.pendingRecovery === true);
+  const pendingFile = !!candidate.current || captureState.pendingRecovery === true || captureState.phase === 'error' && !!captureState.file;
+  const recoveringRemote = isRemote && pendingFile && !candidate.current?.file && !captureState.file;
+  const recoveryWorking = busy === 'save' || captureState.phase === 'stopping';
   const total = project?.takes.reduce((sum, item) => sum + studioTakeDuration(item), 0) ?? 0;
   const captureCTA = kind === 'podcast' ? 'Ativar microfone' : isRemote ? 'Conectar meu iPhone' : mode === 'screen' ? 'Gravar tela' : mode === 'scenes' ? 'Abrir produção com cenas' : 'Abrir câmera';
-  const permissionCard = !captureState.stream && !reviewing && !pendingFile;
+  const permissionCard = !captureState.stream && (!reviewing || isRemote && captureState.phase === 'preparing') && !pendingFile;
   const permissionError = permissionCard && !occupied && (error || captureState.error);
   const permissionDenied = !!permissionError && /permit|permiss|negou|acesso.*bloque/i.test(error ?? captureState.error ?? '');
   const ready = captureState.phase === 'ready';
@@ -454,20 +470,20 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
         </div>}
         {toolsOpen && !recording && (isRemote && remoteState && toolsTab === 'image' ? <StudioRemoteCameraControls state={remoteState} disabled={occupied || pendingFile} onConfigure={configureRemote} onClose={closeTools} /> : <StudioRecordingTools initialTab={toolsTab} state={captureState} camera={!isRemote && kind !== 'podcast' && mode !== 'screen'} disabled={occupied || pendingFile} guides={guides} onGuides={updateGuides} onVideo={configureVideo} onClose={closeTools} />)}
         {countdown !== null && <div className="se-recording-countdown" role="status"><strong>{countdown}</strong><button className="se-recording-button" onClick={() => { countdownRef.current = null; setCountdown(null); }}>Cancelar contagem</button></div>}
-        {isRemote && remoteState && permissionCard && <StudioRemoteCameraPairing state={remoteState} onReconnect={reconnectRemote} disabled={!!busy || leaving || confirmationPending} />}
+        {isRemote && remoteState && permissionCard && <StudioRemoteCameraPairing state={remoteState} onReconnect={reconnectRemote} onCancel={cancelRemoteConnection} onUnpair={() => void unlinkRemote()} disabled={!!busy || leaving || confirmationPending || changingDevice} />}
         {permissionCard && !isRemote && <div className="se-recording-permission" data-permission-state={occupied ? 'preparing' : permissionError ? 'error' : 'closed'}>
           <div className={`se-recording-permission-icon${permissionError ? ' error' : ''}`}>{occupied ? <Loader2 size={30} className="se-spin" /> : kind === 'podcast' ? <Mic size={31} strokeWidth={1.4} /> : mode === 'screen' ? <Monitor size={31} strokeWidth={1.4} /> : <Camera size={31} strokeWidth={1.4} />}</div>
           <h2>{busy === 'save' ? 'Salvando seu take.' : captureState.phase === 'stopping' ? 'Preparando seu take.' : captureState.phase === 'preparing' ? kind === 'podcast' ? 'Vamos abrir seu microfone.' : mode === 'screen' ? 'Escolha o que quer compartilhar.' : 'Vamos abrir sua câmera.' : permissionError ? 'Não conseguimos abrir a entrada.' : 'Seu palco está pronto.'}</h2>
-          <p>{busy === 'save' ? 'Estamos preservando o original neste navegador.' : captureState.phase === 'preparing' ? mode === 'screen' && kind !== 'podcast' ? 'Use a janela do navegador para escolher uma tela ou aba. Depois, permita o microfone.' : kind === 'podcast' ? 'Quando o navegador pedir, permita o microfone. Você poderá conferir o áudio antes de gravar.' : 'Quando o navegador pedir, permita câmera e microfone. O preview aparece aqui, sem iniciar a gravação.' : permissionError ? permissionDenied ? 'Confira as permissões deste site no ícone ao lado do endereço do navegador e tente novamente.' : 'Confira a conexão do dispositivo e se outro aplicativo está usando esta entrada.' : 'Abra a captura para conferir o enquadramento e o áudio antes de gravar.'}</p>
+          <p>{busy === 'save' ? 'Estamos preservando o original neste navegador.' : captureState.phase === 'preparing' ? mode === 'screen' && kind !== 'podcast' ? 'Use a janela do navegador para escolher uma tela ou aba. Depois, permita o microfone.' : kind === 'podcast' ? 'Quando o navegador pedir, permita o microfone. Você poderá conferir o áudio antes de gravar.' : 'Quando o navegador pedir, permita câmera e microfone. O preview aparece aqui, sem iniciar a gravação.' : permissionError ? permissionDenied ? 'Confira as permissões deste site no ícone ao lado do endereço do navegador e abra a captura.' : 'Confira a conexão do dispositivo e se outro aplicativo está usando esta entrada.' : 'Abra a captura para conferir o enquadramento e o áudio antes de gravar.'}</p>
           {permissionError && <p className="se-recording-permission-error" role="alert">{error ?? captureState.error}</p>}
-          {!occupied && <button className="se-recording-button primary" onClick={openCapture}>{permissionError ? 'Tentar novamente' : project?.takes.length ? 'Gravar outro take' : captureCTA}<ArrowRight size={16} /></button>}
+          {!occupied && <button className="se-recording-button primary" onClick={openCapture}>{permissionError ? captureCTA : project?.takes.length ? 'Gravar outro take' : captureCTA}<ArrowRight size={16} /></button>}
           {!permissionError && !busy && <small><ShieldCheck size={13} />Só você vê esta captura.</small>}
         </div>}
-        {!recording && pendingFile && <div className="se-recording-recovery"><div className="se-recording-permission-icon"><Film size={29} /></div><h2>{busy === 'save' ? 'Salvando seu take.' : 'Seu take ainda está com você.'}</h2><p>{busy === 'save' ? 'Aguarde a confirmação antes de continuar.' : captureState.pendingRecovery && !captureState.file ? 'Mantenha esta página aberta e tente recuperar o trecho capturado.' : 'Repita o salvamento ou baixe o original para guardar uma cópia.'}</p><div className="se-recording-feedback error" role="alert"><span>{error ?? captureState.error ?? 'Este trecho ainda não foi salvo.'}</span><div><button disabled={occupied} onClick={retry}>Tentar salvar take</button>{(candidate.current?.file || captureState.file) && <button onClick={downloadOriginal}>Baixar original</button>}<button disabled={occupied} onClick={discard}>Descartar trecho</button></div></div></div>}
+        {!recording && pendingFile && <div className="se-recording-recovery" aria-busy={recoveryWorking}><div className="se-recording-permission-icon">{recoveryWorking ? <Loader2 size={29} className="se-spin" /> : <Film size={29} />}</div><h2>{busy === 'save' ? 'Salvando seu take.' : recoveryWorking && recoveringRemote ? 'Recebendo seu original.' : recoveryWorking ? 'Preparando seu take.' : 'Seu take ainda está com você.'}</h2><p>{busy === 'save' ? 'Aguarde a confirmação antes de continuar.' : recoveringRemote ? 'Mantenha esta página e o app no iPhone abertos. O original será recebido e salvo no projeto.' : captureState.pendingRecovery && !captureState.file ? 'Mantenha esta página aberta e salve o trecho capturado para continuar.' : 'Salve o take ou baixe o original para guardar uma cópia.'}</p><div className={`se-recording-feedback${recoveryWorking ? '' : ' error'}`} role={recoveryWorking ? 'status' : 'alert'}><span>{recoveryWorking ? busy === 'save' ? 'Preservando o original neste navegador…' : recoveringRemote && remoteState ? studioRemoteTransferLabel(remoteState) : 'Finalizando o trecho capturado…' : error ?? captureState.error ?? 'Este trecho ainda não foi salvo.'}</span><div><button disabled={occupied} onClick={retry}>{recoveryWorking && <Loader2 size={14} className="se-spin" />}{recoveringRemote ? recoveryWorking ? 'Transferindo original…' : 'Retomar transferência' : busy === 'save' ? 'Salvando take…' : 'Salvar take'}</button>{(candidate.current?.file || captureState.file) && <button onClick={downloadOriginal}>Baixar original</button>}<button disabled={occupied} onClick={discard}>Descartar trecho</button></div></div></div>}
         {!recording && !permissionError && !pendingFile && (error || captureState.error || notice) && <div className={`se-recording-feedback se-recording-stage-feedback ${error || captureState.phase === 'error' ? 'error' : ''}`} role={error || captureState.phase === 'error' ? 'alert' : 'status'}><span>{error ?? captureState.error ?? notice}</span></div>}
         {recording && <span className="se-recording-timer" role="timer"><i />{formatStudioEditorTime(captureState.elapsed)}</span>}
         {captureState.input && <AudioMonitor state={captureState} />}
-        {isRemote && remoteState?.session && captureState.stream && (!recording || remoteState.connection !== 'connected' || remoteState.transfer !== 'idle') && <StudioRemoteCameraStatus state={remoteState} onReconnect={reconnectRemote} disabled={occupied || pendingFile} audioMonitorVisible={!!captureState.input} />}
+        {isRemote && remoteState?.session && captureState.stream && (!recording || remoteState.connection !== 'connected' || remoteState.transfer !== 'idle') && <StudioRemoteCameraStatus state={remoteState} onReconnect={reconnectRemote} onUnpair={!recording ? () => void unlinkRemote() : undefined} disabled={occupied || pendingFile} audioMonitorVisible={!!captureState.input} />}
         {reviewing && !recording && <span className="se-recording-review-badge"><Play size={12} />Revisando take {(project?.takes.findIndex(item => item.id === take?.id) ?? -1) + 1}</span>}
       </div>
       {hasScenes && captureState.scenes && captureState.stream && <StudioSceneControls state={captureState.scenes} disabled={occupied || pendingFile || !['ready', 'recording'].includes(captureState.phase)} recording={recording} onScene={selectScene} onPrepareScreen={prepareScreen} onConfigure={configureScene} director={{ supported: director.supported, isOpen: director.isOpen, onOpen: openDirector, error: director.error }} />}

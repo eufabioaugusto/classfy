@@ -189,6 +189,7 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
     configureScene(patch) { if (!local || !['ready', 'recording'].includes(state.phase)) throw new Error('Prepare as cenas antes de ajustar.'); local.configureScene?.(patch); recordEvent(); },
     getReceivedCameraTrack: () => remote.getReceivedCameraTrack(), getServerNow: () => remote.getServerNow(), getEnvelope: () => remote.getEnvelope(), subscribeRemote: listener => remote.subscribeRemote(listener),
     async reconnect() { await remote.reconnect(); }, discardRemoteRecovery() { remote.discardRemoteRecovery(); },
+    async unlinkRemote() { if (entry || recording || startWork || stopWork) throw new Error('Finalize e salve o take antes de desvincular o iPhone.'); await remote.unlinkRemote(); controller.cancel(); },
     cancel() {
       if (cancellationWork) return;
       generation++; preparation?.abort(); recording = false;

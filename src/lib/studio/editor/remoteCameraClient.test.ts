@@ -51,15 +51,17 @@ describe('cliente da câmera remota privada', () => {
     const handle = opfs(), client = createStudioRemoteClient('owner'); fetcher.mockImplementation(async (target: string) => response(target.includes('part-0') ? 'ABCD' : target.includes('part-1') ? 'EFGH' : 'IJKL'));
     const first: StudioRemoteDownload = { parts: [{ url: url(0), index: 0, bytes: 4 }, { url: url(1), index: 1, bytes: 4 }], bytes: 12, mime: 'video/mp4', totalParts: 3, nextPartIndex: 2, expiresAt: new Date(Date.now() + 120_000).toISOString() };
     const nextPage = vi.fn(async () => ({ ...first, parts: [{ url: url(2), index: 2, bytes: 4 }], nextPartIndex: null }));
-    const file = await client.download(first, { cacheKey: 'session-take', nextPage });
+    const onProgress = vi.fn(); const file = await client.download(first, { cacheKey: 'session-take', nextPage, onProgress });
     expect(file.size).toBe(12); expect(new TextDecoder().decode(content)).toBe('ABCDEFGHIJKL'); expect(commits).toBe(3); expect(handle.createWritable).toHaveBeenCalledTimes(3); expect(nextPage).toHaveBeenCalledWith(2);
+    expect(onProgress.mock.calls).toEqual([[4, 12], [8, 12], [12, 12]]);
   });
   it('retry retém partes concluídas e baixa apenas partes restantes, sem concatenar RAM', async () => {
     opfs(); const client = createStudioRemoteClient('owner'); const descriptor: StudioRemoteDownload = { parts: [0, 1, 2].map(index => ({ url: url(index), index, bytes: 4 })), bytes: 12, expiresAt: new Date(Date.now() + 120_000).toISOString() };
     let failure = true; fetcher.mockImplementation(async (target: string) => { if (target.includes('part-1') && failure) throw new Error('network interrupted'); return response(target.includes('part-0') ? 'ABCD' : target.includes('part-1') ? 'EFGH' : 'IJKL'); });
     await expect(client.download(descriptor, { cacheKey: 'session-take' })).rejects.toThrow('network interrupted'); expect(new TextDecoder().decode(content)).toBe('ABCD');
-    failure = false; const file = await client.download(descriptor, { cacheKey: 'session-take' }); expect(file.size).toBe(12); expect(new TextDecoder().decode(content)).toBe('ABCDEFGHIJKL');
+    failure = false; const onProgress = vi.fn(); const file = await client.download(descriptor, { cacheKey: 'session-take', onProgress }); expect(file.size).toBe(12); expect(new TextDecoder().decode(content)).toBe('ABCDEFGHIJKL');
     expect(fetcher.mock.calls.filter(([target]) => target.includes('part-0'))).toHaveLength(1);
+    expect(onProgress.mock.calls).toEqual([[4, 12], [8, 12], [12, 12]]);
   });
   it('parte com bytes diferentes aborta escrita e mantém original parcial recuperável', async () => {
     opfs(); const client = createStudioRemoteClient('owner'); fetcher.mockResolvedValue(response('ABC')); const descriptor = { parts: [{ url: url(0), index: 0, bytes: 4 }], bytes: 4, expiresAt: new Date(Date.now() + 120_000).toISOString() };

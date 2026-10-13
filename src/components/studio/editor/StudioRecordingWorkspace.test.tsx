@@ -5,8 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { compileStudioRecipe, emptyStudioEditing, withStudioTakes, type StudioKind, type StudioProject } from '../../../../shared/studio';
 import { StudioRecordingWorkspace } from './StudioRecordingWorkspace';
 import { initializeStudioExitGuard } from './useStudioExitGuard';
+import type { StudioCaptureState } from '@/lib/studio/editor/capture';
+import type { StudioRemoteCaptureController, StudioRemoteView } from '@/lib/studio/editor/remoteCameraCapture';
 
 const io = vi.hoisted(() => ({ inspect: vi.fn(), create: vi.fn(), get: vi.fn(), save: vi.fn(), put: vi.fn(), asset: vi.fn() }));
+const remoteIO = vi.hoisted(() => ({ create: vi.fn() }));
+vi.mock('@/lib/studio/editor/remoteCameraCapture', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/studio/editor/remoteCameraCapture')>();
+  return { ...actual, createStudioRemoteCapture: (options: Parameters<typeof actual.createStudioRemoteCapture>[0]) => remoteIO.create(options) ?? actual.createStudioRemoteCapture(options) };
+});
 vi.mock('@/lib/studio/editor/media', () => ({ inspectStudioMedia: io.inspect }));
 vi.mock('@/lib/studio/editor/storage', () => ({
   createProject: io.create, getProject: io.get, saveProject: io.save, putAsset: io.put, getAsset: io.asset,
@@ -95,6 +102,7 @@ async function pop(index: number, url: string) { window.history.replaceState({ i
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   projects.clear(); assets.clear(); Recorder.instances = []; owner = 'owner'; initialKind = 'aula'; title = '';
+  remoteIO.create.mockReset();
   io.create.mockReset().mockImplementation(async (account: string, kind: StudioKind, name: string) => { const value = fixture(account, crypto.randomUUID(), kind, name); projects.set(key(account, value.id), value); return value; });
   io.get.mockReset().mockImplementation(async (account: string, id: string) => projects.get(key(account, id)) ?? null);
   io.save.mockReset().mockImplementation(async (account: string, value: StudioProject) => { const saved = withStudioTakes({ ...value, editing: value.editing!, revision: value.revision + 1 }); projects.set(key(account, value.id), saved); return saved; });
@@ -150,14 +158,51 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     io.save.mockRejectedValueOnce(new Error('Sem espaço para salvar.')); await mount(); await record(); expect(host.textContent).toContain('Sem espaço');
     expect(button('Ir para edição')?.disabled).toBe(true); const original = io.put.mock.calls[0][3], assetIds = io.put.mock.calls.map(args => args[2]);
     const clickDownload = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined); vi.useFakeTimers(); await click('Baixar original'); expect(URL.createObjectURL).toHaveBeenLastCalledWith(original); expect(clickDownload).toHaveBeenCalledTimes(1); await act(async () => vi.advanceTimersByTime(1000)); expect(URL.revokeObjectURL).toHaveBeenCalled(); vi.useRealTimers();
-    await click('Tentar salvar take'); expect(io.put.mock.calls.map(args => args[2])).toEqual(assetIds); expect(io.save).toHaveBeenCalledTimes(2); expect(permissions).toHaveBeenCalledTimes(1); expect(Recorder.instances).toHaveLength(1); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1);
+    await click('Salvar take'); expect(io.put.mock.calls.map(args => args[2])).toEqual(assetIds); expect(io.save).toHaveBeenCalledTimes(2); expect(permissions).toHaveBeenCalledTimes(1); expect(Recorder.instances).toHaveLength(1); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1);
   });
 
   it('erro de metadados retém arquivo e libera dispositivos; retry lê os mesmos bytes e salva automaticamente', async () => {
     io.inspect.mockRejectedValueOnce(new Error('Decoder temporariamente ocupado.')); await mount(); await record(); const original = io.inspect.mock.calls[0][0];
     expect(io.create).not.toHaveBeenCalled(); expect(host.textContent).toContain('Decoder'); expect(button('Baixar original')).toBeTruthy();
     const stream = await permissions.mock.results[0].value; expect(stream.tracks.every((t: Track) => t.stop.mock.calls.length === 1)).toBe(true);
-    await click('Tentar salvar take'); expect(io.inspect.mock.calls[1][0]).toBe(original); expect(io.put.mock.calls[0][3]).toBe(original); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); expect(Recorder.instances).toHaveLength(1);
+    await click('Salvar take'); expect(io.inspect.mock.calls[1][0]).toBe(original); expect(io.put.mock.calls[0][3]).toBe(original); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); expect(Recorder.instances).toHaveLength(1);
+  });
+
+  it('retomada do iPhone mantém ação concreta, progresso visível e bloqueio de clique até salvar o original', async () => {
+    const receive = deferred<File>(), file = new File(['native-4k-original'], 'iPhone.mp4', { type: 'video/mp4' });
+    const newConnection = deferred<void>();
+    let publishTransfer!: (patch: Partial<StudioRemoteView>) => void;
+    remoteIO.create.mockImplementation(() => {
+      const listeners = new Set<(state: StudioCaptureState) => void>(), remoteListeners = new Set<(state: StudioRemoteView) => void>();
+      let state: StudioCaptureState = { phase: 'idle', stream: null, file: null, error: null, elapsed: 0, input: null, camera: null, devices: { cameras: [], microphones: [] }, levels: [], microphoneEnabled: true };
+      let remote: StudioRemoteView = { pairing: null, session: null, connection: 'connected', transfer: 'idle', pendingTakeId: '50000000-0000-4000-8000-000000000001', error: null };
+      let attempts = 0, preparations = 0, waiting = false;
+      const publish = (patch: Partial<StudioCaptureState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener(state)); };
+      const transfer = (patch: Partial<StudioRemoteView>) => { remote = { ...remote, ...patch }; remoteListeners.forEach(listener => listener(remote)); };
+      return {
+        subscribe(listener) { listeners.add(listener); listener(state); return () => listeners.delete(listener); },
+        subscribeRemote(listener) { remoteListeners.add(listener); listener(remote); return () => remoteListeners.delete(listener); },
+        async prepare() { publishTransfer = transfer; if (++preparations > 1) { waiting = true; publish({ phase: 'preparing', stream: null }); transfer({ pendingTakeId: null, session: { deviceId: 'paired-phone' } as StudioRemoteView['session'] }); await newConnection.promise; if (!waiting) return; } publish({ phase: 'ready', stream: new Stream([new Track('video')]) as unknown as MediaStream, width: 3840, height: 2160, frameRate: 30 }); },
+        start() { publish({ phase: 'recording', pendingRecovery: false }); },
+        async stop() {
+          if (++attempts === 1) { publish({ phase: 'error', pendingRecovery: true, error: 'Não foi possível preparar esta parte do original.' }); transfer({ transfer: 'retry' }); throw new Error('Não foi possível preparar esta parte do original.'); }
+          publish({ phase: 'stopping', pendingRecovery: true, error: null }); transfer({ transfer: 'uploading', transferBytes: 25, transferTotalBytes: 100 });
+          const original = await receive.promise; publish({ phase: 'recorded', stream: null, file: original, pendingRecovery: false }); return original;
+        },
+        discardRemoteRecovery() {}, cancel() { waiting = false; publish({ phase: 'idle', stream: null, file: null, pendingRecovery: false }); },
+        dispose() { listeners.clear(); remoteListeners.clear(); }, getMicrophoneTrack() { return null; },
+      } as unknown as StudioRemoteCaptureController;
+    });
+    await act(async () => root.render(<MemoryRouter initialEntries={['/studio/record']}><StudioRecordingWorkspace owner="owner" initialKind="aula" canUseScenes /></MemoryRouter>));
+    await click('Usar meu iPhone · Premium'); await click('Conectar meu iPhone'); await click('Iniciar gravação'); await click('Encerrar gravação');
+    expect(host.textContent).toContain('Não foi possível preparar esta parte'); expect(host.textContent).not.toMatch(/Tentar salvar|tente recuperar/); expect(button('Retomar transferência')?.disabled).toBe(false);
+    await click('Retomar transferência'); expect(host.querySelector('.se-recording-recovery')?.getAttribute('aria-busy')).toBe('true');
+    expect(host.textContent).toContain('Enviando original do iPhone… 25%'); expect(button('Transferindo original…')?.disabled).toBe(true); expect(button('Descartar trecho')?.disabled).toBe(true);
+    await act(async () => publishTransfer({ transfer: 'downloading', transferBytes: 75, transferTotalBytes: 100 })); expect(host.textContent).toContain('Recebendo original no computador… 75%');
+    await act(async () => receive.resolve(file)); expect(host.querySelector('.se-recording-recovery')).toBeNull(); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); expect(io.put.mock.calls[0][3]).toBe(file);
+    await click('Gravar outro take'); expect(host.textContent).toContain('Aguardando meu iPhone.'); expect(button('Cancelar conexão')?.disabled).toBe(false);
+    await click('Cancelar conexão'); expect(host.querySelector('.src-pairing')).toBeNull(); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); expect(button('Reproduzir take')).toBeTruthy();
+    await act(async () => newConnection.resolve()); expect(host.querySelector('.src-pairing')).toBeNull(); expect(host.querySelector('video[aria-label="Reproduzir take salvo"]')).toBeTruthy(); expect(io.save).toHaveBeenCalledTimes(1);
   });
 
   it('Short mantém enquadramento cover e formato carregado após excluir o último take, sem voltar à preparação', async () => {
@@ -231,8 +276,8 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
   it('descarte visual preserva o candidato ao cancelar e só remove o trecho pendente após aprovação', async () => {
     await mount(); await record(); const saved = [...projects.values()][0];
     io.save.mockRejectedValueOnce(new Error('Sem espaço para o segundo take.')); await click('Gravar outro take'); await click('Iniciar gravação'); await click('Encerrar gravação');
-    const original = io.inspect.mock.calls.at(-1)![0]; await click('Descartar trecho'); expect(confirmation()?.textContent).toContain('Este trecho ainda não foi salvo'); expect(button('Tentar salvar take')?.disabled).toBe(true);
-    await click('Tentar salvar take'); expect(io.save).toHaveBeenCalledTimes(2); await answer('Cancelar'); expect(button('Baixar original')).toBeTruthy();
+    const original = io.inspect.mock.calls.at(-1)![0]; await click('Descartar trecho'); expect(confirmation()?.textContent).toContain('Este trecho ainda não foi salvo'); expect(button('Salvar take')?.disabled).toBe(true);
+    await click('Salvar take'); expect(io.save).toHaveBeenCalledTimes(2); await answer('Cancelar'); expect(button('Baixar original')).toBeTruthy();
     const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined); await click('Baixar original'); expect(URL.createObjectURL).toHaveBeenLastCalledWith(original); expect(download).toHaveBeenCalledTimes(1);
     await click('Descartar trecho'); await answer('Descartar trecho'); expect(button('Baixar original')).toBeUndefined(); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); expect([...projects.values()][0]).toBe(saved);
     expect(io.save).toHaveBeenCalledTimes(2); expect(button('Ir para edição')?.disabled).toBe(false); expect(Recorder.instances).toHaveLength(2);
@@ -314,7 +359,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await act(async () => pending.reject(new DOMException('Permission denied', 'NotAllowedError')));
     expect(host.querySelector('[data-permission-state="error"]')).toBeTruthy(); expect(host.querySelector('[role="alert"]')?.textContent).toContain('Permita câmera e microfone');
     expect(host.textContent).not.toContain('Permission denied'); expect(host.textContent).toContain('ícone ao lado do endereço');
-    await click('Tentar novamente'); expect(permissions).toHaveBeenCalledTimes(2);
+    await click('Abrir câmera'); expect(permissions).toHaveBeenCalledTimes(2);
     expect(host.querySelector('[data-permission-state]')).toBeNull(); expect(button('Iniciar gravação')?.disabled).toBe(false);
   });
 
@@ -323,7 +368,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await mount(); await click('Abrir câmera');
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('Feche outro aplicativo');
     expect(host.textContent).toContain('conexão do dispositivo'); expect(host.textContent).not.toContain('ícone ao lado do endereço');
-    expect(host.textContent).not.toContain('Could not start video source'); expect(button('Tentar novamente')).toBeTruthy();
+    expect(host.textContent).not.toContain('Could not start video source'); expect(button('Abrir câmera')).toBeTruthy();
   });
 
   it('sair durante troca de entrada pendente cancela sem aguardar permissão e fecha tracks tardios', async () => {

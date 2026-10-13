@@ -4,7 +4,7 @@ import type { StudioRemoteResponse } from '../../../../shared/studio/remoteCamer
 export type StudioRemoteRequest = { action: string; [key: string]: unknown };
 export type StudioRemoteScope = { signal?: AbortSignal; isCurrent?: () => boolean };
 export type StudioRemoteDownload = { url?: string; parts?: { url: string; index: number; bytes: number }[]; bytes?: number; mime?: string; totalParts?: number; nextPartIndex?: number | null; expiresAt: string };
-export type StudioRemoteDownloadScope = StudioRemoteScope & { cacheKey?: string; nextPage?: (index: number) => Promise<StudioRemoteDownload> };
+export type StudioRemoteDownloadScope = StudioRemoteScope & { cacheKey?: string; nextPage?: (index: number) => Promise<StudioRemoteDownload>; onProgress?: (receivedBytes: number, totalBytes?: number) => void };
 export type StudioRemoteClient = {
   request(body: StudioRemoteRequest, scope?: StudioRemoteScope): Promise<StudioRemoteResponse>;
   download(download: StudioRemoteDownload | string, scope?: StudioRemoteDownloadScope): Promise<Blob>;
@@ -20,7 +20,7 @@ async function remoteBounded<T>(scope: StudioRemoteScope, task: (signal: AbortSi
   const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
   const abort = () => controller.abort(); scope.signal?.addEventListener('abort', abort, { once: true });
   try {
-    const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => { reject(new StudioRemoteCameraError('A conexão demorou. Tente novamente; seu original permanece no iPhone.', 'timeout')); controller.abort(); }, milliseconds); });
+    const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => { reject(new StudioRemoteCameraError('A conexão demorou. Reconecte para continuar; seu original permanece no iPhone.', 'timeout')); controller.abort(); }, milliseconds); });
     const cancelled = new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(new DOMException('Conexão cancelada.', 'AbortError')), { once: true }));
     const result = await Promise.race([task(controller.signal), deadline, cancelled]); assertStudioRemoteScope(scope); return result;
   } finally { clearTimeout(timer); scope.signal?.removeEventListener('abort', abort); }
@@ -30,12 +30,12 @@ async function readRemotePart(target: URL, scope: StudioRemoteScope, write: (byt
   assertStudioRemoteScope(scope); const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined, received = 0;
   let rejectIdle!: (error: Error) => void;
   const inactive = new Promise<never>((_, reject) => { rejectIdle = reject; });
-  const reset = () => { clearTimeout(timer); timer = setTimeout(() => { rejectIdle(new StudioRemoteCameraError('A transferência parou. Tente novamente para continuar de onde terminou.', 'download_stalled')); controller.abort(); }, 30_000); };
+  const reset = () => { clearTimeout(timer); timer = setTimeout(() => { rejectIdle(new StudioRemoteCameraError('A transferência parou. Retome para continuar de onde terminou.', 'download_stalled')); controller.abort(); }, 30_000); };
   const cancel = () => controller.abort(); scope.signal?.addEventListener('abort', cancel, { once: true });
   const cancelled = new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(new DOMException('Conexão cancelada.', 'AbortError')), { once: true }));
   const work = (async () => {
     const response = await fetch(target.href, { signal: controller.signal, credentials: 'omit', redirect: 'error' });
-    if (!response.ok || !response.body) throw new StudioRemoteCameraError('A transferência foi interrompida. Tente novamente.', 'download_failed');
+    if (!response.ok || !response.body) throw new StudioRemoteCameraError('A transferência foi interrompida. Retome o recebimento do original.', 'download_failed');
     const reader = response.body.getReader();
     try { while (true) { const next = await reader.read(); assertStudioRemoteScope(scope); if (next.done) break; reset(); received += next.value.byteLength; await write(next.value); } return received; }
     finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
@@ -59,7 +59,7 @@ export function createStudioRemoteClient(owner: string): StudioRemoteClient {
       if (error) {
         let detail: { error?: string; message?: string; code?: string } | undefined;
         try { if ('context' in error && error.context instanceof Response) detail = await error.context.clone().json(); } catch { /* Transport errors have no JSON response. */ }
-        throw new StudioRemoteCameraError(detail?.message ?? detail?.error ?? 'Não foi possível conectar o iPhone. Tente novamente.', detail?.code ?? 'transport');
+        throw new StudioRemoteCameraError(detail?.message ?? detail?.error ?? 'Não foi possível conectar o iPhone. Reconecte a prévia para continuar.', detail?.code ?? 'transport');
       }
       if (!data?.session?.id || !Array.isArray(data.commands) || !Array.isArray(data.takes) || typeof data.serverAt !== 'string') throw new StudioRemoteCameraError('A conexão respondeu com dados incompletos.', 'invalid_response');
       return data as StudioRemoteResponse;
@@ -77,14 +77,14 @@ export function createStudioRemoteClient(owner: string): StudioRemoteClient {
         const getDirectory = navigator.storage?.getDirectory?.bind(navigator.storage);
         if (!getDirectory) {
           if (parts.length !== 1 || descriptor.nextPartIndex != null || parts[0].bytes > 50 * 1024 * 1024) throw new StudioRemoteCameraError('Use Chrome, Edge ou Safari atualizado para receber este original com segurança.', 'storage_unsupported');
-          return remoteBounded(scope, async signal => { const response = await fetch(targets[0].href, { signal, credentials: 'omit', redirect: 'error' }); if (!response.ok) throw new StudioRemoteCameraError('Não foi possível receber o original. Tente novamente.', 'download_failed'); return response.blob(); }, 180_000);
+          return remoteBounded(scope, async signal => { const response = await fetch(targets[0].href, { signal, credentials: 'omit', redirect: 'error' }); if (!response.ok) throw new StudioRemoteCameraError('Não foi possível receber o original. Retome a transferência.', 'download_failed'); scope.onProgress?.(0, descriptor.bytes); const blob = await response.blob(); assertStudioRemoteScope(scope); scope.onProgress?.(blob.size, descriptor.bytes); return blob; }, 180_000);
         }
         const directory = await (await getDirectory()).getDirectoryHandle('classfy-remote-originals', { create: true }); assertStudioRemoteScope(scope);
         const key = (scope.cacheKey ?? crypto.randomUUID()).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 180);
         const handle = await directory.getFileHandle(`${owner}-${key}.original`, { create: true });
         const previous = await handle.getFile(); let retained = 0, nextPartIndex = descriptor.nextPartIndex ?? null;
         const pageAt = async (index: number) => {
-          if (!scope.nextPage) throw new StudioRemoteCameraError('Faltam partes do original. Tente transferir novamente.', 'original_incomplete');
+          if (!scope.nextPage) throw new StudioRemoteCameraError('Faltam partes do original. Retome a transferência.', 'original_incomplete');
           const page = await scope.nextPage(index); assertStudioRemoteScope(scope);
           const next = [...page.parts ?? []].sort((left, right) => left.index - right.index);
           if (page.bytes !== descriptor.bytes || !next.length || next.some((part, offset) => part.index !== index + offset || !Number.isSafeInteger(part.bytes) || part.bytes <= 0) || page.nextPartIndex != null && page.nextPartIndex <= index) throw new StudioRemoteCameraError('A próxima parte não corresponde a este original.', 'invalid_download');
@@ -95,21 +95,21 @@ export function createStudioRemoteClient(owner: string): StudioRemoteClient {
         // truncated before resuming. Originals stay on disk, never concatenated in RAM.
         for (let index = 0; index < parts.length || nextPartIndex !== null; index++) {
           if (index === parts.length) {
-            if (nextPartIndex !== index) throw new StudioRemoteCameraError('Faltam partes do original. Tente transferir novamente.', 'original_incomplete'); await pageAt(index);
+            if (nextPartIndex !== index) throw new StudioRemoteCameraError('Faltam partes do original. Retome a transferência.', 'original_incomplete'); await pageAt(index);
           }
-          if (parts[index].bytes > 0 && retained + parts[index].bytes <= previous.size) { retained += parts[index].bytes; continue; }
+          if (parts[index].bytes > 0 && retained + parts[index].bytes <= previous.size) { retained += parts[index].bytes; scope.onProgress?.(retained, descriptor.bytes); continue; }
           if (Number.isFinite(expires[index]) && expires[index] <= Date.now() + 30_000) await pageAt(index);
           assertStudioRemoteScope(scope);
           const writable = await handle.createWritable({ keepExistingData: true }); let received = 0;
           try {
             await writable.truncate(retained); await writable.seek(retained);
-            received = await readRemotePart(targets[index], scope, async bytes => { received += bytes.byteLength; if (parts[index].bytes && received > parts[index].bytes) throw new StudioRemoteCameraError('Uma parte do original excedeu o tamanho confirmado.', 'original_incomplete'); await writable.write(bytes); });
-            if (parts[index].bytes && received !== parts[index].bytes) throw new StudioRemoteCameraError('Uma parte do original ficou incompleta. Tente novamente.', 'original_incomplete');
+            received = await readRemotePart(targets[index], scope, async bytes => { received += bytes.byteLength; if (parts[index].bytes && received > parts[index].bytes) throw new StudioRemoteCameraError('Uma parte do original excedeu o tamanho confirmado.', 'original_incomplete'); await writable.write(bytes); scope.onProgress?.(retained + received, descriptor.bytes); });
+            if (parts[index].bytes && received !== parts[index].bytes) throw new StudioRemoteCameraError('Uma parte do original ficou incompleta. Retome a transferência.', 'original_incomplete');
             await writable.close(); retained += received;
           } catch (error) { await writable.abort().catch(() => undefined); throw error; }
         }
         let file = await handle.getFile(); if (file.size > retained) { const writable = await handle.createWritable({ keepExistingData: true }); await writable.truncate(retained); await writable.close(); file = await handle.getFile(); }
-        if (descriptor.bytes && file.size !== descriptor.bytes) throw new StudioRemoteCameraError('O original ficou incompleto. Tente novamente.', 'original_incomplete'); return file;
+        if (descriptor.bytes && file.size !== descriptor.bytes) throw new StudioRemoteCameraError('O original ficou incompleto. Retome a transferência.', 'original_incomplete'); return file;
       })();
       await ownerSession(scope); assertStudioRemoteScope(scope); return blob;
     },

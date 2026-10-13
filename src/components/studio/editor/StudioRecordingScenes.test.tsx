@@ -154,9 +154,9 @@ describe('produção Premium com Workspace e controller de cenas reais', () => {
     await enterScenes(); await click('Iniciar gravação'); const recorder = Recorder.instances[0]; await interruptEncoder(recorder);
     const original = io.put.mock.calls[0][3] as File, assetId = io.put.mock.calls[0][2];
     expect(host.querySelector('.se-recording-recovery')?.textContent).toContain('Armazenamento cheio');
-    expect(button('Tentar salvar take')?.disabled).toBe(false); expect(button('Baixar original')).toBeTruthy(); expect(button('Descartar trecho')).toBeTruthy();
+    expect(button('Salvar take')?.disabled).toBe(false); expect(button('Baixar original')).toBeTruthy(); expect(button('Descartar trecho')).toBeTruthy();
     expect(button('Ir para edição')?.disabled).toBe(true); expect([...projects.values()][0].takes).toHaveLength(0);
-    await click('Tentar salvar take');
+    await click('Salvar take');
     expect(io.create).toHaveBeenCalledTimes(1); expect(io.save).toHaveBeenCalledTimes(2); expect([...projects.values()][0].takes).toHaveLength(1);
     expect(io.put.mock.calls.every(([, , id, file]) => id === assetId && file === original)).toBe(true);
     expect(Recorder.instances).toHaveLength(1); expect(permissions).toHaveBeenCalledTimes(1); expect(recorder.stop).not.toHaveBeenCalled();
@@ -169,8 +169,8 @@ describe('produção Premium com Workspace e controller de cenas reais', () => {
     const original = io.inspect.mock.calls[0][0] as File;
     expect(io.create).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled();
     expect(host.querySelector('.se-recording-recovery')?.textContent).toContain('O decoder ainda não leu este trecho');
-    expect(button('Tentar salvar take')?.disabled).toBe(false); expect(button('Baixar original')).toBeTruthy();
-    await click('Tentar salvar take');
+    expect(button('Salvar take')?.disabled).toBe(false); expect(button('Baixar original')).toBeTruthy();
+    await click('Salvar take');
     expect(io.inspect.mock.calls.every(([file]) => file === original)).toBe(true); expect(io.put.mock.calls[0][3]).toBe(original);
     expect(io.save).toHaveBeenCalledTimes(1); expect([...projects.values()][0].takes).toHaveLength(1);
     expect(recorder.stop).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(1); expect(button('Ir para edição')?.disabled).toBe(false);
@@ -180,10 +180,10 @@ describe('produção Premium com Workspace e controller de cenas reais', () => {
     io.readBuffer.mockRejectedValueOnce(new Error('A leitura do armazenamento foi interrompida.'));
     await enterScenes(); await click('Iniciar gravação'); const recorder = Recorder.instances[0]; await interruptEncoder(recorder);
     expect(host.querySelector('.se-recording-recovery')?.textContent).toContain('Mantenha esta página aberta');
-    expect(button('Tentar salvar take')?.disabled).toBe(false); expect(button('Baixar original')).toBeUndefined(); expect(button('Tentar novamente')).toBeUndefined();
+    expect(button('Salvar take')?.disabled).toBe(false); expect(button('Baixar original')).toBeUndefined(); expect(button('Tentar novamente')).toBeUndefined();
     expect(host.querySelector<HTMLSelectElement>('select[aria-label="Câmera"]')?.disabled).toBe(true); expect(button('Ir para edição')?.disabled).toBe(true);
     expect(io.create).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled(); expect(io.disposeBuffer).not.toHaveBeenCalled();
-    await click('Tentar salvar take');
+    await click('Salvar take');
     expect(io.readBuffer).toHaveBeenCalledTimes(2); expect(io.put.mock.calls[0][3].size).toBeGreaterThan(0); expect(io.save).toHaveBeenCalledTimes(1);
     expect([...projects.values()][0].takes).toHaveLength(1); expect(Recorder.instances).toHaveLength(1); expect(permissions).toHaveBeenCalledTimes(1);
     expect(button('Ir para edição')?.disabled).toBe(false); expect(host.querySelector('.se-recording-recovery')).toBeNull();
@@ -203,7 +203,7 @@ describe('produção Premium com Workspace e controller de cenas reais', () => {
   it('descarte de chunks sem File requer confirmação e só o aceite libera os dados pendentes', async () => {
     io.readBuffer.mockRejectedValueOnce(new Error('Leitura indisponível.'));
     await enterScenes(); await click('Iniciar gravação'); await interruptEncoder(Recorder.instances[0]);
-    await click('Descartar trecho'); await answer('Cancelar'); expect(io.disposeBuffer).not.toHaveBeenCalled(); expect(button('Tentar salvar take')?.disabled).toBe(false);
+    await click('Descartar trecho'); await answer('Cancelar'); expect(io.disposeBuffer).not.toHaveBeenCalled(); expect(button('Salvar take')?.disabled).toBe(false);
     await click('Descartar trecho'); await answer('Descartar trecho');
     expect(io.disposeBuffer).toHaveBeenCalledTimes(1); expect(host.querySelector('.se-recording-recovery')).toBeNull(); expect(button('Abrir produção com cenas')).toBeTruthy();
     expect(io.create).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(1);

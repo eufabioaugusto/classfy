@@ -166,6 +166,59 @@ BEGIN
  IF pro ? 'lensPosition' OR pro->>'autoExposure'<>'true' OR pro->>'autoWhiteBalance'<>'true' OR pro->>'autoFocus'<>'true'
   THEN RAISE EXCEPTION 'Auto focus retained manual lens position'; END IF;
 END $test$;
+-- Recovery commands are scoped to an existing original and never manufacture
+-- a completed storage receipt, even after entitlement/preview expiry.
+DO $test$
+DECLARE
+ u uuid := '10000000-0000-4000-8000-000000000001'; other_user uuid := '10000000-0000-4000-8000-000000000002';
+ controller uuid := '20000000-0000-4000-8000-000000000001'; device uuid := '30000000-0000-4000-8000-000000000001';
+ take uuid := gen_random_uuid(); start_id uuid := gen_random_uuid(); stop_id uuid := gen_random_uuid(); resume_id uuid := gen_random_uuid();
+ s uuid; response jsonb; args jsonb; receipt jsonb; info jsonb := '{"bytes":1234,"mime":"video/mp4","width":3840,"height":2160,"fps":30,"duration":3}';
+BEGIN
+ UPDATE profiles SET plan='premium',subscription_status='active',plan_expires_at=now()+interval '1 day' WHERE id=u;
+ response:=studio_camera_action(u,'create',jsonb_build_object('kind','aula','controllerId',controller,'pairingHash',repeat('7',64))); s:=(response#>>'{session,id}')::uuid;
+ PERFORM studio_camera_action(u,'join',jsonb_build_object('pairingHash',repeat('7',64),'deviceId',device));
+ PERFORM studio_camera_action(u,'command',jsonb_build_object('sessionId',s,'commandId',start_id,'type','start','payload',jsonb_build_object('takeId',take)));
+ PERFORM studio_camera_action(u,'ack',jsonb_build_object('sessionId',s,'deviceId',device,'commandId',start_id,'result',jsonb_build_object('ok',true,'takeId',take,'startedAtServerMs',123456)));
+ args:=jsonb_build_object('sessionId',s,'commandId',resume_id,'type','resume_upload','payload',jsonb_build_object('takeId',take));
+ BEGIN PERFORM studio_camera_action(u,'command',args); RAISE EXCEPTION 'Resume overlapped native REC';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'studio_camera_busy' THEN RAISE; END IF; END;
+ PERFORM studio_camera_action(u,'command',jsonb_build_object('sessionId',s,'commandId',stop_id,'type','stop'));
+ PERFORM studio_camera_action(u,'ack',jsonb_build_object('sessionId',s,'deviceId',device,'commandId',stop_id,'result',jsonb_build_object('ok',true,'takeId',take,'metadata',info)));
+ UPDATE profiles SET plan='free',subscription_status='expired',plan_expires_at=NULL WHERE id=u;
+ UPDATE studio_camera_sessions SET device_seen_at=now()-interval '31 seconds' WHERE id=s;
+ BEGIN PERFORM studio_camera_action(u,'command',args); RAISE EXCEPTION 'Offline device accepted a new resume';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'studio_camera_device_offline' THEN RAISE; END IF; END;
+ PERFORM studio_camera_action(u,'heartbeat',jsonb_build_object('sessionId',s,'role','device','clientId',device,
+  'state',jsonb_build_object('width',3840,'height',2160,'fps',30,'configurationConfirmed',true,'uploadTakeId',take,'uploadState','paused','uploadError','Previous interruption')));
+ BEGIN PERFORM studio_camera_action(other_user,'command',args); RAISE EXCEPTION 'Cross-account resume accepted';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'studio_camera_not_found' THEN RAISE; END IF; END;
+ BEGIN PERFORM studio_camera_action(u,'command',args||jsonb_build_object('payload',jsonb_build_object('takeId',gen_random_uuid()))); RAISE EXCEPTION 'Unowned original accepted';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'studio_camera_take_not_found' THEN RAISE; END IF; END;
+ response:=studio_camera_action(u,'command',args); response:=studio_camera_action(u,'command',args);
+ IF (SELECT count(*) FROM studio_camera_commands WHERE session_id=s AND type='resume_upload')<>1 THEN RAISE EXCEPTION 'Duplicate resume allocated twice'; END IF;
+ BEGIN PERFORM studio_camera_action(u,'command',args||jsonb_build_object('payload',jsonb_build_object('takeId',device))); RAISE EXCEPTION 'Resume command ID changed original';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'studio_camera_command_conflict' THEN RAISE; END IF; END;
+ receipt:=jsonb_build_object('ok',true,'takeId',take,'uploadState','uploading','uploadProgressBytes',0,'uploadTotalBytes',1234,'uploadResumedAtServerMs',123457,
+  'state',jsonb_build_object('uploadTakeId',take,'uploadState','uploading','uploadError',NULL,'uploadResumedAtServerMs',123457));
+ BEGIN PERFORM studio_camera_action(u,'ack',jsonb_build_object('sessionId',s,'deviceId',controller,'commandId',resume_id,'result',receipt)); RAISE EXCEPTION 'Wrong device resumed original';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'studio_camera_client_mismatch' THEN RAISE; END IF; END;
+ BEGIN PERFORM studio_camera_action(u,'ack',jsonb_build_object('sessionId',s,'deviceId',device,'commandId',resume_id,'result',receipt||jsonb_build_object('takeId',device))); RAISE EXCEPTION 'Resume ACK changed original';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'studio_camera_take_conflict' THEN RAISE; END IF; END;
+ response:=studio_camera_action(u,'ack',jsonb_build_object('sessionId',s,'deviceId',device,'commandId',resume_id,'result',receipt));
+ response:=studio_camera_action(u,'ack',jsonb_build_object('sessionId',s,'deviceId',device,'commandId',resume_id,'result',receipt));
+ IF response#>>'{session,deviceState,width}'<>'3840' OR response#>>'{session,deviceState,uploadError}' IS NOT NULL OR
+   response#>>'{session,deviceState,uploadResumedAtServerMs}'<>'123457' OR (SELECT status FROM studio_camera_takes WHERE session_id=s AND id=take)<>'local_ready'
+   THEN RAISE EXCEPTION 'Resume ACK lost camera state or forged uploaded receipt'; END IF;
+ PERFORM studio_camera_action(u,'close',jsonb_build_object('sessionId',s));
+ resume_id:=gen_random_uuid(); args:=args||jsonb_build_object('commandId',resume_id);
+ response:=studio_camera_action(u,'command',args);
+ receipt:=receipt||jsonb_build_object('uploadState','complete','uploadProgressBytes',1234,'uploadResumedAtServerMs',123458);
+ response:=studio_camera_action(u,'ack',jsonb_build_object('sessionId',s,'deviceId',device,'commandId',resume_id,'result',receipt));
+ IF response#>>'{session,status}'<>'closed' OR (SELECT status FROM studio_camera_takes WHERE session_id=s AND id=take)<>'local_ready'
+   THEN RAISE EXCEPTION 'Closed-session recovery reopened preview or forged completion'; END IF;
+ UPDATE profiles SET plan='premium',subscription_status='active',plan_expires_at=now()+interval '1 day' WHERE id=u;
+END $test$;
 -- Even a legacy permissive storage policy cannot leak the original bucket.
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
