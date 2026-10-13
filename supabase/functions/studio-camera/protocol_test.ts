@@ -49,6 +49,11 @@ Deno.test('provider errors cannot expose a token or URL; auth failure remains 40
   assert(publicError(new CameraError('unauthorized', 401)).status === 401);
   assert(publicError({ message: 'studio_camera_premium_required' }).status === 403);
 });
+Deno.test('paused original explains the real app recovery action without replacing its session', () => {
+  const paused = publicError({ message: 'studio_camera_pending_upload' });
+  assert(paused.status === 409 && paused.code === 'studio_camera_pending_upload');
+  assert(paused.message === 'Há um envio pausado no iPhone. Retome o envio no app antes de abrir uma nova sessão.');
+});
 Deno.test('TUS uses direct storage host in production and retains local origins', () => {
   assert(storageEndpoint('https://abcd.supabase.co') === 'https://abcd.storage.supabase.co/storage/v1/upload/resumable/sign');
   assert(storageEndpoint('http://127.0.0.1:54321') === 'http://127.0.0.1:54321/storage/v1/upload/resumable/sign');
