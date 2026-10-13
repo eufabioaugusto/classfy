@@ -41,6 +41,10 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
   const uploadRequests=new Set<string>();
   type ActiveTake={id:string;finished:Promise<RemoteTakeJournal>;stopping:boolean;acknowledged:boolean};
   let active:ActiveTake|null=null;
+  let deviceHeartbeatAt:number|null=null,deviceHeartbeatKey:string|null=null;
+  const heartbeatKey=()=>JSON.stringify([state.phase,state.uploadState||'idle',state.uploadTakeId||null,state.uploadError||null,state.processing===true]);
+  const heartbeatDue=()=>deviceHeartbeatAt===null||heartbeatKey()!==deviceHeartbeatKey||
+    now()-deviceHeartbeatAt>=(active||state.uploading||state.processing?1500:3000);
   const current=()=>!closed&&deps.current();
   const check=()=>{if(!current())throw Object.assign(new Error('A conexão mudou. O original permanece no iPhone.'),{name:'AbortError'});};
   const publish=(patch:Partial<RemoteCameraSnapshot>)=>{state={...state,...patch};if(current())listeners.forEach(listener=>listener({...state}));};
@@ -53,7 +57,11 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       if(rtt<bestRtt){bestRtt=rtt;offset=observedOffset;publish({syncUncertaintyMs:rtt/2});}
     }
     if(state.session&&response.session.id!==state.session.id&&action!=='unpair')throw new Error('A resposta pertence a outra conexão.');
-    if(!state.session||!Number.isFinite(state.session.sequence)||!Number.isFinite(response.session.sequence)||response.session.sequence>=state.session.sequence)publish({session:response.session});return response;
+    if(!state.session||!Number.isFinite(state.session.sequence)||!Number.isFinite(response.session.sequence)||response.session.sequence>=state.session.sequence)publish({session:response.session});
+    if(native&&(action==='heartbeat'&&body.role==='device'||action==='ack'&&(body.result as Record<string,unknown>)?.state)){
+      deviceHeartbeatAt=now();deviceHeartbeatKey=heartbeatKey();
+    }
+    return response;
   };
   const patchTake=(sessionId:string,id:string,patch:Partial<RemoteTakeJournal>)=>deps.mutate(sessionId,journal=>({...journal,takes:journal.takes.map(take=>take.id===id?{...take,...patch}:take)}));
   const transferState=()=>({uploadState:state.uploadState||'idle',uploadProgressBytes:state.uploadProgressBytes||0,
@@ -216,7 +224,14 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
           result={ok:true,takeId,state:{...await native.snapshot(),...transferState()}};
         }else{check();publish({phase:'ready'});result={ok:true,takeId,metadata:take.metadata,state:await native.snapshot()};}
       }else throw new Error('O comando não é compatível com este aplicativo.');
-    }catch(cause){result={ok:false,error:failure(cause)};if(current())publish({error:failure(cause)});}
+    }catch(cause){result={ok:false,error:failure(cause)};if(current()){
+      publish({error:failure(cause)});
+      const actual=await native.snapshot().catch(()=>undefined);check();
+      if(actual){publish({state:actual});result.state=actual;}
+    }}
+    // ACKs carry the current telemetry too, so fast commands cannot erase upload
+    // progress while the periodic camera heartbeat is waiting for its deadline.
+    if(result.state)result.state={...(result.state as StudioRemoteDeviceState),...transferState()};
     check();await ack(command,result);
     if(startedTake&&result.ok){startedTake.acknowledged=true;if((await deps.journal(session.id)).takes.find(take=>take.id===startedTake!.id)?.metadata)void uploads(startedTake.id);}
     if(command.type==='stop'&&result.ok&&result.metadata)void uploads(String(result.takeId));
@@ -243,16 +258,33 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       if(response.unpaired!==true)throw new Error('O servidor não confirmou a desvinculação.');
       await native?.disconnect();native=null;connection=undefined;publish({phase:'unpaired',previewConnected:false,linkedControllerId:null,error:null});},
     async recoverLocal(sessionId:string){publish({phase:'joining',error:null});const response=await request('status',{sessionId,afterSequence:0});await recover(response.session);await uploads();publish({phase:'closed'});},
-    async cameraReady(port:RemoteCameraNative){if(native||!state.session||!connection||!current())return;native=port;
+    async cameraReady(port:RemoteCameraNative){if(native||!state.session||!connection||!current())return;native=port;deviceHeartbeatAt=null;deviceHeartbeatKey=null;
       try{const snapshot=await port.snapshot();publish({state:snapshot});const configured=await port.configure(state.session.deviceState?.configuration||state.session.configuration);check();publish({state:configured});await port.preview(connection);check();publish({phase:'ready',previewConnected:true});await controller.poll();void uploads();}
       catch(cause){publish({phase:'error',error:failure(cause)});if(current()&&state.session)void request('heartbeat',{sessionId:state.session.id,role:'device',clientId:deps.deviceId,state:{...state.state,error:failure(cause)}}).catch(()=>undefined);}},
-    async poll(){if(polling||!state.session||!native||!current())return polling;
-      const work=(async()=>{const session=state.session!,journal=await deps.journal(session.id);const response=await request('status',{sessionId:session.id,afterSequence:journal.sequence});
+    async poll(){if(polling||!state.session||!native||state.phase==='preparing'||!current())return polling;
+      const work=(async()=>{const session=state.session!,journal=await deps.journal(session.id);check();
+        let response:StudioRemoteResponse,snapshot:StudioRemoteDeviceState|undefined;
+        if(heartbeatDue()){
+          const owned=native!;
+          // A heartbeat replaces this tick's status request and shares the native
+          // command queue, so an old snapshot cannot overwrite a later focus ACK.
+          const heartbeat=commandWork.catch(()=>undefined).then(async()=>{
+            check();if(native!==owned)throw new Error('A câmera mudou.');
+            // A local focus/audio ACK may have refreshed telemetry while this
+            // heartbeat waited for its turn. Keep command delivery fast anyway.
+            if(!heartbeatDue())return {envelope:await request('status',{sessionId:session.id,afterSequence:journal.sequence}),actual:undefined};
+            const actual=await owned.snapshot();check();if(native!==owned)throw new Error('A câmera mudou.');
+            publish({state:actual,...(actual.previewConnection!==undefined?{previewConnected:actual.previewConnection==='connected'}:{})});
+            const envelope=await request('heartbeat',{sessionId:session.id,role:'device',clientId:deps.deviceId,afterSequence:journal.sequence,
+              state:{...actual,syncUncertaintyMs:state.syncUncertaintyMs,...transferState()}});
+            return {envelope,actual};
+          });
+          commandWork=heartbeat.then(()=>undefined,()=>undefined);
+          const received=await heartbeat;response=received.envelope;snapshot=received.actual;
+        }else response=await request('status',{sessionId:session.id,afterSequence:journal.sequence});
         if(response.session.status==='closed'){await controller.disconnect();return;}
         for(const command of response.commands.filter(value=>value.status==='pending').sort((a,b)=>a.sequence-b.sequence)){commandWork=commandWork.catch(()=>undefined).then(()=>apply(command));await commandWork;}
-        const snapshot=await native!.snapshot();publish({state:snapshot,...(snapshot.previewConnection!==undefined?{previewConnected:snapshot.previewConnection==='connected'}:{})});await request('heartbeat',{sessionId:session.id,role:'device',clientId:deps.deviceId,state:{...snapshot,syncUncertaintyMs:state.syncUncertaintyMs,
-          ...transferState()}});
-        if(snapshot.previewConnection==='disconnected'&&connection)await controller.reconnectPreview();
+        if(snapshot?.previewConnection==='disconnected'&&connection)await controller.reconnectPreview();
       })();polling=work;try{await work;}catch(cause){if(current())publish({error:failure(cause)});}finally{if(polling===work)polling=null;}},
     async retryUploads(){if(!state.session)throw new Error('Conecte ao Studio para enviar os originais.');
       publish({error:null,uploadError:null});await recover(state.session);check();

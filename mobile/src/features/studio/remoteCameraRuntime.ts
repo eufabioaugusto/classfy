@@ -43,12 +43,15 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
   let room:Room|null=null,stream:MediaStream|null=null,track:LocalVideoTrack|null=null,previewTag:number|null=null,disposed=false;
   const waiting=new Map<string,{resolve:(time:number)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>;recovery?:string}>();
   let configuration=session.configuration;
-  let configurationConfirmed=false,confirmedGrade:StudioGrade=studioGrade('natural');
+  let configurationConfirmed=false,confirmedGrade:StudioGrade=studioGrade('natural'),confirmedGeneration:number|undefined;
+  let configuring=false,focusing=false,nativeReady=false;
   let selectingAudio=false,audioSelectionSupported=false,lastAudio:StudioRemoteAudioInputState|undefined;
   const gradeState=(state:StudioCameraState)=>{
     lastAudio=state.audioInput;audioSelectionSupported=state.supportsAudioInputSelection===true&&isStudioNativeAudioInputSelectionAvailable();
-    return {...remoteDeviceState(state,configurationConfirmed?configuration:undefined),
-      imageGrade:state.imageGrade||confirmedGrade,imageGradeConfirmed:configurationConfirmed&&state.imageGradeConfirmed!==false&&(!room||state.remoteGradeConfirmed!==false),configurationConfirmed};
+    nativeReady=configurationConfirmed&&!configuring&&!focusing&&!selectingAudio&&state.proConfirmed!==false&&
+      (confirmedGeneration===undefined||state.generation===confirmedGeneration)&&state.imageGradeConfirmed!==false&&(!room||state.remoteGradeConfirmed!==false);
+    return {...remoteDeviceState(state,nativeReady?configuration:undefined),
+      imageGrade:state.imageGrade||confirmedGrade,imageGradeConfirmed:nativeReady,configurationConfirmed:nativeReady};
   };
   async function applyGrade(target:number,requested:StudioGrade){
     if(validateStudioGrade(requested).length)throw new Error('Escolha um tratamento de imagem válido.');
@@ -78,49 +81,95 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
     if(!autoExposure){pro.iso=state.pro?.iso;pro.shutterSeconds=state.pro?.shutterSeconds;}
     configuration={...configuration,pro};
   }
+  function confirmedPro(requested:StudioRemoteConfiguration['pro'],state:StudioCameraState){
+    if(!requested)return undefined;
+    const {focusPoint:_point,...pro}=requested,actual=state.pro;
+    const finite=(key:string)=>typeof actual?.[key as keyof StudioCameraProSettings]==='number'&&Number.isFinite(actual[key as keyof StudioCameraProSettings]);
+    const copy=(keys:string[])=>{for(const key of keys)if(finite(key))pro[key]=actual![key as keyof StudioCameraProSettings];};
+    if(['autoExposure','iso','shutterSeconds'].some(key=>key in pro)){
+      const automatic=typeof actual?.autoExposure==='boolean'?actual.autoExposure:!state.exposureLocked;
+      pro.autoExposure=automatic;delete pro.iso;delete pro.shutterSeconds;
+      if(!automatic)copy(['iso','shutterSeconds']);
+    }
+    if(['autoWhiteBalance','redGain','greenGain','blueGain','temperatureKelvin','whiteBalanceTint'].some(key=>key in pro)){
+      if(typeof actual?.autoWhiteBalance==='boolean')pro.autoWhiteBalance=actual.autoWhiteBalance;
+      if(pro.autoWhiteBalance===true)for(const key of ['redGain','greenGain','blueGain','temperatureKelvin','whiteBalanceTint'])delete pro[key];
+      else if('temperatureKelvin' in pro||'whiteBalanceTint' in pro)copy(['temperatureKelvin','whiteBalanceTint']);
+      else copy(['redGain','greenGain','blueGain']);
+    }
+    if('autoFocus' in pro||'lensPosition' in pro){
+      pro.autoFocus=typeof actual?.autoFocus==='boolean'?actual.autoFocus:!state.focusLocked;
+      delete pro.lensPosition;if(pro.autoFocus===false)copy(['lensPosition']);
+    }
+    if('zoom' in pro&&Number.isFinite(state.zoom))pro.zoom=state.zoom;
+    return pro;
+  }
   const port:RemoteCameraNative={
-    async configure(next){const target=tag();const caps=await getStudioNativeCameraCapabilitiesAsync(target);check();
-      const quality=resolutions[next.resolution];
-      if(!quality||!caps.qualities.some(value=>value.quality===quality&&value.fps.includes(next.fps)))throw new Error('Esta câmera não oferece a resolução/FPS escolhidos. Selecione uma combinação disponível.');
-      configurationConfirmed=false;
+    async configure(next){const target=tag();
+      if(configuring||focusing||selectingAudio)throw new Error('Aguarde o iPhone confirmar os ajustes da câmera.');
+      const previous=configuration,wasConfirmed=configurationConfirmed;
+      configuring=true;configurationConfirmed=false;nativeReady=false;
       try {
-        let confirmed=await configureStudioNativeCameraAsync(target,{position:next.cameraFacing,quality,fps:next.fps,orientation:session.kind==='short'?'portrait':'landscapeRight',cinematic:false,mirrored:false});check();
+        const caps=await getStudioNativeCameraCapabilitiesAsync(target);check();
+        const quality=resolutions[next.resolution];
+        if(!quality||!caps.qualities.some(value=>value.quality===quality&&value.fps.includes(next.fps)))throw new Error('Esta câmera não oferece a resolução/FPS escolhidos. Selecione uma combinação disponível.');
+        const reconfigure=!wasConfirmed||confirmedGeneration!==undefined&&caps.generation!==confirmedGeneration||
+          previous.cameraFacing!==next.cameraFacing||previous.resolution!==next.resolution||previous.fps!==next.fps;
         const {zoom,focusPoint,...physical}=next.pro||{};
-        if(Object.keys(physical).length){confirmed=await setStudioNativeCameraProSettingsAsync(target,physical as StudioCameraProSettings);check();}
-        if(zoom!==undefined){if(typeof zoom!=='number'||!Number.isFinite(zoom))throw new Error('Escolha um zoom válido.');confirmed=await setStudioNativeCameraZoomAsync(target,zoom);check();}
-        if(focusPoint!==undefined){const point=focusPoint as {x:number;y:number;locked:boolean};
-          if(!point||![point.x,point.y].every(value=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1)||typeof point.locked!=='boolean')throw new Error('Toque dentro da imagem para focar.');
+        const temperatureKeys=['temperatureKelvin','whiteBalanceTint'],gainKeys=['redGain','greenGain','blueGain'];
+        const changed=(keys:string[])=>keys.some(key=>key in physical&&!Object.is(physical[key],previous.pro?.[key]));
+        // A controller patch can inherit the previous WB representation.
+        // AVFoundation accepts either Kelvin/tint or RGB, so retain the new one.
+        if(changed(temperatureKeys)&&!changed(gainKeys))for(const key of gainKeys)delete physical[key];
+        else if(changed(gainKeys)&&!changed(temperatureKeys))for(const key of temperatureKeys)delete physical[key];
+        const point=focusPoint as {x:number;y:number;locked:boolean}|undefined,requestedGrade=next.imageGrade||studioGrade('natural');
+        if(zoom!==undefined&&(typeof zoom!=='number'||!Number.isFinite(zoom)))throw new Error('Escolha um zoom válido.');
+        if(focusPoint!==undefined&&(!point||![point.x,point.y].every(value=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1)||typeof point.locked!=='boolean'))throw new Error('Toque dentro da imagem para focar.');
+        if(validateStudioGrade(requestedGrade).length)throw new Error('Escolha um tratamento de imagem válido.');
+        const changedPhysical=reconfigure?physical:Object.fromEntries(Object.entries(physical).filter(([key,value])=>!Object.is(value,previous.pro?.[key])));
+        let confirmed=caps;
+        // Capture configuration rebuilds AVFoundation outputs and its processed
+        // preview. Sliders must keep that graph alive and use only their setter.
+        if(reconfigure){confirmed=await configureStudioNativeCameraAsync(target,{position:next.cameraFacing,quality,fps:next.fps,orientation:session.kind==='short'?'portrait':'landscapeRight',cinematic:false,mirrored:false});check();}
+        if(Object.keys(changedPhysical).length){confirmed=await setStudioNativeCameraProSettingsAsync(target,changedPhysical as StudioCameraProSettings);check();}
+        if(zoom!==undefined&&(reconfigure||!Object.is(zoom,previous.pro?.zoom))){confirmed=await setStudioNativeCameraZoomAsync(target,zoom as number);check();}
+        if(point!==undefined){
           confirmed=await setStudioNativeCameraFocusAsync(target,{...point,imageCoordinates:true});check();
         }
-        await applyGrade(target,next.imageGrade||studioGrade('natural'));
-        if(next.audioInputId!==undefined){
+        if(reconfigure||JSON.stringify(requestedGrade)!==JSON.stringify(confirmedGrade))await applyGrade(target,requestedGrade);
+        if(next.audioInputId!==undefined&&(reconfigure||next.audioInputId!==previous.audioInputId)){
           if(!isStudioNativeAudioInputSelectionAvailable())throw new Error('Atualize o app Classfy para escolher o microfone do iPhone.');
           confirmed=await setStudioNativeAudioInputAsync(target,next.audioInputId);check();gradeState(confirmed);
           requireAudioInput(confirmed,next.audioInputId);
         }
         confirmed=await getStudioNativeCameraCapabilitiesAsync(target);check();
         if(confirmed.proConfirmed===false)throw new Error('Confirme os ajustes físicos antes de gravar.');
-        const {focusPoint:_point,...durablePro}=next.pro||{};
-        configuration={...next,imageGrade:confirmedGrade,...(next.pro?{pro:durablePro}:{})};if(focusPoint!==undefined)rememberFocus(confirmed);configurationConfirmed=true;return gradeState(confirmed);
-      }catch(cause){configurationConfirmed=false;throw cause;}},
-    async snapshot(){return {...gradeState(await getStudioNativeCameraCapabilitiesAsync(tag())),previewConnection:room?.state||'disconnected',...(getAudio?{audioMonitor:getAudio()}:{} )};},
+        if(confirmed.imageGradeConfirmed===false||room&&confirmed.remoteGradeConfirmed===false)throw new Error('Aguarde a câmera confirmar o tratamento na prévia antes de gravar.');
+        if(next.audioInputId!==undefined)requireAudioInput(confirmed,next.audioInputId);
+        configuration={...next,imageGrade:confirmedGrade,...(next.pro?{pro:confirmedPro({...physical,...(zoom!==undefined?{zoom}:{})},confirmed)}:{})};if(point!==undefined)rememberFocus(confirmed);
+        confirmedGeneration=confirmed.generation;configurationConfirmed=true;configuring=false;return gradeState(confirmed);
+      }catch(cause){configurationConfirmed=false;nativeReady=false;throw cause;}finally{configuring=false;}},
+    async snapshot(){const state=await getStudioNativeCameraCapabilitiesAsync(tag());check();return {...gradeState(state),previewConnection:room?.state||'disconnected',...(getAudio?{audioMonitor:getAudio()}:{} )};},
     async selectAudioInput(inputId){const target=tag();
       if(!isStudioNativeAudioInputSelectionAvailable())throw new Error('Atualize o app Classfy para escolher o microfone do iPhone.');
       if(inputId!==null&&(typeof inputId!=='string'||!inputId.trim()||inputId.length>256))throw new Error('Escolha uma entrada de áudio disponível no iPhone.');
-      if(selectingAudio)throw new Error('Aguarde o iPhone confirmar o microfone.');
+      if(selectingAudio||configuring||focusing)throw new Error('Aguarde o iPhone confirmar o microfone.');
       selectingAudio=true;
       try{
         const confirmed=await setStudioNativeAudioInputAsync(target,inputId);check();gradeState(confirmed);
         requireAudioInput(confirmed,inputId);
-        configuration={...configuration,audioInputId:inputId};return gradeState(confirmed);
+        configuration={...configuration,audioInputId:inputId};selectingAudio=false;return gradeState(confirmed);
       }finally{selectingAudio=false;}
     },
     async focus(point){const target=tag();
       if(![point.x,point.y].every(value=>Number.isFinite(value)&&value>=0&&value<=1)||typeof point.locked!=='boolean')throw new Error('Toque dentro da imagem para focar.');
-      const focused=await setStudioNativeCameraFocusAsync(target,point);check();rememberFocus(focused);return gradeState(focused);},
+      if(configuring||focusing||selectingAudio)throw new Error('Aguarde o iPhone confirmar os ajustes da câmera.');
+      focusing=true;
+      try{const focused=await setStudioNativeCameraFocusAsync(target,point);check();rememberFocus(focused);focusing=false;return gradeState(focused);}
+      catch(cause){configurationConfirmed=false;nativeReady=false;throw cause;}finally{focusing=false;}},
     begin(takeId){const target=tag();
-      if(!configurationConfirmed)throw new Error('Reconfirme os ajustes da câmera antes de iniciar o take.');
       if(selectingAudio||audioSelectionSupported&&(!lastAudio?.confirmed||lastAudio.selecting||!lastAudio.current))throw new Error(lastAudio?.warning||'Confirme o microfone antes de gravar.');
+      if(!configurationConfirmed||configuring||focusing||!nativeReady)throw new Error('Reconfirme os ajustes da câmera antes de iniciar o take.');
       const started=new Promise<number>((resolve,reject)=>{const timer=setTimeout(()=>{waiting.delete(takeId);reject(new Error('A câmera não confirmou o início do take.'));void stopStudioNativeCameraRecordingAsync(target,takeId).catch(()=>undefined);},12000);waiting.set(takeId,{resolve,reject,timer});});
       void started.catch(()=>undefined);
       const finished=startStudioRemoteCameraRecordingAsync(target,takeId,owner,session.id).then(value=>({uri:value.uri}),async cause=>{

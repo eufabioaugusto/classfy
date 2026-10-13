@@ -70,6 +70,7 @@ function harness(options={}){
     app:async value=>{appState.currentState=value;listeners.forEach(listener=>listener(value));await pump();},
     focus:async value=>{focused=value;dirty=true;await pump();},owner:async value=>{account=value;dirty=true;await pump();},
     close:async()=>{const node=nodes('remote-monitor')[0];assert.ok(node);node.props.onClose();await pump();},
+    nativeReady:async()=>{const node=nodes('native-camera')[0];assert.ok(node);node.props.onReady();await pump();},
     unmount:()=>{slots.forEach(slot=>slot?.cleanup?.());},
   };
 }
@@ -79,6 +80,14 @@ test('rota com vínculo abre câmera sem QR; fechar explicitamente impede reaber
     await h.close();await h.app('background');await h.app('active');await h.advance(10_000);
     assert.equal(h.calls.filter(call=>call.action==='connect').length,1);assert.equal(h.nodes('native-camera').length,0);
   }finally{h.unmount();}
+});
+test('câmera ativa consulta comandos em 300ms e cancela timer ao perder foco ou foreground',async()=>{
+  for(const exit of ['focus','background']){const h=harness();try{
+    await h.pump();await h.advance(0);await h.nativeReady();const requests=()=>h.calls.filter(call=>['status','heartbeat'].includes(call.action)).length;
+    const initial=requests();await h.advance(299);assert.equal(requests(),initial);await h.advance(1);assert.equal(requests(),initial+1);
+    await h.advance(300);assert.equal(requests(),initial+2);
+    if(exit==='focus')await h.focus(false);else await h.app('background');const stopped=requests();await h.advance(3000);assert.equal(requests(),stopped);
+  }finally{h.unmount();}}
 });
 test('espera vínculo sem Studio não abre câmera; cancelar aborta request e não retoma no background',async()=>{
   const gate=deferred(),h=harness({waiting:true,discoveryGate:gate});try{await h.pump();await h.advance(0);const call=h.calls.find(call=>call.action==='discover');assert.ok(call);

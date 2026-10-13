@@ -13,7 +13,8 @@ function harness(patch={}){
   const request=async(action,body)=>{
     calls.push({action,body:clone(body)});if(action==='ack'&&failAck){failAck=false;throw Error('Resposta desconhecida');}
     if(action==='unpair'&&patch.unpairError)throw Error(patch.unpairError);
-    if(action==='status')time+=20;
+    await patch.request?.(action,body);
+    if(action==='status')time+=patch.requestLatencyMs??20;
     return{session:clone(session),commands:clone(commands),takes:[],serverAt:new Date(time+1200).toISOString(),
       ...(action==='unpair'?{unpaired:patch.unpaired===true}:{}),
       ...(['join','connect'].includes(action)?{connection:{url:'wss://private.invalid',token:'not-a-real-token',identity:'device'}}:{})};
@@ -27,8 +28,8 @@ function harness(patch={}){
     saveLocal:async(_session,take)=>{calls.push({action:'save-local',take:clone(take)});if(patch.saveFail?.())throw Error('Disco indisponível');return{projectId:'project',localTakeId:'local-take'};},
     upload:async(_session,take,onProgress)=>{calls.push({action:'upload',take:clone(take)});onProgress?.(5);await patch.upload?.(take);},
   };
-  const native={configure:async configuration=>{calls.push({action:'configure',configuration});return{width:3840,height:2160,fps:30,recording:false};},
-    snapshot:async()=>({width:3840,height:2160,fps:30,recording:actualRecording,...structuredClone(hardware)}),
+  const native={configure:async configuration=>{calls.push({action:'configure',configuration});await patch.configure?.(configuration);return{width:3840,height:2160,fps:30,recording:false,...structuredClone(hardware)};},
+    snapshot:async()=>{calls.push({action:'snapshot'});await patch.snapshot?.();return {width:3840,height:2160,fps:30,recording:actualRecording,...structuredClone(hardware)};},
     selectAudioInput:async inputId=>{calls.push({action:'select-audio',inputId});await patch.selectAudio?.(inputId);const currentInput=hardware.audioInput?.available.find(input=>input.id===(inputId??'builtin'));
       if(!currentInput)throw Error('Microfone não disponível');hardware={...hardware,audioInput:{...hardware.audioInput,preferredId:inputId,current:currentInput,confirmed:true,selecting:false},configuration:{...session.configuration,audioInputId:inputId}};
       return {width:3840,height:2160,fps:30,recording:false,...structuredClone(hardware)};},
@@ -40,12 +41,94 @@ function harness(patch={}){
   const command=(type,id=type,sequence=1)=>({id,sequence,type,payload:type==='configure'?session.configuration:{takeId},status:'pending'});
   return{controller,calls,writes,started,finished,native,command,
     configuration:value=>{session.configuration=value;},session:value=>Object.assign(session,value),journal:()=>clone(journal),queue:values=>{commands=values;},invalidate:()=>{current=false;},failAck:()=>{failAck=true;},
+    advance:ms=>{time+=ms;},hardware:value=>{hardware={...hardware,...value};},
     blockWrite:()=>{const gate=deferred();gate.entered=deferred();writeGate=gate;return gate;},
     ready:async()=>{await controller.join('opaque-code');await controller.cameraReady(native);},
   };
 }
 
 const selectedAudio=()=>({supportsAudioInputSelection:true,audioInput:{version:1,available:[{id:'builtin',name:'iPhone',type:'MicrophoneBuiltIn'},{id:'usb',name:'USB',type:'USBAudio'}],preferredId:null,current:{id:'builtin',name:'iPhone',type:'MicrophoneBuiltIn'},confirmed:true,selecting:false,warning:null}});
+test('consulta comandos a cada 300ms com um request por ciclo e heartbeat pronto limitado a 3s',async()=>{
+  const h=harness({requestLatencyMs:0,nativeState:{previewConnection:'connected'}});await h.ready();
+  assert.equal(h.calls.filter(call=>call.action==='heartbeat').length,1);
+  for(let i=0;i<10;i++){h.advance(300);await h.controller.poll();}
+  const requests=h.calls.filter(call=>['status','heartbeat'].includes(call.action));
+  assert.equal(requests.length,11);assert.equal(requests.filter(call=>call.action==='heartbeat').length,2);
+  assert.equal(h.calls.filter(call=>call.action==='snapshot').length,3);
+  assert.equal(h.controller.getSnapshot().previewConnected,true);await h.controller.dispose();
+});
+test('heartbeat entrega configure pendente e ACK confirmado sem esperar outra telemetria',async()=>{
+  const h=harness({requestLatencyMs:0});await h.ready();h.advance(3000);
+  h.queue([{...h.command('configure'),payload:{pro:{iso:240}}}]);const before=h.calls.length;await h.controller.poll();
+  const requests=h.calls.slice(before).filter(call=>['status','heartbeat','ack'].includes(call.action));
+  assert.deepEqual(requests.map(call=>call.action),['heartbeat','ack']);assert.equal(h.journal().sequence,1);
+  assert.equal(requests[1].body.result.ok,true);assert.equal(requests[1].body.result.state.width,3840);
+  h.queue([]);h.advance(300);await h.controller.poll();assert.equal(h.calls.at(-1).action,'status');await h.controller.dispose();
+});
+test('timer rápido espera configuração inicial e prévia prontas antes de buscar comandos',async()=>{
+  const gate=deferred(),h=harness({configure:()=>gate.promise,requestLatencyMs:0});await h.controller.join('opaque-code');
+  const preparing=h.controller.cameraReady(h.native);await tick();h.queue([h.command('configure')]);
+  h.advance(300);await h.controller.poll();assert.equal(h.calls.filter(call=>['status','heartbeat','ack'].includes(call.action)).length,0);
+  h.queue([]);gate.resolve();await preparing;assert.equal(h.calls.filter(call=>call.action==='heartbeat').length,1);
+  assert.equal(h.calls.filter(call=>call.action==='configure').length,1);await h.controller.dispose();
+});
+test('polls rápidos compartilham configure pendente e só executam START depois do ACK',async()=>{
+  const gate=deferred();let block=false;const h=harness({configure:()=>block?gate.promise:undefined,requestLatencyMs:0});await h.ready();block=true;
+  h.queue([h.command('configure','image',1)]);const adjusting=h.controller.poll();await tick();
+  const requests=h.calls.filter(call=>['status','heartbeat'].includes(call.action)).length;
+  h.queue([h.command('start','start',2)]);h.advance(300);const repeated=h.controller.poll();await tick();
+  assert.equal(h.calls.filter(call=>['status','heartbeat'].includes(call.action)).length,requests);
+  assert.equal(h.calls.filter(call=>call.action==='native-start').length,0);gate.resolve();await Promise.all([adjusting,repeated]);
+  h.started.resolve(10050);await h.controller.poll();
+  assert.ok(h.calls.findIndex(call=>call.action==='ack'&&call.body.commandId==='image')<h.calls.findIndex(call=>call.action==='native-start'));
+  await h.controller.dispose();
+});
+test('ACK de configure perdido repete receipt integral sem reaplicar hardware',async()=>{
+  const h=harness({requestLatencyMs:0});await h.ready();h.queue([h.command('configure')]);h.failAck();
+  await h.controller.poll();const receipt=h.journal().receipts.configure;assert.equal(h.journal().sequence,0);
+  h.advance(300);await h.controller.poll();assert.equal(h.journal().sequence,1);
+  assert.equal(h.calls.filter(call=>call.action==='configure').length,2);
+  const receipts=h.calls.filter(call=>call.action==='ack').map(call=>call.body.result);
+  assert.deepEqual(receipts,[receipt,receipt]);await h.controller.dispose();
+});
+test('falha física publica confirmação negativa no ACK e próximo START não reserva take',async()=>{
+  let fail=false;const h=harness({configure:()=>{if(fail)throw Error('ISO não confirmado');},requestLatencyMs:0});await h.ready();fail=true;
+  h.hardware({configurationConfirmed:false,imageGradeConfirmed:false});h.queue([h.command('configure')]);await h.controller.poll();
+  const ack=h.calls.find(call=>call.action==='ack').body.result;assert.equal(ack.ok,false);assert.equal(ack.state.configurationConfirmed,false);
+  h.queue([h.command('start','start',2)]);await h.controller.poll();assert.equal(h.journal().takes.length,0);
+  assert.equal(h.calls.filter(call=>call.action==='native-start').length,0);await h.controller.dispose();
+});
+test('status tardio após cancelar não aplica comandos nem manda ACK ou heartbeat',async()=>{
+  const gate=deferred();let block=false;const h=harness({request:action=>block&&action==='status'?gate.promise:undefined,requestLatencyMs:0});await h.ready();block=true;
+  h.queue([h.command('configure')]);const run=h.controller.poll();await tick();h.invalidate();const before=h.calls.length;gate.resolve();await run;
+  assert.equal(h.calls.length,before);assert.equal(h.calls.filter(call=>call.action==='configure').length,1);
+  assert.equal(h.calls.filter(call=>call.action==='ack').length,0);await h.controller.dispose();
+});
+test('heartbeat com falha tenta novamente no próximo poll e só sucesso reinicia a cadência',async()=>{
+  let fail=false;const h=harness({request:action=>{if(fail&&action==='heartbeat'){fail=false;throw Error('Rede indisponível');}},requestLatencyMs:0});await h.ready();
+  fail=true;h.advance(3000);await h.controller.poll();assert.match(h.controller.getSnapshot().error,/Rede indisponível/);
+  h.advance(300);await h.controller.poll();assert.equal(h.calls.filter(call=>call.action==='heartbeat').length,3);
+  h.advance(300);await h.controller.poll();assert.equal(h.calls.at(-1).action,'status');await h.controller.dispose();
+});
+test('cancelar durante snapshot de heartbeat não publica estado nem inicia outro request',async()=>{
+  const gate=deferred();let block=false;const h=harness({snapshot:()=>block?gate.promise:undefined,requestLatencyMs:0});await h.ready();block=true;
+  h.advance(3000);const before=h.controller.getSnapshot(),run=h.controller.poll();await tick();h.invalidate();const requests=h.calls.length;gate.resolve();await run;
+  assert.equal(h.calls.length,requests);assert.deepEqual(h.controller.getSnapshot(),before);await h.controller.dispose();
+});
+test('foco imediato atualiza heartbeat sem snapshot atrasado ou segundo heartbeat no mesmo ciclo',async()=>{
+  const gate=deferred(),h=harness({focus:()=>gate.promise,requestLatencyMs:0});await h.ready();
+  const focused=h.controller.focusLocal({x:.3,y:.5,locked:true});await tick();h.advance(3000);
+  const polling=h.controller.poll();await tick();assert.equal(h.calls.filter(call=>call.action==='heartbeat').length,1);
+  gate.resolve();await Promise.all([focused,polling]);assert.equal(h.calls.filter(call=>call.action==='heartbeat').length,2);
+  assert.equal(h.calls.at(-1).action,'status');assert.equal(h.controller.getSnapshot().state.focusLocked,true);await h.controller.dispose();
+});
+test('REC conserva heartbeat a cada 1,5s e inclui estado físico confirmado',async()=>{
+  const h=harness({requestLatencyMs:0});await h.ready();h.queue([h.command('start')]);h.started.resolve(10050);await h.controller.poll();h.queue([]);
+  const before=h.calls.filter(call=>call.action==='heartbeat').length;
+  for(let i=0;i<4;i++){h.advance(300);await h.controller.poll();}assert.equal(h.calls.filter(call=>call.action==='heartbeat').length,before);
+  h.advance(300);await h.controller.poll();assert.equal(h.calls.filter(call=>call.action==='heartbeat').length,before+1);
+  assert.equal(h.calls.at(-1).body.state.recording,true);await h.controller.dispose();
+});
 test('escolha local publica apenas a entrada nativa confirmada e sincroniza no navegador',async()=>{
   const h=harness({nativeState:selectedAudio()});await h.ready();
   const selected=await h.controller.selectAudioInput('usb');
@@ -200,6 +283,7 @@ test('Mac retoma envio por comando com ACK fresco e progresso, preservando origi
   const ack=h.calls.find(call=>call.action==='ack'&&call.body.commandId==='resume').body.result;
   assert.equal(ack.ok,true);assert.equal(ack.takeId,takeId);assert.equal(ack.uploadState,'uploading');assert.equal(ack.uploadError,null);
   assert.ok(Number.isFinite(ack.uploadResumedAtServerMs));assert.equal(ack.state.uploadResumedAtServerMs,ack.uploadResumedAtServerMs);
+  h.queue([]);h.advance(1500);await h.controller.poll();
   let status=h.calls.filter(call=>call.action==='heartbeat').at(-1).body.state;
   assert.equal(status.uploadResumedAtServerMs,ack.uploadResumedAtServerMs);assert.equal(status.uploadError,null);assert.equal(status.uploadTotalBytes,32);
   assert.equal(h.calls.filter(call=>call.action==='native-start').length,0);assert.equal(h.journal().takes[0].uri,uri);

@@ -63,7 +63,7 @@ export default function StudioRemoteCameraScreen(){
   },[user?.id]);
   useEffect(()=>{if(!focused){lifecycle.current.epoch++;setScanning(false);setConnected(false);void dispose();}},[focused]);
   useEffect(()=>{if(allowRemoval){const action=pendingExit.current;pendingExit.current=undefined;if(action)navigation.dispatch(action as Parameters<typeof navigation.dispatch>[0]);else router.back();}},[allowRemoval]);
-  useEffect(()=>{if(!connected||!foreground)return;const timer=setInterval(()=>{void controller.current?.poll();},1500);return()=>clearInterval(timer);},[connected,foreground]);
+  useEffect(()=>{if(!connected||!focused||!foreground)return;const timer=setInterval(()=>{void controller.current?.poll();},300);return()=>clearInterval(timer);},[connected,focused,foreground]);
   useEffect(()=>{if(!pairingLoaded||!mayResumeRemoteCameraAutomatically({focused,foreground,permissionsGranted:!!permission?.granted&&!!microphone?.granted,hasSavedPairing,allowed:automaticAllowed,
     joining,connected,scanning,leaving:leaving||confirmUnpair,hasExplicitCode:explicitPairingPending}))return;
     const timer=setTimeout(()=>{nextAutomaticAt.current=Date.now()+5000;void connect(true,undefined,false,true);},Math.max(0,nextAutomaticAt.current-Date.now()));return()=>clearTimeout(timer);
