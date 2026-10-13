@@ -6,6 +6,7 @@ import { addCaption, addLayerAsset, addMainAsset, addText, duplicateClip, patchC
 import { getAsset, getExport, putAsset, storeExport, studioAssetUri } from '@/lib/studio/editor/storage';
 import { inspectStudioMedia } from '@/lib/studio/editor/media';
 import { analyzeStudioScene } from '@/lib/studio/editor/sceneAnalysis';
+import { analyzeStudioSignature } from '@/lib/studio/editor/signatureAnalysis';
 import { createStudioRenderer, type StudioRenderer } from '@/lib/studio/editor/renderer';
 import { exportStudioProject, getStudioExportCapabilities, releaseStudioExport, type StudioBrowserExportCapabilities } from '@/lib/studio/editor/export';
 import { compileStudioRecipe, formatStudioEditorTime, studioGrade, studioSeconds, studioTicks, withStudioOutputSelection, withStudioTakes, type StudioAsset, type StudioOutputSelection, type StudioProject } from '../../../../shared/studio';
@@ -42,7 +43,7 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
   const blocked = !!busy || confirming || exitPreparing;
   const effective = preview ?? project;
   const recipe = useMemo(() => effective ? compileStudioRecipe(effective) : null, [effective]);
-  const previewRecipe = useMemo(() => comparing && selected && effective && recipe?.clips.some(clip => clip.id === selected && (clip.kind === 'video' || clip.kind === 'image')) ? compileStudioRecipe(patchClip(effective, selected, { enhancement: null, portrait: null, grade: studioGrade(), effect: 'natural' })) : recipe, [comparing, selected, effective, recipe]);
+  const previewRecipe = useMemo(() => comparing && selected && effective && recipe?.clips.some(clip => clip.id === selected && (clip.kind === 'video' || clip.kind === 'image')) ? compileStudioRecipe(patchClip(effective, selected, { signature: null, enhancement: null, portrait: null, grade: studioGrade(), effect: 'natural' })) : recipe, [comparing, selected, effective, recipe]);
   const latestRecipe = useRef(previewRecipe); latestRecipe.current = previewRecipe;
   const selectedClip = recipe?.clips.find(c => c.id === selected), duration = recipe ? studioSeconds(recipe.durationTicks) : 0;
   useEffect(() => { if (selected && recipe && !recipe.clips.some(clip => clip.id === selected)) { setSelected(undefined); setComparing(false); } }, [selected, recipe]);
@@ -171,6 +172,25 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
       workspace.apply(value => patchClip(value, id, { enhancement })); setComparing(false); setExportReady(false); await workspace.flush();
     });
   };
+  const applySignature = () => {
+    if (!selected) return;
+    const id = selected;
+    void external('Preparando Assinatura Classfy', async (token, signal) => {
+      const current = compileStudioRecipe(workspace.current.current!), clip = current.clips.find(value => value.id === id), renderer = engine.current;
+      if (!clip?.assetId || !['video', 'image'].includes(clip.kind)) throw new Error('Selecione uma cena com o creator para aplicar a assinatura.');
+      if (!renderer) throw new Error('Aguarde a prévia ficar pronta para destacar o creator.');
+      await renderer.prepareSignature(signal);
+      if (!scope(token) || signal.aborted) return;
+      const original = await getAsset(owner, projectId, clip.assetId);
+      if (!scope(token) || signal.aborted) return;
+      if (!original) throw new Error('O original deste trecho não está disponível neste navegador.');
+      setBusy('Criando sua cena Classfy');
+      const signature = await analyzeStudioSignature(original, clip, current.timebase, { signal, measure: renderer.measureSignature,
+        onProgress: value => { if (scope(token) && !signal.aborted) setProgress(value); } });
+      if (!scope(token) || signal.aborted) return;
+      workspace.apply(value => patchClip(value, id, { signature, enhancement: null })); setComparing(false); setExportReady(false); await workspace.flush();
+    });
+  };
   const enablePortrait = () => {
     if (!selected) return;
     const id = selected;
@@ -269,7 +289,7 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
         {renderLoading && <div className="se-preview-loading"><Loader2 size={20} className="se-spin" /></div>}
         {!duration && <div className="se-first-media"><Film size={31} strokeWidth={1} /><p>Comece com seu primeiro arquivo</p><button className="se-button" onClick={() => openImport('main')}>Importar mídia</button></div>}
         <div className="se-transport"><button className="se-icon" aria-label={playing ? 'Pausar montagem' : 'Reproduzir montagem'} disabled={blocked || !!recorder || !duration} onClick={toggle}>{playing ? <Pause size={20} /> : <Play size={20} />}</button><span>{formatStudioEditorTime(position)}<i>/</i>{formatStudioEditorTime(duration)}</span><button className="se-icon" aria-label="Dividir no cursor" disabled={!canSplit || blocked} onClick={split}><Scissors size={17} /></button></div>
-      </main></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel defaultSize={23} minSize={18} maxSize={35}><StudioDesktopInspector comparing={comparing} onCompare={() => { try { settle(); engine.current?.pause(); setComparing(value => !value); } catch { /* Preserve draft on save failure. */ } }} onEnhance={improveScene} onPortrait={enablePortrait} clip={selectedClip} disabled={blocked || !!recorder} canSplit={canSplit} outputHeight={recipe.output.height} onDraft={draftPatch} onCommit={() => { try { settle(); } catch { /* keep error visible */ } }} onDuplicate={() => { if (selected) { settle(); apply(value => duplicateClip(value, selected)); } }} onRemove={remove} onSplit={split} /></ResizablePanel>
+      </main></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel defaultSize={23} minSize={18} maxSize={35}><StudioDesktopInspector comparing={comparing} onCompare={() => { try { settle(); engine.current?.pause(); setComparing(value => !value); } catch { /* Preserve draft on save failure. */ } }} onSignature={engine.current ? applySignature : undefined} onEnhance={improveScene} onPortrait={enablePortrait} clip={selectedClip} disabled={blocked || !!recorder} canSplit={canSplit} outputHeight={recipe.output.height} onDraft={draftPatch} onCommit={() => { try { settle(); } catch { /* keep error visible */ } }} onDuplicate={() => { if (selected) { settle(); apply(value => duplicateClip(value, selected)); } }} onRemove={remove} onSplit={split} /></ResizablePanel>
     </ResizablePanelGroup></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel defaultSize={33} minSize={20} maxSize={65}><StudioDesktopTimeline project={effective} position={position} playing={playing} selectedId={selected} disabled={blocked || !!recorder} thumbnails={thumbnails} onSelect={select} onSeek={value => void seek(value)} onPreview={value => { if (confirmation.current) return; engine.current?.pause(); setPreview(value); }} onCommit={apply} onAdd={() => openImport('main')} onMainMute={() => apply(value => setMainMuted(value, !value.editing!.mainMuted))} onLayerHide={id => apply(value => setLayerHidden(value, id, !value.editing!.layers.find(l => l.id === id)?.hidden))} onLayerMute={id => apply(value => setLayerMuted(value, id, !value.editing!.layers.find(l => l.id === id)?.muted))} /></ResizablePanel></ResizablePanelGroup>
     <input ref={input} className="se-sr" tabIndex={-1} type="file" multiple onChange={e => { const files = Array.from(e.target.files ?? []), pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && files.length && pending?.type === 'media' && scope(pending.token)) void importFiles(files, pending.target, pending.at); }} />
     <input ref={captionsInput} className="se-sr" tabIndex={-1} type="file" accept=".srt,text/plain" onChange={e => { const file = e.target.files?.[0], pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && file && pending?.type === 'captions' && scope(pending.token)) void external('Importando legendas', async (token, signal) => { const cues = parseDesktopCaptions(await file.text()); if (!scope(token) || signal.aborted) return; const current = workspace.current.current!, length = studioSeconds(compileStudioRecipe(current).durationTicks); if (cues.some(c => c.start >= length || c.end > length + .01)) throw new Error('Uma legenda ultrapassa a duração da montagem. Revise o arquivo SRT.'); const layerId = `captions:${crypto.randomUUID()}`; workspace.apply(value => cues.reduce((next, cue) => addCaption(next, cue.text, cue.start, cue.end - cue.start, { layerId }), value)); await workspace.flush(); }); }} />

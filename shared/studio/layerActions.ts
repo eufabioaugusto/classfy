@@ -9,7 +9,8 @@ export function duplicateStudioLayer(editing: StudioEditing, id: string, duplica
     ...(item.text ? { text: { ...item.text, ...(item.text.gradientColors ? { gradientColors: [...item.text.gradientColors] as [string, string] } : {}) } } : {}), ...(item.anchor ? { anchor: { ...item.anchor } } : {}),
     ...(item.grade ? { grade: { ...item.grade } } : {}),
     ...(item.enhancement ? { enhancement: { ...item.enhancement } } : {}),
-    ...(item.portrait ? { portrait: { ...item.portrait } } : {}) };
+    ...(item.portrait ? { portrait: { ...item.portrait } } : {}),
+    ...(item.signature ? { signature: { ...item.signature } } : {}) };
   return addStudioLayerItem(editing, copy, `layer:item:${duplicateId}`);
 }
 
@@ -40,7 +41,8 @@ export function splitStudioLayer(editing: StudioEditing, id: string, seconds: nu
   const right = { ...studioLayerTimelinePatch(editing, id, { startSeconds: seconds, endSeconds: range.endSeconds }), fadeInTicks: 0, fadeOutTicks: range.clip.fadeOutTicks };
   const next = patchStudioLayerItem(editing, id, left);
   const rightItem = patchStudioLayerItem(editing, id, right).layers.flatMap(layer => layer.items).find(item => item.id === id)!;
-  return addStudioLayerItem(next, { ...rightItem, id: rightId }, lane.id);
+  return addStudioLayerItem(next, { ...rightItem, id: rightId,
+    ...(rightItem.signature ? { signature: { ...rightItem.signature } } : {}) }, lane.id);
 }
 
 /** Detach the audible range, reusing the immutable original without double gain. */
