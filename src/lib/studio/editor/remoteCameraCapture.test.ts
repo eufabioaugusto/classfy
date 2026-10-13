@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioRemoteCommand, StudioRemoteResponse, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
 import type { StudioCaptureState } from './capture';
 import { createStudioRemoteCapture, remoteStudioProfile, studioRemoteControllerId, validateStudioRemoteMaster, type StudioRemoteCaptureController, type StudioRemotePreviewFactory, type StudioRemoteView } from './remoteCameraCapture';
-import type { StudioRemoteClient } from './remoteCameraClient';
+import { StudioRemoteCameraError, type StudioRemoteClient } from './remoteCameraClient';
 
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {} }));
 const NOW = Date.parse('2026-10-12T12:00:00Z');
@@ -44,6 +44,45 @@ beforeEach(() => { controllers = []; localStorage.clear(); vi.useFakeTimers(); v
 afterEach(() => { controllers.forEach(controller => controller.dispose()); vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('câmera remota preserva o original nativo e a autoridade do iPhone', () => {
+  it('reconectar após CREATE bloqueado repete a preparação e conecta sem gravar um take', async () => {
+    const h = fixture();
+    h.request.mockRejectedValueOnce(new StudioRemoteCameraError('Há um envio pausado no iPhone.', 'studio_camera_pending_upload'));
+    await expect(h.controller.prepare()).rejects.toMatchObject({ code: 'studio_camera_pending_upload' });
+    expect(h.controller.getEnvelope()).toBeNull(); expect(h.state().phase).toBe('error'); expect(h.preview).not.toHaveBeenCalled();
+
+    await h.controller.reconnect();
+    const creates = h.request.mock.calls.map(([body]) => body).filter(body => body.action === 'create');
+    expect(creates).toHaveLength(2); expect(creates[1].controllerId).toBe(creates[0].controllerId);
+    expect(h.request.mock.calls.some(([body]) => body.action === 'connect')).toBe(true);
+    expect(h.preview).toHaveBeenCalledTimes(1); expect(h.state()).toMatchObject({ phase: 'ready', file: null }); expect(h.state().pendingRecovery).toBeFalsy();
+    expect(h.remote().connection).toBe('connected'); expect(h.data.takes).toHaveLength(0);
+    expect(h.request.mock.calls.some(([body]) => body.action === 'command')).toBe(false);
+  });
+  it('controller descartado não refaz CREATE nem publica estado ao reconectar', async () => {
+    const h = fixture(), listener = vi.fn(), remoteListener = vi.fn();
+    h.controller.subscribe(listener); h.controller.subscribeRemote(remoteListener);
+    h.request.mockRejectedValueOnce(new StudioRemoteCameraError('Envio pausado.', 'studio_camera_pending_upload'));
+    await expect(h.controller.prepare()).rejects.toThrow('Envio pausado'); h.controller.dispose();
+    const requests = h.request.mock.calls.length, publications = listener.mock.calls.length, remotePublications = remoteListener.mock.calls.length;
+
+    await expect(h.controller.reconnect()).rejects.toMatchObject({ name: 'AbortError' });
+    expect(h.request).toHaveBeenCalledTimes(requests); expect(h.preview).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(publications); expect(remoteListener).toHaveBeenCalledTimes(remotePublications);
+    expect(h.controller.getEnvelope()).toBeNull(); expect(h.state().phase).toBe('idle');
+  });
+  it('reconexões compartilham CREATE pendente e descarte ignora sua resposta tardia', async () => {
+    const h = fixture(), pending = deferred<StudioRemoteResponse>();
+    h.request.mockRejectedValueOnce(new StudioRemoteCameraError('Envio pausado.', 'studio_camera_pending_upload'));
+    await expect(h.controller.prepare()).rejects.toThrow('Envio pausado');
+    h.request.mockImplementationOnce(() => pending.promise);
+    const first = h.controller.reconnect().catch(error => error), second = h.controller.reconnect().catch(error => error);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.request.mock.calls.filter(([body]) => body.action === 'create')).toHaveLength(2);
+    h.controller.dispose(); pending.resolve(structuredClone(h.data));
+    expect(await first).toMatchObject({ name: 'AbortError' }); expect(await second).toMatchObject({ name: 'AbortError' });
+    expect(h.controller.getEnvelope()).toBeNull(); expect(h.state()).toMatchObject({ phase: 'idle', stream: null, file: null });
+    expect(h.preview).not.toHaveBeenCalled(); expect(h.request.mock.calls.some(([body]) => body.action === 'connect')).toBe(false);
+  });
   it('construção não conecta nem abre câmera/microfone; pareamento permanece aguardando aparelho', async () => {
     const h = fixture(false); expect(h.request).not.toHaveBeenCalled(); expect(h.preview).not.toHaveBeenCalled();
     await h.controller.prepare(); expect(h.state().phase).toBe('preparing'); expect(h.remote()).toMatchObject({ connection: 'pairing', pairing: { code: 'ABC123' } }); expect(h.preview).not.toHaveBeenCalled();
