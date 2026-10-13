@@ -66,9 +66,18 @@ try {
  const pairingMigration = await readFile(new URL('../../migrations/20261013000000_studio_remote_camera_pairings.sql', import.meta.url), 'utf8');
  await sql(pairingMigration);
  await sql(pairingMigration);
+ const imageMigration=await readFile(new URL('../../migrations/20261013010000_studio_remote_camera_image_grade.sql',import.meta.url),'utf8');
+ await sql(imageMigration);await sql(imageMigration);
  await sql(await readFile(new URL('pairings_test.sql', import.meta.url), 'utf8'));
  await sql(pairingMigration); // Reapplying never revives a revoked pairing.
  assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_pairings WHERE controller_id='20000000-0000-4000-8000-000000000090' AND revoked_at IS NOT NULL;`)).stdout.trim()), 1);
+ await sql(`DO $$ DECLARE u uuid:='10000000-0000-4000-8000-000000000001'; s uuid; BEGIN
+  INSERT INTO studio_camera_sessions(owner_id,controller_id,kind,configuration,pairing_hash,pairing_expires_at)
+   VALUES(u,'20000000-0000-4000-8000-000000000099','aula','{"resolution":"4k","fps":30,"cameraFacing":"back","pro":{"autoExposure":false,"iso":200}}',repeat('9',64),now()+interval '1 hour') RETURNING id INTO s;
+  UPDATE studio_camera_sessions SET configuration=configuration||'{"imageGrade":{"preset":"studio","intensity":0.8,"exposure":0.2,"contrast":0,"saturation":0,"temperature":0},"pro":{"focusPoint":{"x":0.2,"y":0.8,"locked":false}}}'::jsonb WHERE id=s;
+  IF EXISTS(SELECT 1 FROM studio_camera_sessions WHERE id=s AND configuration#>'{pro,focusPoint}' IS NOT NULL) OR
+   NOT EXISTS(SELECT 1 FROM studio_camera_sessions WHERE id=s AND configuration#>>'{pro,iso}'='200' AND configuration#>>'{imageGrade,preset}'='studio') THEN RAISE EXCEPTION 'focus intent replayed or image grade lost'; END IF;
+ END $$;`);
  console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency and durable pairings.');
 } finally {
  if (started) await command('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']).catch(() => undefined);

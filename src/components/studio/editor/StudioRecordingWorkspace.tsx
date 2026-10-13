@@ -17,7 +17,8 @@ import { useStudioSceneDirector } from './useStudioSceneDirector';
 import { createStudioRemoteCapture, type StudioRemoteCaptureController, type StudioRemoteView } from '@/lib/studio/editor/remoteCameraCapture';
 import { createStudioRemoteSceneCapture } from '@/lib/studio/editor/remoteSceneCapture';
 import { StudioRemoteCameraPairing, StudioRemoteCameraStatus, studioRemoteTransferLabel } from './StudioRemoteCameraPairing';
-import { StudioRemoteCameraControls } from './StudioRemoteCameraControls';
+import { StudioRemoteCameraControls, type StudioRemoteToolsTab } from './StudioRemoteCameraControls';
+import { remoteCameraFocusPoint } from './remoteCameraFocusPoint';
 import { StudioRemoteSceneRecoveryList, type StudioRemoteSceneRecoveredSource } from './StudioRemoteSceneRecoveryList';
 import '@/styles/studio-recording.css';
 
@@ -62,8 +63,9 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
   const navigate = useNavigate(), location = useLocation();
   const [stage, setStage] = useState<'setup' | 'production'>('setup'), [kind, setKind] = useState<StudioKind>(initialKind);
   const [liveSelected, setLiveSelected] = useState(false), [toolsOpen, setToolsOpen] = useState(false), [guides, setGuides] = useState(initialRecordingGuides);
-  const [toolsTab, setToolsTab] = useState<'image' | 'record' | 'script'>('image');
-  const openTools = (tab: 'image' | 'record' | 'script') => { if (confirmationOperation.current || exitIntent.current) return; setToolsTab(tab); setToolsOpen(true); };
+  const [toolsTab, setToolsTab] = useState<StudioRemoteToolsTab>('image');
+  const [focusTarget, setFocusTarget] = useState<{ left: number; top: number } | null>(null);
+  const openTools = (tab: StudioRemoteToolsTab) => { if (confirmationOperation.current || exitIntent.current) return; setToolsTab(tab); setToolsOpen(true); };
   const closeTools = useCallback(() => setToolsOpen(false), []);
   const [countdown, setCountdown] = useState<number | null>(null), countdownRef = useRef<number | null>(null);
   const [title, setTitle] = useState(initialTitle), [mode, setMode] = useState<'camera' | 'screen' | 'scenes' | 'remote'>('camera'), [remoteScenes, setRemoteScenes] = useState(false);
@@ -146,6 +148,11 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     if (element) { element.srcObject = captureState.stream; if (captureState.stream) void element.play().catch(() => undefined); }
     return () => { if (element) { element.pause(); element.srcObject = null; } };
   }, [captureState.stream, stage]);
+  useEffect(() => {
+    if (!focusTarget) return;
+    const timer = setTimeout(() => setFocusTarget(null), 1400);
+    return () => clearTimeout(timer);
+  }, [focusTarget]);
   const take = project?.takes.find(value => value.id === selectedTake);
   useEffect(() => {
     let active = true, url: string | undefined; setReviewURL(undefined);
@@ -433,6 +440,15 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
   const permissionError = permissionCard && !occupied && (error || captureState.error);
   const permissionDenied = !!permissionError && /permit|permiss|negou|acesso.*bloque/i.test(error ?? captureState.error ?? '');
   const ready = captureState.phase === 'ready';
+  const canFocusRemote = isRemote && !hasScenes && ready && !!captureState.stream && !occupied && !pendingFile && remoteState?.connection === 'connected' && remoteState.session?.deviceState?.pro?.supportsFocusPoint === true;
+  const focusRemote = (event: React.PointerEvent<HTMLVideoElement>) => {
+    if (!canFocusRemote || event.button !== 0 || event.isPrimary === false) return;
+    const element = event.currentTarget, rect = element.getBoundingClientRect();
+    const point = remoteCameraFocusPoint({ clientX: event.clientX, clientY: event.clientY, rect, imageWidth: element.videoWidth, imageHeight: element.videoHeight, fit: kind === 'short' ? 'cover' : 'contain', mirrored: guides.mirrored });
+    if (!point) return;
+    configureRemote({ pro: { focusPoint: { ...point, locked: false } } });
+    setFocusTarget({ left: (event.clientX - rect.left) / rect.width * 100, top: (event.clientY - rect.top) / rect.height * 100 });
+  };
   const displayTitle = project?.title ?? (title.trim() || defaultTitle(kind));
   const aspectLabel = kind === 'aula' ? '16:9' : kind === 'short' ? '9:16' : 'Áudio';
   const displayedZoom = isRemote && typeof remoteState?.session?.deviceState?.pro?.zoom === 'number' ? remoteState.session.deviceState.pro.zoom : captureState.videoControls?.zoom.value ?? 1;
@@ -457,7 +473,8 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     </main> : <main className="se-recording-production">
       <div className={`se-recording-stage-shell${reviewing ? ' is-reviewing' : ''}`} data-testid="recording-stage">
         <div className={`se-recording-stage ${kind}`}>
-          {kind !== 'podcast' && <video ref={video} className="se-recording-live" muted playsInline autoPlay aria-label="Prévia da gravação" style={{ display: captureState.stream ? 'block' : 'none', transform: !hasScenes && guides.mirrored ? 'scaleX(-1)' : undefined }} />}
+          {kind !== 'podcast' && <video ref={video} className={`se-recording-live${canFocusRemote ? ' src-live-focusable' : ''}`} muted playsInline autoPlay aria-label="Prévia da gravação" title={canFocusRemote ? 'Clique na imagem para focar' : undefined} onPointerDown={focusRemote} style={{ display: captureState.stream ? 'block' : 'none', transform: !hasScenes && guides.mirrored ? 'scaleX(-1)' : undefined }} />}
+          {isRemote && !hasScenes && !recording && captureState.stream && focusTarget && <div className="src-focus-reticle" aria-hidden="true" style={{ left: `${focusTarget.left}%`, top: `${focusTarget.top}%` }} />}
           {guides.grid && captureState.stream && !recording && kind !== 'podcast' && <div className="se-recording-grid" aria-hidden="true" />}
           {captureState.stream && guides.scriptEnabled && <RecordingTeleprompter guides={guides} recording={recording} active={(ready || recording) && !changingDevice && !leaving && !busy && countdown === null && !toolsOpen && !captureState.videoControls?.busy} microphoneEnabled={captureState.microphoneEnabled} inputKey={captureState.input?.id ?? ''} getMicrophoneTrack={getMicrophoneTrack} onGuides={updateGuides} />}
           {reviewing && kind !== 'podcast' && <StudioTakePlayer key={take?.id} ref={reviewPlayer} src={reviewURL!} kind="video" durationSeconds={take?.duration ?? 0} label="Reproduzir take salvo" disabled={occupied || pendingFile} fullscreen={fullscreen} onFullscreen={fullscreenAvailable ? toggleFullscreen : undefined} />}
@@ -465,10 +482,10 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
         </div>
         {!recording && <header className="se-recording-stage-header"><div className="se-recording-stage-brand"><button className="se-recording-icon" aria-label="Voltar aos projetos" disabled={leaving || confirmationPending} onClick={() => void leave()}><ArrowLeft size={19} /></button><img src="/brand/classfy-simbolo-vermelho.svg" alt="Classfy" /><div><h1>{displayTitle}</h1><p>{isRemote ? remoteScenes ? 'iPhone com cenas · Premium' : 'iPhone · Câmera remota Premium' : mode === 'scenes' ? 'Produção com cenas · Premium' : kindName(kind)} · {aspectLabel}{project?.takes.length ? ` · ${formatStudioDuration(total)} salvos` : ''}</p></div></div><div className="se-recording-stage-actions">{kind !== 'podcast' && !reviewing && <StudioRecordingQuality state={captureState} disabled={occupied || pendingFile} onVideo={configureVideo} />}<span className="se-recording-save-state">{busy === 'save' ? <><Loader2 size={13} className="se-spin" />Salvando take…</> : project?.takes.length ? <><Check size={13} />Takes salvos</> : <><ShieldCheck size={13} />Privado</>}</span>{fullscreenAvailable && <button className="se-recording-icon" title={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} aria-label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>}<button className="se-recording-icon" title="Configurações da gravação" aria-label="Configurações da gravação" aria-expanded={toolsOpen} disabled={occupied || pendingFile} onClick={() => setToolsOpen(value => !value)}><Settings2 size={18} /></button></div></header>}
         {!recording && countdown === null && captureState.stream && <div className="se-recording-quick-tools" aria-label="Ferramentas da câmera">
-          {kind !== 'podcast' && mode !== 'screen' && <><button aria-label="Ajustar zoom" title="Zoom" disabled={occupied || pendingFile} onClick={() => openTools('image')}><ZoomIn size={18} /><span>{displayedZoom.toFixed(1)}×</span></button><button aria-label={isRemote ? 'Controles Pro do iPhone' : 'Filtros e imagem'} title={isRemote ? 'Controles Pro do iPhone' : 'Filtros e imagem'} disabled={occupied || pendingFile} onClick={() => openTools('image')}>{isRemote ? <Settings2 size={18} /> : <Palette size={18} />}</button></>}
+          {kind !== 'podcast' && mode !== 'screen' && <><button aria-label="Ajustar zoom" title="Zoom" disabled={occupied || pendingFile} onClick={() => openTools(isRemote ? 'camera' : 'image')}><ZoomIn size={18} /><span>{displayedZoom.toFixed(1)}×</span></button><button aria-label="Filtros e imagem" title="Filtros e imagem" disabled={occupied || pendingFile} onClick={() => openTools('image')}><Palette size={18} /></button>{isRemote && <button aria-label="Controles Pro do iPhone" title="Câmera Pro" disabled={occupied || pendingFile} onClick={() => openTools('camera')}><Settings2 size={18} /></button>}</>}
           <button aria-label="Temporizador da gravação" title="Temporizador" disabled={occupied || pendingFile} onClick={() => openTools('record')}><Timer size={18} />{guides.delay > 0 && <span>{guides.delay}s</span>}</button><button aria-label="Roteiro e teleprompter" title="Roteiro" disabled={occupied || pendingFile} onClick={() => openTools('script')}><FileText size={18} /></button>
         </div>}
-        {toolsOpen && !recording && (isRemote && remoteState && toolsTab === 'image' ? <StudioRemoteCameraControls state={remoteState} disabled={occupied || pendingFile} onConfigure={configureRemote} onClose={closeTools} /> : <StudioRecordingTools initialTab={toolsTab} state={captureState} camera={!isRemote && kind !== 'podcast' && mode !== 'screen'} disabled={occupied || pendingFile} guides={guides} onGuides={updateGuides} onVideo={configureVideo} onClose={closeTools} />)}
+        {toolsOpen && !recording && (isRemote && remoteState ? <StudioRemoteCameraControls initialTab={toolsTab} onTab={setToolsTab} state={remoteState} disabled={occupied || pendingFile} onConfigure={configureRemote} onClose={closeTools} recording={{ state: captureState, guides, onGuides: updateGuides, onVideo: configureVideo }} /> : <StudioRecordingTools initialTab={toolsTab === 'camera' ? 'image' : toolsTab} state={captureState} camera={kind !== 'podcast' && mode !== 'screen'} disabled={occupied || pendingFile} guides={guides} onGuides={updateGuides} onVideo={configureVideo} onClose={closeTools} />)}
         {countdown !== null && <div className="se-recording-countdown" role="status"><strong>{countdown}</strong><button className="se-recording-button" onClick={() => { countdownRef.current = null; setCountdown(null); }}>Cancelar contagem</button></div>}
         {isRemote && remoteState && permissionCard && <StudioRemoteCameraPairing state={remoteState} onReconnect={reconnectRemote} onCancel={cancelRemoteConnection} onUnpair={() => void unlinkRemote()} disabled={!!busy || leaving || confirmationPending || changingDevice} />}
         {permissionCard && !isRemote && <div className="se-recording-permission" data-permission-state={occupied ? 'preparing' : permissionError ? 'error' : 'closed'}>

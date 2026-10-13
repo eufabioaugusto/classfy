@@ -64,7 +64,7 @@ function deviceState(value: unknown): JsonObject {
 }
 export function configuration(value: unknown): JsonObject {
   const source = object(value); const result: JsonObject = {};
-  for (const key of Object.keys(source)) if (!['resolution', 'fps', 'cameraFacing', 'pro'].includes(key)) throw new CameraError('studio_camera_invalid_configuration');
+  for (const key of Object.keys(source)) if (!['resolution', 'fps', 'cameraFacing', 'pro', 'imageGrade'].includes(key)) throw new CameraError('studio_camera_invalid_configuration');
   if (source.resolution !== undefined) {
     if (!['720p', '1080p', '2k', '4k'].includes(String(source.resolution))) throw new CameraError('studio_camera_invalid_configuration');
     result.resolution = source.resolution;
@@ -77,7 +77,21 @@ export function configuration(value: unknown): JsonObject {
     if (!['front', 'back'].includes(String(source.cameraFacing))) throw new CameraError('studio_camera_invalid_configuration');
     result.cameraFacing = source.cameraFacing;
   }
-  if (source.pro !== undefined) result.pro = boundedObject(source.pro);
+  if (source.pro !== undefined) {
+    const pro = boundedObject(source.pro);
+    if (pro.focusPoint !== undefined) {
+      const point = object(pro.focusPoint);
+      if (Object.keys(point).some(key => !['x','y','locked'].includes(key)) || typeof point.locked !== 'boolean') throw new CameraError('studio_camera_invalid_configuration');
+      pro.focusPoint = {x: finite(point.x,0,1), y: finite(point.y,0,1), locked: point.locked};
+    }
+    result.pro = pro;
+  }
+  if (source.imageGrade !== undefined) {
+    const grade = object(source.imageGrade);
+    if (Object.keys(grade).some(key => !['preset','intensity','exposure','contrast','saturation','temperature'].includes(key)) || !['natural','studio','cinematic'].includes(String(grade.preset))) throw new CameraError('studio_camera_invalid_configuration');
+    result.imageGrade = {preset: grade.preset, intensity: finite(grade.intensity,0,1), exposure: finite(grade.exposure,-2,2),
+      contrast: finite(grade.contrast,-1,1), saturation: finite(grade.saturation,-1,1), temperature: finite(grade.temperature,-1,1)};
+  }
   if (!Object.keys(result).length) throw new CameraError('studio_camera_invalid_configuration');
   return result;
 }

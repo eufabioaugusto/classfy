@@ -34,6 +34,12 @@ export function StudioRemoteCameraPairing({ state, onReconnect, onCancel, onUnpa
 }
 
 export function studioRemoteTransferLabel(state: StudioRemoteView): string {
+  const device = state.session?.deviceState;
+  if (device?.processing === true && ['waiting', 'uploading'].includes(state.transfer)) {
+    const value = device.processingProgress;
+    const progress = typeof value === 'number' && Number.isFinite(value) ? ` · ${Math.floor(Math.max(0, Math.min(1, value)) * 100)}%` : '…';
+    return `${device.processingStage === 'validating' ? 'Conferindo imagem no iPhone' : 'Preparando imagem no iPhone'}${progress}`;
+  }
   const bytes = state.transferBytes, total = state.transferTotalBytes;
   const progress = typeof bytes === 'number' && typeof total === 'number' && total > 0 ? ` ${Math.min(100, Math.max(0, Math.floor(bytes / total * 100)))}%` : '';
   return state.transfer === 'waiting' ? 'Confirmando o original no iPhone…' : state.transfer === 'uploading' ? `Enviando original do iPhone…${progress}` : state.transfer === 'downloading' ? `Recebendo original no computador…${progress}` : state.transfer === 'validating' ? 'Conferindo imagem, áudio e duração do original…' : state.transfer === 'retry' ? 'Original aguardando transferência' : state.transfer === 'complete' ? 'Original recebido' : 'Preparando transferência…';

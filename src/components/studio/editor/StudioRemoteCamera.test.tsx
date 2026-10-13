@@ -6,6 +6,8 @@ vi.mock('qrcode', () => ({ default: { toDataURL: qr.generate } }));
 import { StudioRemoteCameraPairing, StudioRemoteCameraStatus } from './StudioRemoteCameraPairing';
 import { StudioRemoteCameraControls } from './StudioRemoteCameraControls';
 import type { StudioRemoteView } from '@/lib/studio/editor/remoteCameraCapture';
+import { studioGrade } from '../../../../shared/studio';
+import type { StudioCaptureState } from '@/lib/studio/editor/capture';
 const NOW = Date.parse('2026-10-12T12:00:00Z');
 let root: Root, host: HTMLDivElement;
 function view(): StudioRemoteView { return { pairing: { code: 'X'.repeat(43), expiresAt: new Date(NOW + 300_000).toISOString() }, connection: 'pairing', transfer: 'idle', pendingTakeId: null, error: null, session: null }; }
@@ -44,6 +46,46 @@ describe('câmera remota com identidade do Studio', () => {
     await act(async () => root.render(<StudioRemoteCameraStatus state={state} onReconnect={() => undefined} />)); expect(host.textContent).toContain('Enviando original do iPhone… 25%');
     state.transfer = 'downloading'; state.transferBytes = 75; await act(async () => root.render(<StudioRemoteCameraStatus state={state} onReconnect={() => undefined} />)); expect(host.textContent).toContain('Recebendo original no computador… 75%');
     state.transfer = 'validating'; await act(async () => root.render(<StudioRemoteCameraStatus state={state} onReconnect={() => undefined} />)); expect(host.textContent).toContain('Conferindo imagem, áudio e duração'); expect(host.textContent).not.toContain('75%');
+  });
+  it('exibe progresso de preparação do look antes de começar a transferência do original', async () => {
+    const state = view(); state.connection = 'connected'; state.transfer = 'waiting';
+    state.session = { deviceState: { processing: true, processingStage: 'rendering', processingProgress: .42 } } as unknown as StudioRemoteView['session'];
+    await act(async () => root.render(<StudioRemoteCameraStatus state={state} onReconnect={() => undefined} />)); expect(host.textContent).toContain('Preparando imagem no iPhone · 42%');
+    state.session!.deviceState!.processingStage = 'validating'; state.session!.deviceState!.processingProgress = 1;
+    await act(async () => root.render(<StudioRemoteCameraStatus state={state} onReconnect={() => undefined} />)); expect(host.textContent).toContain('Conferindo imagem no iPhone · 100%');
+    state.session!.deviceState!.processing = false; state.transfer = 'uploading'; state.transferBytes = 15; state.transferTotalBytes = 100;
+    await act(async () => root.render(<StudioRemoteCameraStatus state={state} onReconnect={() => undefined} />)); expect(host.textContent).toContain('Enviando original do iPhone… 15%');
+  });
+  it('look é configurado antes do REC e a seleção reflete apenas a cor confirmada pelo iPhone', async () => {
+    const state = view(), configure = vi.fn(), natural = studioGrade();
+    state.session = { configuration: { cameraFacing: 'back' }, deviceState: { capabilities: { supportsImageGrade: true }, imageGrade: natural, imageGradeConfirmed: true } } as unknown as StudioRemoteView['session'];
+    await act(async () => root.render(<StudioRemoteCameraControls initialTab="image" state={state} disabled={false} onConfigure={configure} onClose={() => undefined} />));
+    const cinema = [...host.querySelectorAll('button')].find(button => button.textContent === 'Cinema')!;
+    await act(async () => cinema.click()); expect(configure).toHaveBeenLastCalledWith({ imageGrade: { ...natural, preset: 'cinematic' } });
+    expect(cinema.getAttribute('aria-pressed')).toBe('false'); expect(host.textContent).toContain('Imagem confirmada no iPhone');
+    const confirmed = { ...natural, preset: 'cinematic' as const, temperature: .2 }; state.session!.deviceState!.imageGrade = confirmed;
+    await act(async () => root.render(<StudioRemoteCameraControls initialTab="image" state={state} disabled={false} onConfigure={configure} onClose={() => undefined} />));
+    expect(cinema.getAttribute('aria-pressed')).toBe('true');
+    const temperature = host.querySelector<HTMLInputElement>('[aria-label="Temperatura do look"]')!;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(temperature, '.7'); temperature.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(temperature.closest('label')!.querySelector('output')!.textContent).toBe('+0.2');
+    await act(async () => temperature.dispatchEvent(new Event('pointerup', { bubbles: true }))); expect(configure).toHaveBeenLastCalledWith({ imageGrade: { ...confirmed, temperature: .7 } });
+    await act(async () => root.render(<StudioRemoteCameraControls initialTab="image" state={state} disabled onConfigure={configure} onClose={() => undefined} />)); expect(temperature.disabled).toBe(true); expect(cinema.matches(':disabled')).toBe(true);
+  });
+  it('app antigo não promete tratamento e quatro tabs mantêm gravação e roteiro no mesmo painel', async () => {
+    const state = view(), configure = vi.fn(), close = vi.fn(), onVideo = vi.fn(), onGuides = vi.fn();
+    state.session = { configuration: { cameraFacing: 'back' }, deviceState: { pro: { supportsFocus: true, supportsFocusPoint: true, autoFocus: true } } } as unknown as StudioRemoteView['session'];
+    const capture = { phase: 'ready', width: 3840, height: 2160, frameRate: 30, videoControls: null, outputVideo: { resolutions: [{ width: 3840, height: 2160, label: '4K' }], frameRates: [30] } } as StudioCaptureState;
+    const recording = { state: capture, guides: { grid: false, mirrored: false, delay: 0, script: '', scriptEnabled: false, scriptSpeed: 140, scriptMode: 'timed' as const }, onVideo, onGuides };
+    await act(async () => root.render(<StudioRemoteCameraControls initialTab="image" state={state} disabled={false} onConfigure={configure} onClose={close} recording={recording} />));
+    expect(host.textContent).toContain('Atualize o app do iPhone'); expect(host.querySelector<HTMLInputElement>('[aria-label="Temperatura do look"]')!.disabled).toBe(true);
+    const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]; expect(tabs.map(tab => tab.textContent)).toEqual(['Imagem', 'Câmera', 'Gravação', 'Roteiro']);
+    await act(async () => tabs[1].click()); expect(host.textContent).toContain('Clique na imagem para focar');
+    await act(async () => tabs[2].click()); expect(host.querySelector('[aria-label="Resolução da gravação"]')).toBeTruthy();
+    await act(async () => tabs[3].click()); expect(host.querySelector('[aria-label="Roteiro do teleprompter"]')).toBeTruthy();
+    expect(host.querySelectorAll('[role="tablist"]')).toHaveLength(1); expect(host.querySelectorAll('[role="tabpanel"]')).toHaveLength(1);
+    await act(async () => tabs[3].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))); expect(tabs[0].getAttribute('aria-selected')).toBe('true'); expect(document.activeElement).toBe(tabs[0]);
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))); expect(close).toHaveBeenCalledTimes(1);
   });
   it('espera do aparelho já vinculado oferece cancelamento sem QR e desvinculação separada', async () => {
     const state = view(), cancel = vi.fn(), unpair = vi.fn(); state.pairing = null; state.connection = 'connecting'; state.session = { deviceId: 'paired-phone' } as StudioRemoteView['session'];

@@ -119,6 +119,19 @@ describe('câmera remota preserva o original nativo e a autoridade do iPhone', (
     receipt.status = 'applied'; h.data.takes[0].status = 'uploaded'; await vi.advanceTimersByTimeAsync(400); await retry;
     expect(h.state()).toMatchObject({ phase: 'recorded', pendingRecovery: false }); expect(h.data.commands.filter(command => command.type === 'resume_upload')).toHaveLength(1);
   });
+  it('ACK failed durante preparação libera outra intenção de Retomar sem repetir REC ou STOP', async () => {
+    const h = fixture(true, 2000); await h.controller.prepare(); const start = await h.controller.remoteStart(); h.uploading();
+    h.data.session.deviceState = { ...h.data.session.deviceState, uploadTakeId: start.takeId, uploadState: 'paused', uploadError: 'Preparação de imagem pausada.' };
+    await expect(h.controller.stop()).rejects.toThrow('Preparação de imagem pausada'); h.pending();
+    const failed = h.controller.stop().catch(error => error); await vi.advanceTimersByTimeAsync(0);
+    const first = h.data.commands.find(command => command.type === 'resume_upload')!; first.status = 'failed'; first.result = { ok: false, error: 'Encoder temporariamente indisponível.' };
+    await vi.advanceTimersByTimeAsync(600); expect(await failed).toMatchObject({ code: 'command_failed', message: 'Encoder temporariamente indisponível.' });
+    const recovered = h.controller.stop(); await vi.advanceTimersByTimeAsync(0);
+    const resumes = h.data.commands.filter(command => command.type === 'resume_upload'); expect(resumes).toHaveLength(2); expect(resumes[1].id).not.toBe(first.id);
+    resumes[1].status = 'applied'; h.data.takes[0].status = 'uploaded'; await vi.advanceTimersByTimeAsync(600); await recovered;
+    expect(h.state()).toMatchObject({ phase: 'recorded', pendingRecovery: false }); expect(h.download).toHaveBeenCalledTimes(1); expect(h.data.takes).toHaveLength(1);
+    expect(h.data.commands.filter(command => command.type === 'start')).toHaveLength(1); expect(h.data.commands.filter(command => command.type === 'stop')).toHaveLength(1);
+  });
   it('cancelamento invalida download tardio e enfileira STOP sem encerrar original pendente', async () => {
     const h = fixture(); await h.controller.prepare(); await h.controller.remoteStart(); const pending = deferred<Blob>(); h.download.mockImplementation(() => pending.promise);
     const stopped = h.controller.stop().catch(error => error); await vi.advanceTimersByTimeAsync(0); h.controller.cancel(); pending.resolve(original);
