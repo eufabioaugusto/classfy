@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 import * as model from './model.ts';
 import * as controller from './remoteCameraController.ts';
+import {mergeRemoteCameraConfiguration} from './remoteCameraConfiguration.ts';
 import * as upload from './remoteCameraUpload.ts';
 import * as transfer from './uploadTransport.ts';
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
@@ -14,10 +15,10 @@ function compile(file,dependencies){
 function nativeHarness(options={}){
   const calls=[],recording=deferred(),data=new Map();let current=true;
   const state={position:'back',qualities:[{quality:'2160p',width:3840,height:2160,fps:[30]}],quality:'2160p',width:3840,height:2160,fps:30,isRecording:false,
-    minZoom:1,maxZoom:7.5,zoom:1,generation:2,proConfirmed:true,pro:{supportsExposure:true,iso:100,shutterSeconds:1/60},
+    minZoom:1,maxZoom:7.5,zoom:1,generation:2,proConfirmed:true,pro:{supportsExposure:true,autoExposure:true,iso:100,shutterSeconds:1/60},
     ...(options.audioState?{supportsAudioInputSelection:true,audioInput:structuredClone(options.audioState)}:{})};
   const native={getStudioNativeCameraCapabilitiesAsync:async()=>state,
-    configureStudioNativeCameraAsync:async(tag,config)=>{calls.push({kind:'configure',tag,config});return state;},
+    configureStudioNativeCameraAsync:async(tag,config)=>{calls.push({kind:'configure',tag,config});if(options.resetOnConfigure){state.pro.autoExposure=true;state.exposureLocked=false;}return state;},
     isStudioNativeCameraEffectsAvailable:()=>true,isStudioCompositionAvailable:()=>true,
     isStudioNativeAudioInputSelectionAvailable:()=>options.audioSupport!==false,
     setStudioNativeAudioInputAsync:async(tag,inputId)=>{
@@ -30,8 +31,13 @@ function nativeHarness(options={}){
       return state;
     },
     setStudioNativeCameraEffectAsync:async(tag,json)=>{calls.push({kind:'grade',tag,grade:JSON.parse(json)});if(options.failGrade?.())throw Error('Imagem recusada');state.imageGrade=JSON.parse(json);state.imageGradeConfirmed=true;return {previewProcessed:true,grade:state.imageGrade,generation:state.generation,effectRevision:1};},
-    setStudioNativeCameraFocusAsync:async(tag,point)=>{calls.push({kind:'focus',tag,point});return {...state,supportsFocus:true,focusLocked:point.locked};},
-    setStudioNativeCameraProSettingsAsync:async(tag,pro)=>{calls.push({kind:'pro',tag,pro});if(options.failPro?.())throw Error('Ajuste recusado');return state;},
+    setStudioNativeCameraFocusAsync:async(tag,point)=>{
+      calls.push({kind:'focus',tag,point});state.supportsFocus=true;state.focusLocked=point.locked;
+      // The native focus setter meters only Auto/locked exposure, never custom.
+      if(state.pro.autoExposure!==false||state.exposureLocked){state.pro.autoExposure=!point.locked;state.exposureLocked=point.locked;}
+      return options.focusReceipt?options.focusReceipt(state,point):state;
+    },
+    setStudioNativeCameraProSettingsAsync:async(tag,pro)=>{calls.push({kind:'pro',tag,pro});if(options.failPro?.())throw Error('Ajuste recusado');state.pro={...state.pro,...pro};if(typeof pro.autoExposure==='boolean')state.exposureLocked=false;return state;},
     setStudioNativeCameraZoomAsync:async(tag,value)=>{calls.push({kind:'zoom',tag,value});state.zoom=Math.min(state.maxZoom,Math.max(state.minZoom,value));return state;},
     startStudioRemoteCameraRecordingAsync:(...args)=>{calls.push({kind:'REC',args});return recording.promise;},
     stopStudioNativeCameraRecordingAsync:async(...args)=>{calls.push({kind:'STOP',args});},
@@ -115,6 +121,63 @@ test('ponto remoto usa imagem orientada; toque local usa view e não reenvia man
   const configured=(await h.port.port.snapshot()).configuration;assert.equal(configured.pro.focusPoint,undefined);assert.equal(configured.pro.autoFocus,true);assert.equal(configured.pro.lensPosition,undefined);
   await h.port.port.focus({x:.4,y:.6,locked:false});assert.deepEqual(h.calls.filter(x=>x.kind==='focus').at(-1).point,{x:.4,y:.6,locked:false});
   await assert.rejects(h.port.port.focus({x:Infinity,y:.5,locked:false}),/Toque/);await h.port.port.disconnect();
+});
+test('exposição custom preserva ISO/obturador após foco remoto e local, ajuste de branco e retomada da sessão',async()=>{
+  const h=nativeHarness({resetOnConfigure:true}),manual={autoExposure:false,iso:20,shutterSeconds:1/47};
+  let journal={version:1,owner:'owner',deviceId:'device',sessionId:h.session.id,sequence:0,receipts:{},takes:[]};
+  let commands=[];
+  const server={...h.session,status:'ready',sequence:0,configuration:{...h.session.configuration,pro:{...manual,focusPoint:{x:.3,y:.7,locked:false}}}};
+  const requests=[],request=async(action,body)=>{
+    requests.push({action,body:structuredClone(body)});
+    if(action==='heartbeat')server.deviceState=structuredClone(body.state);
+    if(action==='ack'){server.deviceState=structuredClone(body.result.state);server.sequence=commands.find(command=>command.id===body.commandId).sequence;commands=[];}
+    return {session:structuredClone(server),commands:structuredClone(commands),takes:[],serverAt:new Date().toISOString(),
+      ...(action==='connect'?{connection:{url:'wss://private.invalid',token:'not-real',identity:'device'}}:{})};
+  };
+  const makeController=()=>controller.createRemoteCameraController({owner:'owner',deviceId:'device',current:()=>true,request,
+    journal:async()=>structuredClone(journal),mutate:async(_id,change)=>(journal=change(structuredClone(journal))),
+    masterUri:()=>{throw Error('Não deve iniciar REC');},inspect:async()=>{throw Error('Não deve inspecionar take');},
+    saveLocal:async()=>{throw Error('Não deve salvar take');},upload:async()=>{throw Error('Não deve enviar take');}});
+  let camera=makeController();await camera.resume(h.session.id);await camera.cameraReady(h.port.port);
+  const exposure=()=>{const pro=camera.getSnapshot().state.configuration.pro;assert.equal(pro.autoExposure,false);assert.equal(pro.iso,20);assert.equal(pro.shutterSeconds,1/47);};
+  exposure();assert.equal(h.state.exposureLocked,false);assert.equal(h.state.pro.autoExposure,false);
+  await camera.focusLocal({x:.4,y:.6,locked:false});exposure();
+  const focusHeartbeat=requests.filter(call=>call.action==='heartbeat').at(-1).body.state.configuration.pro;
+  assert.equal(focusHeartbeat.autoExposure,false);assert.equal(focusHeartbeat.iso,20);assert.equal(focusHeartbeat.shutterSeconds,1/47);
+  const whiteBalance={autoWhiteBalance:false,temperatureKelvin:5900,whiteBalanceTint:8};
+  commands=[{id:'white-balance',sequence:1,type:'configure',payload:{pro:whiteBalance},status:'pending'}];await camera.poll();exposure();
+  assert.deepEqual(h.calls.filter(call=>call.kind==='pro').at(-1).pro,{...manual,autoFocus:true,...whiteBalance});
+  assert.equal(server.deviceState.configuration.pro.autoExposure,false);
+  await camera.disconnect();await camera.dispose();
+  // Recreate both JS coordinators; only the server-confirmed receipt survives.
+  camera=makeController();const resumed=h.runtime.createRemoteNativePort('owner',structuredClone(server),()=>77,{isCurrent:()=>true});
+  await camera.resume(h.session.id);await camera.cameraReady(resumed.port);exposure();
+  assert.equal(h.state.pro.autoExposure,false);assert.equal(h.calls.filter(call=>call.kind==='pro').at(-1).pro.iso,20);
+  assert.equal(h.calls.filter(call=>call.kind==='pro').some(call=>call.pro.autoExposure===true),false);
+  assert.equal(h.calls.filter(call=>call.kind==='REC').length,0);
+  await camera.dispose();
+});
+test('Auto explícito após custom elimina ISO/obturador salvos e permanece Auto após focar',async()=>{
+  const h=nativeHarness();await h.port.port.configure({...h.session.configuration,pro:{autoExposure:false,iso:20,shutterSeconds:1/47}});
+  await h.port.port.focus({x:.4,y:.6,locked:false});
+  const current=(await h.port.port.snapshot()).configuration;
+  await h.port.port.configure(mergeRemoteCameraConfiguration(current,{pro:{autoExposure:true}}));
+  assert.deepEqual(h.calls.filter(call=>call.kind==='pro').at(-1).pro,{autoExposure:true,autoFocus:true});
+  const focused=await h.port.port.focus({x:.5,y:.5,locked:false});
+  assert.equal(focused.configuration.pro.autoExposure,true);assert.equal(focused.configuration.pro.iso,undefined);assert.equal(focused.configuration.pro.shutterSeconds,undefined);
+  await h.port.port.disconnect();
+});
+test('ACK antigo sem modo Pro usa exposureLocked e conserva leitura manual; novo modo confirmado prevalece',async()=>{
+  const h=nativeHarness({focusReceipt:(state,point)=>({...state,exposureLocked:point.locked,pro:{iso:80,shutterSeconds:1/90,lensPosition:.3}})});
+  await h.port.port.configure(h.session.configuration);
+  const locked=await h.port.port.focus({x:.5,y:.5,locked:true});
+  assert.equal(locked.configuration.pro.autoExposure,false);assert.equal(locked.configuration.pro.iso,80);assert.equal(locked.configuration.pro.shutterSeconds,1/90);assert.equal(locked.configuration.pro.lensPosition,.3);
+  const automatic=await h.port.port.focus({x:.5,y:.5,locked:false});
+  assert.equal(automatic.configuration.pro.autoExposure,true);assert.equal(automatic.configuration.pro.iso,undefined);assert.equal(automatic.configuration.pro.shutterSeconds,undefined);assert.equal(automatic.configuration.pro.lensPosition,undefined);
+  const confirmed=nativeHarness({focusReceipt:state=>({...state,exposureLocked:true,pro:{...state.pro,autoExposure:true}})});
+  await confirmed.port.port.configure(confirmed.session.configuration);
+  const receipt=await confirmed.port.port.focus({x:.5,y:.5,locked:false});assert.equal(receipt.configuration.pro.autoExposure,true);assert.equal(receipt.configuration.pro.iso,undefined);
+  await h.port.port.disconnect();await confirmed.port.port.disconnect();
 });
 const audioState=()=>({version:1,available:[{id:'builtin',name:'Microfone do iPhone',type:'MicrophoneBuiltIn'},{id:'usb',name:'Microfone USB',type:'USBAudio'}],preferredId:null,current:{id:'builtin',name:'Microfone do iPhone',type:'MicrophoneBuiltIn'},confirmed:true,selecting:false,warning:null});
 test('microfone externo confirmado após câmera/grade persiste na configuração e não altera captura do master',async()=>{

@@ -68,10 +68,14 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
       throw new Error(audio?.warning||'O iPhone não confirmou o microfone escolhido.');
   }
   function rememberFocus(state:StudioCameraState){
-    const pro:Record<string,unknown>={...configuration.pro,autoFocus:!state.focusLocked,autoExposure:!state.exposureLocked};
+    // Custom ISO/shutter is manual even though AVFoundation's .locked flag is
+    // false. Prefer the confirmed Pro mode so a focus tap cannot save Auto and
+    // erase the manual exposure before another adjustment or reconnection.
+    const autoExposure=typeof state.pro?.autoExposure==='boolean'?state.pro.autoExposure:!state.exposureLocked;
+    const pro:Record<string,unknown>={...configuration.pro,autoFocus:!state.focusLocked,autoExposure};
     delete pro.lensPosition;delete pro.iso;delete pro.shutterSeconds;
     if(state.focusLocked&&typeof state.pro?.lensPosition==='number')pro.lensPosition=state.pro.lensPosition;
-    if(state.exposureLocked){pro.iso=state.pro?.iso;pro.shutterSeconds=state.pro?.shutterSeconds;}
+    if(!autoExposure){pro.iso=state.pro?.iso;pro.shutterSeconds=state.pro?.shutterSeconds;}
     configuration={...configuration,pro};
   }
   const port:RemoteCameraNative={
