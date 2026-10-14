@@ -41,7 +41,7 @@ const formats = [
 ] as const;
 
 function PremiumBadge() {
-  return <span className="srs-premium"><Crown size={11} aria-hidden="true" /><span>Premium</span></span>;
+  return <span className="srs-premium" title="Premium"><Crown size={13} fill="currentColor" aria-hidden="true" /><span>Premium</span></span>;
 }
 
 /** Presentational preparation surface. Capture and its lifecycle belong to the workspace. */
@@ -103,7 +103,9 @@ export function StudioRecordingSetup({
         <section className={`srs-scene${portrait ? ' is-portrait' : ''}${!video ? ' is-audio' : ''}`} aria-label="Prévia e preparação">
           <div className="srs-scene-top"><p className="srs-context" aria-live="polite">{guidance}</p>{ready ? <span className="srs-state"><i />Pronto para gravar</span> : preparing ? <span className="srs-state is-working" role="status"><Loader2 size={14} className="srs-spin" />Preparando…</span> : null}</div>
           <div className="srs-stage" aria-busy={preparing}>
-            {preview ? <div className="srs-preview-content">{preview}</div> : <div className="srs-empty-scene"><span className="srs-empty-icon" aria-hidden="true"><CaptureIcon size={31} strokeWidth={1.35} /></span><h2>{emptyTitle}</h2><p>{emptyDescription}</p></div>}
+            <div className="srs-frame">
+              {preview ? <div className="srs-preview-content">{preview}</div> : <div className="srs-empty-scene"><span className="srs-empty-icon" aria-hidden="true"><CaptureIcon size={31} strokeWidth={1.35} /></span><h2>{emptyTitle}</h2><p>{emptyDescription}</p></div>}
+            </div>
             {tools && <div className="srs-scene-tools">{tools}</div>}
           </div>
           {devices && <div className="srs-devices">{devices}</div>}
