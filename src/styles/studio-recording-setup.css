@@ -71,7 +71,6 @@
 .srs-action-row { display: flex; align-items: center; gap: 10px; }
 .srs-setup .srs-open { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; min-height: 46px; padding: 11px 17px; border: 1px solid #ef5066; border-radius: 9px; background: #ef5066; color: #fff; font-size: 14px; font-weight: 600; transition: background .15s; }
 .srs-open:hover:not(:disabled) { background: #fa6277; border-color: #fa6277; }
-.srs-record-dot { width: 13px; height: 13px; border: 2px solid #fff; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px #ef5066 inset; }
 .srs-cancel { flex: none; min-height: 46px; padding: 11px 18px; border: 1px solid #3b343f; border-radius: 9px; background: #19161e; color: #d6cbd9; font-size: 13px; }
 .srs-cancel:hover { background: #28212d; }
 .srs-error { margin: 0 0 12px; padding: 11px 13px; text-align: left; border: 1px solid #68404f; border-radius: 8px; background: #38212b; color: #f6acbd; font-size: 13px; line-height: 1.6; }

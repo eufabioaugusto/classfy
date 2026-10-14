@@ -58,15 +58,15 @@ let permissions: ReturnType<typeof vi.fn>, display: ReturnType<typeof vi.fn>;
 const projects = new Map<string, StudioProject>();
 function Screen() { const location = useLocation(), id = new URLSearchParams(location.search).get('project') ?? undefined; return <><output data-location>{location.pathname}</output>{location.pathname === '/studio/record' && <StudioRecordingWorkspace owner={owner} initialKind={initialKind} projectId={id} canUseScenes={premium} onUpgradeScenes={upgrade} />}</>; }
 async function mount() { await act(async () => root.render(<StrictMode><MemoryRouter initialEntries={['/studio/record']}><Screen /></MemoryRouter></StrictMode>)); }
-// The setup now keeps the live source open until its own REC action; production retains its labels.
+// Setup activates the source; entering production is a separate gesture from REC.
 function button(label: string) {
   const setup = host.querySelector('.se-recording')?.getAttribute('data-stage') === 'setup';
-  const labels = [label, ...(setup ? label === 'Iniciar gravação' ? ['Gravar'] : ['Abrir câmera', 'Preparar câmera e tela'].includes(label) ? ['Ativar câmera'] : [] : [])];
+  const labels = [label, ...(setup && ['Abrir câmera', 'Preparar câmera e tela'].includes(label) ? ['Ativar câmera'] : [])];
   return [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => labels.includes(item.getAttribute('aria-label') ?? '') || labels.includes(item.textContent?.trim() ?? ''));
 }
 async function click(label: string) { const item = button(label); expect(item, label).toBeTruthy(); await act(async () => item!.click()); }
 async function answer(label: string) { const dialog = document.querySelector('[role="alertdialog"]'); expect(dialog).toBeTruthy(); const item = [...dialog!.querySelectorAll('button')].find(value => value.textContent?.trim() === label); expect(item).toBeTruthy(); await act(async () => item!.click()); }
-async function enterScenes() { await mount(); await click('Câmera e tela · Premium'); await click('Preparar câmera e tela'); }
+async function enterScenes() { await mount(); await click('Câmera e tela · Premium'); await click('Preparar câmera e tela'); await click('Ir para gravação'); }
 async function interruptEncoder(recorder: Recorder) {
   // MediaRecorder becomes inactive before delivering error, final data and stop.
   // No Workspace STOP action runs in this path.
@@ -123,8 +123,26 @@ describe('produção Premium com Workspace e controller de cenas reais', () => {
     expect(permissions).not.toHaveBeenCalled(); expect(display).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled();
     await click('Compartilhar tela');
     expect(display).toHaveBeenCalledTimes(1); expect(permissions).toHaveBeenCalledTimes(1); expect(permissions.mock.calls[0][0]).toMatchObject({ video: false, audio: true });
+    expect(button('Iniciar gravação')).toBeUndefined(); await click('Ir para gravação');
     expect(button('Iniciar gravação')?.disabled).toBe(false); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled();
     expect(host.querySelector('select[aria-label="Câmera"]')).toBeNull();
+  });
+
+  it('entra no palco de cenas com ajustes abertos e as mesmas fontes antes de iniciar REC pelo segundo gesto', async () => {
+    await mount(); await click('Câmera e tela · Premium'); await click('Preparar câmera e tela'); await click('Compartilhar tela'); await click('Cena 3: Tela + você');
+    const program = host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject;
+    expect(button('Iniciar gravação')).toBeUndefined(); expect(Recorder.instances).toHaveLength(0);
+    await click('Ir para gravação');
+    expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production');
+    expect(host.querySelector('aside[aria-label="Configurações da gravação"]')).toBeTruthy();
+    expect(button('Configurações da gravação')?.getAttribute('aria-expanded')).toBe('true');
+    expect(button('Cena 3: Tela + você')?.getAttribute('aria-pressed')).toBe('true');
+    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject).toBe(program);
+    expect(permissions).toHaveBeenCalledTimes(1); expect(display).toHaveBeenCalledTimes(1); expect(camera.readyState).toBe('live'); expect(mic.readyState).toBe('live');
+    expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled();
+    await click('Iniciar gravação');
+    expect(Recorder.instances).toHaveLength(1); expect(Recorder.instances[0].stream).toBe(program); expect(Recorder.instances[0].state).toBe('recording');
+    expect(host.querySelector('aside[aria-label="Configurações da gravação"]')).toBeNull();
   });
 
   it('escolher e abandonar cenas na preparação não abre nenhuma fonte nem cria take', async () => {
