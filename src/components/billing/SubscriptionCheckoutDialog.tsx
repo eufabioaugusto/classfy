@@ -149,7 +149,7 @@ const CheckoutSession = forwardRef<SessionHandle, { owner: string; plan: PaidPla
     setPhase('active'); setError(null); setMessage(null);
     if (confirmed.current) return; confirmed.current = true;
     try { await latest.current.onConfirmed?.(); }
-    catch { if (fresh(owned)) setError('Seu plano foi confirmado. Não conseguimos atualizar esta página; tente atualizar o plano novamente.'); }
+    catch { if (fresh(owned)) setError('Seu pagamento foi confirmado. Atualize o acesso ao plano para continuar.'); }
   };
   const verify = async (target: Verifiable, owned: Operation, automatic = true) => {
     const delays = automatic ? [0, 1200, 2200, 3500] : [0];

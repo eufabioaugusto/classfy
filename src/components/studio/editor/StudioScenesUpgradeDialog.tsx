@@ -42,7 +42,14 @@ export function StudioScenesUpgradeDialog({ open, onOpenChange, owner, entitleme
     if (operation.current || !open || !live.current.mounted || entitlement.loading) return;
     if (action === 'checkout') {
       onOpenChange(false);
-      startSubscription('premium', async () => { await entitlement.refresh(true); });
+      startSubscription('premium', async () => {
+        const active = await entitlement.refresh(true);
+        // Keep the confirmed payment visible until this owner's Studio access
+        // is confirmed too. A delayed profile must not invite another charge.
+        if (!active && live.current.mounted && live.current.owner === owner) {
+          throw new StudioPremiumError('Seu pagamento foi confirmado. Atualize o acesso para liberar o Premium no Studio.');
+        }
+      });
       return;
     }
     const current: Operation = { controller: new AbortController() };
@@ -73,7 +80,7 @@ export function StudioScenesUpgradeDialog({ open, onOpenChange, owner, entitleme
         <Dialog.Close id="sce-upgrade-close" className="sce-upgrade-close" aria-label={feature === 'iphone' ? 'Fechar oferta de câmera remota' : 'Fechar oferta de cenas'}><X size={20} /></Dialog.Close>
         <div className="sce-upgrade-brand"><Crown size={17} /> STUDIO PREMIUM</div>
         <Dialog.Title className="sce-upgrade-title">{feature === 'iphone' ? 'Seu iPhone vira câmera Pro.' : 'Gravação com cenas'}</Dialog.Title>
-        <Dialog.Description className="sce-upgrade-description">{feature === 'iphone' ? 'Enquadre no computador, grave no iPhone e receba seu original direto no Studio.' : 'Sua aula acompanha o que você está mostrando. Alterne a apresentação enquanto grava.'}</Dialog.Description>
+        <Dialog.Description className="sce-upgrade-description">{feature === 'iphone' ? 'Enquadre no computador, grave no iPhone e receba seu original direto no Studio.' : 'Alterne câmera, tela e os dois juntos no mesmo take. Assine aqui e continue sua preparação.'}</Dialog.Description>
         {feature === 'iphone' ? <div className="src-upgrade-visual" aria-label="Câmera remota do iPhone"><Smartphone size={58} strokeWidth={1.1} /><ArrowRight size={22} /><span><strong>Original até 4K</strong>Prévia no seu computador<small>Captura nativa. Sem placa de captura.</small></span><i>STUDIO × IPHONE</i></div> : <div className="sce-upgrade-scenes" aria-label="Três cenas de gravação">
           <div><div className="sce-upgrade-scene sce-upgrade-scene--camera"><span className="sce-upgrade-person" /></div><strong><Video size={14} /> Câmera</strong></div>
           <div><div className="sce-upgrade-scene sce-upgrade-scene--screen"><span className="sce-upgrade-screen"><i /><i /><i /></span></div><strong><Monitor size={14} /> Tela</strong></div>
