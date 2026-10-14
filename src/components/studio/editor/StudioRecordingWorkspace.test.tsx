@@ -66,7 +66,7 @@ let root: Root, host: HTMLDivElement, owner = 'owner', initialKind: StudioKind =
 let added: ReturnType<typeof vi.spyOn>, removed: ReturnType<typeof vi.spyOn>;
 function Screen() {
   const location = useLocation(), id = new URLSearchParams(location.search).get('project') ?? undefined;
-  return <><output data-location>{location.pathname}{location.search}</output>{location.pathname === '/studio/record' ? <StudioRecordingWorkspace owner={owner} initialKind={initialKind} initialTitle={title} projectId={id} /> : <p>Destino alcançado</p>}</>;
+  return <><output data-location>{location.pathname}{location.search}</output><output data-live-title>{location.state?.studioRecordingTitle}</output>{location.pathname === '/studio/record' ? <StudioRecordingWorkspace owner={owner} initialKind={initialKind} initialTitle={title} projectId={id} /> : <p>Destino alcançado</p>}</>;
 }
 async function mount(url = '/studio/record', browser = false) {
   await act(async () => root.render(<StrictMode>{browser ? <BrowserRouter><Screen /></BrowserRouter> : <MemoryRouter initialEntries={[url]}><Screen /></MemoryRouter>}</StrictMode>));
@@ -646,11 +646,16 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
   it('selecionar Live abre somente sua preparação, sem câmera, REC ou rascunho local', async () => {
     await mount(); await format('Live');
     expect(button('Preparar live')).toBeTruthy(); expect(button('Abrir câmera')).toBeUndefined();
-    expect(host.querySelector('[aria-label="Nome da gravação"]')).toBeNull();
+    const name = host.querySelector<HTMLInputElement>('[aria-label="Nome da gravação"]');
+    expect(name).toBeTruthy(); expect(name?.placeholder).toBe('Nova live'); expect(name?.maxLength).toBe(150);
+    await input('Nome da gravação', '  Minha live de hoje  ');
+    await format('Podcast'); expect(host.querySelector<HTMLInputElement>('[aria-label="Nome da gravação"]')?.value).toBe('  Minha live de hoje  ');
+    await format('Live'); expect(host.querySelector<HTMLInputElement>('[aria-label="Nome da gravação"]')?.value).toBe('  Minha live de hoje  ');
     for (const label of ['Só câmera', 'Só tela', 'Câmera e tela · Premium', 'Computador', 'Meu iPhone · Premium']) expect(button(label), label).toBeUndefined();
     expect(permissions).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
     await click('Preparar live');
     expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/live');
+    expect(host.querySelector('[data-live-title]')?.textContent).toBe('Minha live de hoje');
     expect(permissions).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled();
     expect(activeVisibility()).toBe(0);
   });

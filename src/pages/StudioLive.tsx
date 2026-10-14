@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Radio, Video, CheckCircle2, Clock3, Loader2, ArrowRight, Trash2, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -45,7 +45,8 @@ function statusFor(live: StudioLiveRow) {
 export default function StudioLive() {
   const { user, role, loading } = useAuth();
   const navigate = useNavigate();
-  const [title, setTitle] = useState("");
+  const location = useLocation();
+  const [title, setTitle] = useState(() => typeof location.state?.studioRecordingTitle === "string" ? location.state.studioRecordingTitle.trim().slice(0, 150) : "");
   const [description, setDescription] = useState("");
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState("");
