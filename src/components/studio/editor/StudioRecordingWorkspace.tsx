@@ -575,7 +575,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     {stage === 'setup' ? <StudioRecordingSetup kind={kind} liveSelected={liveSelected} mode={mode} remoteScenes={remoteScenes} title={title}
       formatLocked={loading || !!project} disabled={occupied || pendingFile} openDisabled={!!error && !!projectId && !project || ready && !remoteScreenRequired && !remoteAudioReady} canUseScenes={canUseScenes} premiumLoading={premiumLoading}
       cta={liveSelected ? 'Preparar live' : setupCTA} onFormat={next => void chooseSetupFormat(next)} onLayout={chooseSetupLayout} onCameraSource={chooseSetupCamera}
-      onTitle={setTitle} onOpen={liveSelected ? () => navigate('/studio/live') : remoteScreenRequired ? prepareScreen : ready ? start : openCapture}
+      onTitle={setTitle} onOpen={liveSelected ? () => navigate('/studio/live', { state: { studioRecordingTitle: title.trim().slice(0, 150) } }) : remoteScreenRequired ? prepareScreen : ready ? start : openCapture}
       preview={!liveSelected ? preflightPreview : undefined} devices={!liveSelected ? preflightDevices : undefined} tools={preflightTools} context={setupContext}
       ready={ready && !!captureState.stream && remoteAudioReady && !remoteScreenRequired} preparing={setupWorking} onCancelPreparation={cancelPreparation}
       recovery={!liveSelected ? <StudioRemoteSceneRecoveryList owner={owner} onRecoveredFile={saveRecoveredRemote} /> : undefined} error={error ?? (!preflightPreview ? captureState.error : null)} /> : <main className="se-recording-production">

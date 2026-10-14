@@ -56,7 +56,7 @@ export function StudioRecordingSetup({
   const iphone = mode === 'remote';
   const video = !liveSelected && kind !== 'podcast';
   const portrait = video && kind === 'short';
-  const placeholder = kind === 'aula' ? 'Nova aula' : kind === 'short' ? 'Novo short' : 'Novo podcast';
+  const placeholder = liveSelected ? 'Nova live' : kind === 'aula' ? 'Nova aula' : kind === 'short' ? 'Novo short' : 'Novo podcast';
   const CaptureIcon = liveSelected ? Radio : kind === 'podcast' ? Mic : layout === 'screen' ? Monitor : iphone ? Smartphone : Camera;
   const emptyTitle = liveSelected ? 'Prepare sua transmissão.' : kind === 'podcast' ? 'Confira sua voz.' : layout === 'screen' ? 'Sua apresentação começa aqui.' : iphone ? 'Seu iPhone é a câmera.' : 'Encontre seu enquadramento.';
   const emptyDescription = liveSelected ? 'Configure a sala antes de entrar ao vivo.' : kind === 'podcast' ? 'Ative o microfone para acompanhar o áudio antes de gravar.' : layout === 'screen' ? 'Compartilhe uma tela ou aba para conferir a cena.' : iphone ? 'Conecte o iPhone para ver a cena e ajustar a câmera.' : 'Ative a câmera para ver a cena antes de gravar.';
@@ -67,7 +67,7 @@ export function StudioRecordingSetup({
       <aside className="srs-configuration" aria-label="Configuração da gravação">
         <header className="srs-heading">
           <div><span>CLASSFY STUDIO</span><h1>Prepare sua gravação.</h1></div>
-          {!liveSelected && <label className="srs-title-field" htmlFor={`${id}-title`}><span>Nome da gravação <small>Opcional</small></span><input id={`${id}-title`} aria-label="Nome da gravação" placeholder={placeholder} value={title} maxLength={160} disabled={disabled || formatLocked} onChange={event => onTitle(event.target.value)} /></label>}
+          <label className="srs-title-field" htmlFor={`${id}-title`}><span>Nome da gravação <small>Opcional</small></span><input id={`${id}-title`} aria-label="Nome da gravação" placeholder={placeholder} value={liveSelected ? title.slice(0, 150) : title} maxLength={liveSelected ? 150 : 160} disabled={disabled || formatLocked} onChange={event => onTitle(event.target.value)} /></label>
         </header>
 
         <div className="srs-options">
