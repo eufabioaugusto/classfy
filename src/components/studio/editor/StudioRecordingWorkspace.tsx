@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Camera, Check, ChevronDown, ChevronUp, Crown, Film, Layers3, Loader2, Maximize2, Mic, MicOff, Minimize2, Monitor, Play, Radio, Palette, Timer, FileText, ZoomIn, Settings2, ShieldCheck, Smartphone, Square, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Check, ChevronDown, ChevronUp, Film, Loader2, Maximize2, Mic, MicOff, Minimize2, Monitor, Play, Palette, Timer, FileText, ZoomIn, Settings2, ShieldCheck, Smartphone, Square, X } from 'lucide-react';
 import { createStudioCapture, type StudioCaptureController, type StudioCaptureMode, type StudioCaptureState } from '@/lib/studio/editor/capture';
 import { studioScenesSupport, type StudioCaptureScene, type StudioSceneConfigurationPatch } from '@/lib/studio/editor/sceneTypes';
 import { createStudioRecordingSession } from '@/lib/studio/editor/recording';
@@ -8,6 +8,7 @@ import { getAsset } from '@/lib/studio/editor/storage';
 import { formatStudioEditorTime, formatStudioDuration, studioTakeDuration, type StudioKind, type StudioProject, type StudioTake } from '../../../../shared/studio';
 import { StudioRecordingTools, type RecordingGuides } from './StudioRecordingTools';
 import { StudioRecordingQuality } from './StudioRecordingQuality';
+import { StudioRecordingSetup, type StudioRecordingLayout, type StudioRecordingCameraSource } from './StudioRecordingSetup';
 import { RecordingTeleprompter } from './RecordingTeleprompter';
 import { useStudioExitGuard } from './useStudioExitGuard';
 import { useStudioConfirmation } from './useStudioConfirmation';
@@ -270,16 +271,32 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     if (!support.supported) { setError(support.reason ?? 'Este navegador não oferece gravação contínua com cenas.'); return false; }
     return true;
   };
-  const chooseMode = (next: 'camera' | 'screen' | 'scenes' | 'remote') => {
+  const chooseMode = (next: 'camera' | 'screen' | 'scenes' | 'remote', withScenes = next === 'scenes') => {
     if (!mounted.current || loading || confirmationOperation.current || exitIntent.current || document.visibilityState === 'hidden') return;
     if (next === 'remote' && !latest.current.canUseScenes) { (latest.current.onUpgradeRemote ?? latest.current.onUpgradeScenes)?.(); return; }
-    if (next === 'scenes') {
+    if (withScenes) {
       if (latest.current.kind === 'podcast') return;
       if (!latest.current.canUseScenes) { latest.current.onUpgradeScenes?.(); return; }
       const support = studioScenesSupport();
       if (!support.supported) { setError(support.reason ?? 'Este navegador não oferece gravação contínua com cenas.'); return; }
     }
-    setError(null); setMode(next);
+    setError(null); setMode(next); setRemoteScenes(next === 'remote' && withScenes);
+  };
+  const chooseSetupFormat = (next: StudioKind | 'live') => {
+    if (loading || project || confirmationOperation.current || exitIntent.current) return;
+    setLiveSelected(next === 'live');
+    if (next !== 'live') setKind(next);
+    if (next === 'live' || next === 'podcast') { setMode('camera'); setRemoteScenes(false); }
+    setError(null);
+  };
+  const chooseSetupLayout = (next: StudioRecordingLayout) => {
+    if (kind === 'podcast' || liveSelected) return;
+    chooseMode(mode === 'remote' && latest.current.canUseScenes && next !== 'screen' ? 'remote' : next, next === 'scenes');
+  };
+  const chooseSetupCamera = (next: StudioRecordingCameraSource) => {
+    if (kind === 'podcast' || liveSelected || mode === 'screen') return;
+    const scenes = latest.current.canUseScenes && (mode === 'scenes' || mode === 'remote' && remoteScenes);
+    chooseMode(next === 'iphone' ? 'remote' : scenes ? 'scenes' : 'camera', scenes);
   };
   const reconnectRemote = () => {
     const owned = remoteCapture.current, token = epoch.current; if (!owned || confirmationOperation.current || exitIntent.current || saveBusy.current) return;
@@ -450,7 +467,7 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
   const recoveringRemote = isRemote && pendingFile && !candidate.current?.file && !captureState.file;
   const recoveryWorking = busy === 'save' || captureState.phase === 'stopping';
   const total = project?.takes.reduce((sum, item) => sum + studioTakeDuration(item), 0) ?? 0;
-  const captureCTA = kind === 'podcast' ? 'Ativar microfone' : isRemote ? 'Conectar meu iPhone' : mode === 'screen' ? 'Gravar tela' : mode === 'scenes' ? 'Abrir produção com cenas' : 'Abrir câmera';
+  const captureCTA = kind === 'podcast' ? 'Ativar microfone' : isRemote ? 'Conectar meu iPhone' : mode === 'screen' ? 'Compartilhar tela' : mode === 'scenes' ? 'Preparar câmera e tela' : 'Abrir câmera';
   const permissionCard = !captureState.stream && (!reviewing || isRemote && captureState.phase === 'preparing') && !pendingFile;
   const permissionError = permissionCard && !occupied && (error || captureState.error);
   const permissionDenied = !!permissionError && /permit|permiss|negou|acesso.*bloque/i.test(error ?? captureState.error ?? '');
@@ -479,16 +496,11 @@ export function StudioRecordingWorkspace({ owner, initialKind = 'aula', initialT
     if (target) { event.preventDefault(); selectScene(target); }
   }}>
     {stage === 'setup' && <header className="se-recording-header"><div className="se-recording-brand"><button className="se-recording-icon" aria-label="Voltar aos projetos" disabled={leaving || confirmationPending} onClick={() => void leave()}><ArrowLeft size={20} /></button><img src="/brand/classfy-simbolo-vermelho.svg" alt="Classfy" /><span>Studio</span><i /><strong>Gravar</strong></div><span className="se-recording-header-note"><ShieldCheck size={15} />Seu espaço privado</span></header>}
-    {stage === 'setup' ? <main className="se-recording-setup"><div className="se-recording-heading"><span>SEU ESPAÇO DE PRODUÇÃO</span><h1>Grave seu próximo conteúdo.</h1><p>Escolha o formato, enquadre e grave. A edição vem depois.</p></div>
-      <div className="se-recording-formats" role="group" aria-label="Formato da gravação">{(['aula', 'short', 'podcast'] as const).map(format => <button key={format} disabled={loading || !!project} aria-pressed={!liveSelected && kind === format} onClick={() => { setLiveSelected(false); setKind(format); }} className={!liveSelected && kind === format ? 'selected' : ''}><div className={`se-recording-format-visual ${format}`}>{format === 'podcast' ? <Mic size={32} /> : <span><Play size={format === 'short' ? 18 : 24} fill="currentColor" /></span>}</div><strong>{kindName(format)}</strong><small>{format === 'aula' ? '16:9 · Para ir mais fundo' : format === 'short' ? '9:16 · Direto ao ponto' : 'Áudio · Sua voz em destaque'}</small>{!liveSelected && kind === format && <Check className="se-recording-format-check" size={17} />}</button>)}<button disabled={loading || !!project} aria-pressed={liveSelected} onClick={() => setLiveSelected(true)} className={liveSelected ? 'selected' : ''}><div className="se-recording-format-visual live"><Radio size={34} /></div><strong>Live</strong><small>Ao vivo · Conecte-se com seu público</small>{liveSelected && <Check className="se-recording-format-check" size={17} />}</button></div>
-      {liveSelected ? <div className="se-recording-setup-controls"><p className="se-recording-live-intro">Prepare o título, a capa e os dispositivos antes de entrar ao vivo.</p><button className="se-recording-button primary se-recording-open" onClick={() => navigate('/studio/live')}><Radio size={18} />Preparar live<ArrowRight size={18} /></button></div> : <div className="se-recording-setup-controls"><label className="se-recording-field">Nome da gravação <small>opcional</small><input aria-label="Nome da gravação" placeholder={defaultTitle(kind)} value={title} maxLength={160} disabled={loading || !!project} onChange={event => setTitle(event.target.value)} /></label>
-        {kind !== 'podcast' && <div className="se-recording-source" role="group" aria-label="Origem da gravação"><button aria-pressed={mode === 'camera'} disabled={confirmationPending || leaving} onClick={() => chooseMode('camera')}><Camera size={17} />Câmera</button><button aria-pressed={mode === 'screen'} disabled={confirmationPending || leaving} onClick={() => chooseMode('screen')}><Monitor size={17} />Tela e microfone</button></div>}
-        {kind !== 'podcast' && <button className={`se-recording-premium-source${mode === 'scenes' ? ' selected' : ''}`} aria-label="Gravação com cenas · Premium" aria-pressed={mode === 'scenes'} disabled={loading || confirmationPending || leaving} onClick={() => chooseMode('scenes')}><span className="se-premium-demo" aria-hidden="true"><span className="se-premium-demo-screen"><i /><i /><i /><Monitor size={25} /><b><Camera size={13} /></b></span><span className="se-premium-demo-cuts"><Camera size={12} /><Monitor size={12} /><Layers3 size={12} /></span></span><span className="se-premium-source-copy"><strong>Gravação com cenas <span><Crown size={12} />Premium</span></strong><small>Alterne câmera, tela e tela com você. Tudo em um take.</small></span>{mode === 'scenes' ? <Check size={19} /> : <ArrowRight size={19} />}</button>}
-        {kind !== 'podcast' && <><button type="button" className={`se-recording-remote-source${isRemote ? ' selected' : ''}`} aria-label="Usar meu iPhone · Premium" aria-pressed={isRemote} disabled={loading || confirmationPending || leaving} onClick={() => chooseMode('remote')}><Smartphone size={28} /><span><strong>Usar meu iPhone <span><Crown size={12} />Premium</span></strong><small>Controle no computador. Original até 4K no seu iPhone.</small></span>{isRemote ? <Check size={19} /> : <ArrowRight size={19} />}</button>{isRemote && <label className="src-scenes-option"><input type="checkbox" aria-label="Gravar com cenas usando meu iPhone" checked={remoteScenes} disabled={loading || confirmationPending || leaving} onChange={event => { const support = studioScenesSupport(); if (event.target.checked && !support.supported) { setError(support.reason ?? 'Este navegador não oferece gravação com cenas.'); return; } setRemoteScenes(event.target.checked); }} /><span>Gravar com cenas<small>Alterne entre câmera, tela e tela com você.</small></span></label>}</>}
-        <StudioRemoteSceneRecoveryList owner={owner} onRecoveredFile={saveRecoveredRemote} />
-        <button className="se-recording-button primary se-recording-open" disabled={loading || !!error && !!projectId && !project} onClick={openCapture}>{loading ? <Loader2 size={18} className="se-spin" /> : kind === 'podcast' ? <Mic size={18} /> : mode === 'screen' ? <Monitor size={18} /> : <Camera size={18} />}{captureCTA}<ArrowRight size={18} /></button><p className="se-recording-privacy">A captura é privada. Seus takes são salvos neste navegador.</p>
-      </div>}{error && <p className="se-recording-error" role="alert">{error}</p>}
-    </main> : <main className="se-recording-production">
+    {stage === 'setup' ? <StudioRecordingSetup kind={kind} liveSelected={liveSelected} mode={mode} remoteScenes={remoteScenes} title={title}
+      formatLocked={loading || !!project} disabled={loading || confirmationPending || leaving} openDisabled={!!error && !!projectId && !project} canUseScenes={canUseScenes}
+      cta={liveSelected ? 'Preparar live' : captureCTA} onFormat={chooseSetupFormat} onLayout={chooseSetupLayout} onCameraSource={chooseSetupCamera}
+      onTitle={setTitle} onOpen={liveSelected ? () => navigate('/studio/live') : openCapture}
+      recovery={!liveSelected ? <StudioRemoteSceneRecoveryList owner={owner} onRecoveredFile={saveRecoveredRemote} /> : undefined} error={error} /> : <main className="se-recording-production">
       <div className={`se-recording-stage-shell${reviewing ? ' is-reviewing' : ''}`} data-testid="recording-stage">
         <div className={`se-recording-stage ${kind}`}>
           {kind !== 'podcast' && <video ref={video} className={`se-recording-live${canFocusRemote ? ' src-live-focusable' : ''}`} muted playsInline autoPlay aria-label="Prévia da gravação" title={canFocusRemote ? 'Clique na imagem para focar' : undefined} onPointerDown={focusRemote} style={{ display: captureState.stream ? 'block' : 'none', transform: !hasScenes && guides.mirrored ? 'scaleX(-1)' : undefined }} />}

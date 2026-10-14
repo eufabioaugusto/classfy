@@ -3,11 +3,19 @@
 ## Rotas e publicação
 
 - `/studio` continua sendo o dashboard. **Gravar** abre a produção; **Novo projeto** abre a biblioteca.
-- `/studio/record` começa com formato e entrada (câmera, tela ou microfone para podcast). A opção **Live** encaminha à preparação já existente em `/studio/live`, sem criar transmissão ou projeto local no clique. O fluxo local abre a captura e só depois leva ao editor. O acesso é direto pelo dashboard ou pela biblioteca, sem precisar criar uma montagem vazia.
+- `/studio/record` começa com formato, composição (só câmera, só tela ou câmera e tela) e fonte da câmera (computador ou iPhone). A opção **Live** encaminha à preparação já existente em `/studio/live`, sem criar transmissão ou projeto local no clique. O fluxo local abre a captura e só depois leva ao editor. O acesso é direto pelo dashboard ou pela biblioteca, sem precisar criar uma montagem vazia.
 - `/studio/projects` contém as montagens editáveis deste navegador: criar, buscar, renomear, duplicar e excluir.
 - `/studio/projects/:projectId` abre o editor, exclusivo para contas creator/admin.
 - **Preparar publicação** renderiza a montagem e abre `/studio/upload?type=...&studioProject=...&studioRevision=...`. O usuário escolhe **Usar arquivo do editor**; os passos existentes continuam responsáveis por enviar a mídia e concluir a publicação.
 - Os uploads existentes e `/studio/contents` mantêm suas responsabilidades. Preparar um arquivo não o publica automaticamente.
+
+## Preparação da gravação
+
+A entrada usa três grupos de seleção: **Qual é o formato?**, **O que vai aparecer?** e **Qual câmera você quer usar?**. O resumo ao lado atualiza o enquadramento ilustrado, a composição e a fonte, com uma única ação para abrir a captura. A ilustração não representa uma prévia ao vivo. O nome é opcional, e a câmera/microfone só são solicitados após o botão de abertura.
+
+**Câmera e tela · Premium** e **Meu iPhone · Premium** são escolhas combináveis. Trocar para iPhone preserva a composição; trocar de volta ao computador também preserva as cenas. Só tela oculta a seleção da câmera; Podcast e Live ocultam as escolhas de vídeo. Os gates de plano e suporte continuam no workspace. O formato fica bloqueado ao reabrir um projeto existente, mesmo sem takes.
+
+No celular, os modos de composição aparecem em linhas largas e o botão principal fica fixo no rodapé, com espaço reservado para conteúdo, erros e safe-area. A preparação foi conferida no Chrome em 1440×900, 768×1024 e 393×852. A suíte do Studio passou com 806 testes antes da revisão final dos gates; os workspaces afetados passaram com 72 testes após essa revisão, incluindo 13 novas jornadas de seleção, planos, expiração e abertura dos controllers. Typecheck dedicado, lint sem erros e build passaram. Essa verificação não repete a validação física da câmera remota.
 
 ## Domínio e arquivos locais
 

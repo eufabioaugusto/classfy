@@ -117,12 +117,18 @@ const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('
 async function click(label: string) { const target = button(label); expect(target, label).toBeTruthy(); await act(async () => target!.click()); }
 const footer = () => host.querySelector<HTMLSelectElement>('select[aria-label="Microfone"]')!;
 async function selectMicrophone(id: string) { expect(footer()).toBeTruthy(); await act(async () => { footer().value = id; footer().dispatchEvent(new Event('change', { bubbles: true })); }); }
-async function mountScenes() {
+async function mount() {
   await act(async () => root.render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><StudioRecordingWorkspace owner="owner" canUseScenes /></MemoryRouter>));
-  await click('Usar meu iPhone · Premium');
-  const checkbox = host.querySelector<HTMLInputElement>('input[aria-label="Gravar com cenas usando meu iPhone"]'); expect(checkbox).toBeTruthy();
-  await act(async () => checkbox!.click());
+}
+async function mountScenes() {
+  await mount(); await click('Meu iPhone · Premium'); await click('Câmera e tela · Premium');
   await click('Conectar meu iPhone');
+}
+function expectNoCapture() {
+  for (const factory of [factories.local, factories.remote, factories.scenes]) {
+    for (const result of factory.mock.results) if (result.type === 'return') expect(result.value.prepare).not.toHaveBeenCalled();
+  }
+  expect(permissions).not.toHaveBeenCalled();
 }
 
 beforeEach(() => {
@@ -141,6 +147,45 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Workspace de cenas com a narração real do iPhone', () => {
+  it.each([
+    ['iPhone antes de cenas', ['Meu iPhone · Premium', 'Câmera e tela · Premium']],
+    ['cenas antes do iPhone', ['Câmera e tela · Premium', 'Meu iPhone · Premium']],
+  ])('%s combina fonte e layout sem abrir captura antes do gesto final', async (_order, choices) => {
+    await mount(); for (const choice of choices) await click(choice);
+    expect(button('Meu iPhone · Premium')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Câmera e tela · Premium')?.getAttribute('aria-pressed')).toBe('true');
+    expect(host.querySelector('[aria-label="Gravar com cenas usando meu iPhone"]')).toBeNull();
+    expectNoCapture(); const owned = scenes.controller;
+    await click('Conectar meu iPhone');
+    expect(owned.prepare).toHaveBeenCalledTimes(1); expect(base.controller.prepare).not.toHaveBeenCalled(); expect(button('Cena 3: Tela + você')).toBeTruthy(); expect(permissions).not.toHaveBeenCalled();
+  });
+
+  it('voltar ao computador conserva o layout com cenas e abre apenas o controller local', async () => {
+    await mount(); await click('Câmera e tela · Premium'); await click('Meu iPhone · Premium'); await click('Computador');
+    expect(button('Computador')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Câmera e tela · Premium')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Preparar câmera e tela')).toBeTruthy();
+    expect(factories.local).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'scenes', aspectRatio: '16:9' })); expectNoCapture();
+    const local = factories.local.mock.results.at(-1)!.value;
+    await click('Preparar câmera e tela'); expect(local.prepare).toHaveBeenCalledTimes(1);
+    expect(base.controller.prepare).not.toHaveBeenCalled(); expect(scenes.controller.prepare).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled();
+  });
+
+  it('Só câmera conserva o iPhone escolhido e prepara remoto simples sem composição de cenas', async () => {
+    await mount(); await click('Meu iPhone · Premium'); await click('Câmera e tela · Premium'); await click('Só câmera');
+    expect(button('Meu iPhone · Premium')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Só câmera')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Câmera e tela · Premium')?.getAttribute('aria-pressed')).toBe('false');
+    expectNoCapture(); const simple = base.controller;
+    await click('Conectar meu iPhone'); expect(simple.prepare).toHaveBeenCalledTimes(1); expect(scenes.controller.prepare).not.toHaveBeenCalled();
+    expect(button('Cena 1: Câmera')).toBeUndefined(); expect(host.querySelector('select[aria-label="Microfone"]')).toBeNull(); expect(permissions).not.toHaveBeenCalled();
+  });
+
+  it('Podcast e Live escondem vídeo e desfazem a combinação remota antes de voltar para Aula', async () => {
+    await mount(); await click('Meu iPhone · Premium'); await click('Câmera e tela · Premium');
+    for (const label of ['Podcast', 'Live']) {
+      await click(label);
+      for (const hidden of ['Só câmera', 'Só tela', 'Câmera e tela · Premium', 'Computador', 'Meu iPhone · Premium']) expect(button(hidden), hidden).toBeUndefined();
+      expect(button(label === 'Podcast' ? 'Ativar microfone' : 'Preparar live')).toBeTruthy(); expectNoCapture();
+    }
+    await click('Aula'); expect(button('Computador')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Só câmera')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Abrir câmera')).toBeTruthy(); expectNoCapture();
+  });
+
   it('oferece Auto, inputs nativos e computador; default usa PCM remoto e legenda do iPhone', async () => {
     await mountScenes();
     expect(scenes.snapshot().scenes?.narrationSource).toBe('iphone');

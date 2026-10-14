@@ -75,7 +75,8 @@ async function answer(label: string) {
   const target = [...confirmation()!.querySelectorAll('button')].find(value => value.textContent?.trim() === label);
   expect(target, `Resposta do diálogo: ${label}`).toBeTruthy(); await act(async () => target!.click());
 }
-async function format(label: string) { const target = [...host.querySelectorAll('.se-recording-formats button')].find(b => b.querySelector('strong')?.textContent === label); expect(target).toBeTruthy(); await act(async () => (target as HTMLButtonElement).click()); }
+const formatButton = (label: string) => button(label);
+async function format(label: string) { const target = formatButton(label); expect(target).toBeTruthy(); await act(async () => target!.click()); }
 async function select(label: string, id: string) {
   const target = host.querySelector(`select[aria-label="${label}"]`) as HTMLSelectElement;
   expect(target).toBeTruthy(); await act(async () => { target.value = id; target.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -130,6 +131,55 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('funil de gravação com componente, captura e sessão reais', () => {
+  it('trocar formato e layout permite voltar sem pedir permissão, iniciar REC ou criar rascunho', async () => {
+    await mount();
+    for (const label of ['Short', 'Podcast', 'Live', 'Aula']) {
+      await format(label); expect(formatButton(label)?.getAttribute('aria-pressed')).toBe('true');
+      expect(permissions).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
+    }
+    await click('Só tela'); expect(button('Só tela')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Compartilhar tela')).toBeTruthy();
+    await click('Só câmera'); expect(button('Abrir câmera')).toBeTruthy();
+    await click('Voltar aos projetos');
+    expect(confirmation()).toBeNull(); expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/projects');
+    expect(permissions).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled();
+  });
+
+  it('Podcast esconde escolhas de vídeo e volta à câmera simples quando Aula é escolhida', async () => {
+    await mount(); await click('Só tela'); await format('Podcast');
+    expect(button('Ativar microfone')).toBeTruthy();
+    for (const label of ['Só câmera', 'Só tela', 'Câmera e tela · Premium', 'Computador', 'Meu iPhone · Premium']) expect(button(label), label).toBeUndefined();
+    expect(host.querySelector('[aria-label="Nome da gravação"]')).toBeTruthy();
+    await format('Aula'); expect(button('Só câmera')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Computador')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Abrir câmera')).toBeTruthy();
+    expect(permissions).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled();
+  });
+
+  it('expiração Premium na preparação permite sair de iPhone com cenas pelas escolhas gratuitas sem abrir upgrade', async () => {
+    for (const name of ['MediaStreamTrackProcessor', 'MediaStreamTrackGenerator', 'Worker', 'OffscreenCanvas', 'VideoFrame']) vi.stubGlobal(name, class {});
+    const upgradeScenes = vi.fn(), upgradeRemote = vi.fn();
+    const render = async (premium: boolean) => act(async () => root.render(<MemoryRouter initialEntries={['/studio/record']}><StudioRecordingWorkspace owner="owner" canUseScenes={premium} onUpgradeScenes={upgradeScenes} onUpgradeRemote={upgradeRemote} /></MemoryRouter>));
+    for (const freeChoice of ['Só câmera', 'Computador']) {
+      await render(true); await click('Meu iPhone · Premium'); await click('Câmera e tela · Premium');
+      expect(button('Meu iPhone · Premium')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Câmera e tela · Premium')?.getAttribute('aria-pressed')).toBe('true');
+      await render(false); await click(freeChoice);
+      expect(button('Só câmera')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Computador')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Abrir câmera')).toBeTruthy();
+      expect(upgradeScenes).not.toHaveBeenCalled(); expect(upgradeRemote).not.toHaveBeenCalled();
+    }
+    expect(permissions).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
+  });
+
+  it.each([['aula', 'Aula'], ['short', 'Short'], ['podcast', 'Podcast']] as const)('projeto %s existente sem takes mantém o formato carregado e impede escolher outro', async (kind, label) => {
+    const existing = fixture('owner', 'project', kind); projects.set(key('owner', existing.id), existing);
+    await mount('/studio/record?project=project');
+    expect(formatButton(label)?.getAttribute('aria-pressed')).toBe('true');
+    for (const next of ['Aula', 'Short', 'Podcast', 'Live']) {
+      expect(formatButton(next)?.disabled, next).toBe(true); await format(next);
+    }
+    expect(formatButton(label)?.getAttribute('aria-pressed')).toBe('true');
+    expect(button(kind === 'podcast' ? 'Ativar microfone' : 'Abrir câmera')).toBeTruthy();
+    expect((host.querySelector('[aria-label="Nome da gravação"]') as HTMLInputElement).value).toBe(existing.title);
+    expect(permissions).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled();
+  });
+
   it('StrictMode não abre permissão nem rascunho; formato e gesto abrem uma única captura com monitor real', async () => {
     vi.useFakeTimers(); await mount(); expect(permissions).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(activeVisibility()).toBe(2);
     await format('Podcast'); await click('Ativar microfone'); expect(permissions).toHaveBeenCalledTimes(1); expect(host.querySelector('[aria-label="Microfone em uso: USB Microphone"]')).toBeTruthy();
@@ -194,7 +244,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
       } as unknown as StudioRemoteCaptureController;
     });
     await act(async () => root.render(<MemoryRouter initialEntries={['/studio/record']}><StudioRecordingWorkspace owner="owner" initialKind="aula" canUseScenes /></MemoryRouter>));
-    await click('Usar meu iPhone · Premium'); await click('Conectar meu iPhone'); await click('Iniciar gravação'); await click('Encerrar gravação');
+    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); await click('Iniciar gravação'); await click('Encerrar gravação');
     expect(host.textContent).toContain('Não foi possível preparar esta parte'); expect(host.textContent).not.toMatch(/Tentar salvar|tente recuperar/); expect(button('Retomar transferência')?.disabled).toBe(false);
     await click('Retomar transferência'); expect(host.querySelector('.se-recording-recovery')?.getAttribute('aria-busy')).toBe('true');
     expect(host.textContent).toContain('Enviando original do iPhone… 25%'); expect(button('Transferindo original…')?.disabled).toBe(true); expect(button('Descartar trecho')?.disabled).toBe(true);
@@ -243,7 +293,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
       } as unknown as StudioRemoteCaptureController;
     });
     await act(async () => root.render(<MemoryRouter initialEntries={['/studio/record']}><StudioRecordingWorkspace owner="owner" initialKind="aula" canUseScenes /></MemoryRouter>));
-    await click('Usar meu iPhone · Premium'); await click('Conectar meu iPhone');
+    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone');
     expect(button('Iniciar gravação')?.disabled).toBe(true); expect(host.textContent).toContain('Confirme o microfone do iPhone'); expect(host.querySelector('[role="meter"]')).toBeNull();
     await click('Iniciar gravação'); expect(start).not.toHaveBeenCalled();
     await click('Selecionar microfone do iPhone'); const option = [...host.querySelectorAll<HTMLButtonElement>('.src-audio-option')].find(value => value.textContent?.includes(usb.name))!;
@@ -446,6 +496,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await mount(); await format('Live');
     expect(button('Preparar live')).toBeTruthy(); expect(button('Abrir câmera')).toBeUndefined();
     expect(host.querySelector('[aria-label="Nome da gravação"]')).toBeNull();
+    for (const label of ['Só câmera', 'Só tela', 'Câmera e tela · Premium', 'Computador', 'Meu iPhone · Premium']) expect(button(label), label).toBeUndefined();
     expect(permissions).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
     await click('Preparar live');
     expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/live');
