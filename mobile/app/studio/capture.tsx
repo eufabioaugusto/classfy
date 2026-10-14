@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useIsFocused, usePreventRemove, type NavigationAction } from '@react-navigation/native';
-import { Camera, Check, ChevronRight, FileText, Mic, Minus, Palette, Plus, SlidersHorizontal, Square, SwitchCamera, Timer, X, Zap, ZapOff } from 'lucide-react-native';
+import { Camera, Check, ChevronRight, FileText, Mic, Minus, Monitor, Palette, Plus, SlidersHorizontal, Square, SwitchCamera, Timer, X, Zap, ZapOff } from 'lucide-react-native';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, AppState, Keyboard, Linking, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,26 +28,30 @@ import { StudioCaptureAudioMonitor } from '@/features/studio/StudioCaptureAudioM
 import { StudioCaptureProControls } from '@/features/studio/StudioCaptureProControls';
 import { useStudioCaptureAudioMonitor } from '@/features/studio/StudioCaptureAudio';
 import { StudioCaptureScriptPanel } from '@/features/studio/StudioCaptureScriptPanel';
+import { StudioCameraMonitorPanel } from '@/features/studio/StudioCameraMonitorPanel';
+import { useStudioCameraMonitor } from '@/features/studio/useStudioCameraMonitor';
+import { hasStudioMonitorPremium, studioMonitorCaptureState } from '@/features/studio/cameraMonitorModel';
+import { PlanCrown } from '@/components/PlanCrown';
 import { StudioTeleprompter, type StudioTeleprompterMode } from '@/features/studio/StudioTeleprompter';
 import { studioTeleprompterFrame } from '@/features/studio/StudioTeleprompterLayout';
 import { useStudioTeleprompterSpeech } from '@/features/studio/useStudioTeleprompterSpeech';
 import { createStudioVideoStopOperation } from '@/features/studio/StudioCaptureRecording';
 import { StudioNativeCamera, StudioNativeRecordingError, isStudioNativeCameraHandle, type StudioCaptureCameraHandle, type StudioCaptureRecording, type StudioNativeCameraHandle } from '@/features/studio/StudioNativeCamera';
-import { isStudioNativeCameraAvailable, isStudioNativeCameraEffectsAvailable, isStudioNativeCameraAudioMonitorAvailable } from '../../modules/classfy-studio-media';
+import { isStudioNativeCameraAvailable, isStudioNativeCameraEffectsAvailable, isStudioNativeCameraAudioMonitorAvailable, isStudioRemoteCameraAvailable } from '../../modules/classfy-studio-media';
 import { colors } from '@/theme/colors';
 import { controls } from '@/theme/controls';
 
 type Phase = 'idle' | 'countdown' | 'recording' | 'saving';
 type CaptureMetadata = Pick<Parameters<typeof persistStudioTake>[1], 'sourceKind' | 'sourceStage' | 'frameRate' | 'colorSpace' | 'grade'>;
 type RecoverableTake = { project: StudioProject; uri: string; duration: number; metadata?: CaptureMetadata };
-type CapturePanel = 'timer' | 'script' | 'quality' | 'treatment';
+type CapturePanel = 'timer' | 'script' | 'quality' | 'treatment' | 'monitor';
 const capturePresets: { id: StudioEffect; label: string }[] = [{ id: 'natural', label: 'Natural' }, { id: 'studio', label: 'Studio' }, { id: 'cinematic', label: 'Cinematic' }];
 
 export default function StudioCaptureScreen() {
   const params = useLocalSearchParams<{ id: string; from?: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id || '';
   const { project, loading, error } = useStudioProject(id);
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { canPublish, roleLoading } = usePrimaryAction();
   const navigation = useNavigation();
   const router = useRouter();
@@ -63,6 +67,7 @@ export default function StudioCaptureScreen() {
   const [facing, setFacing] = useState<CameraType>('front');
   const [torch, setTorch] = useState(false);
   const [ready, setReady] = useState(false);
+  const [nativeRecordingConfirmed, setNativeRecordingConfirmed] = useState(false);
   const [sensorOrientation, setSensorOrientation] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0);
   const [videoQuality, setVideoQuality] = useState<'1080p' | '720p'>('1080p');
@@ -132,6 +137,12 @@ export default function StudioCaptureScreen() {
   const audioMonitorAvailable = nativeCamera && isStudioNativeCameraAudioMonitorAvailable();
   const audioMonitor = useStudioCaptureAudioMonitor({ active: cameraMounted, available: audioMonitorAvailable,
     scopeKey: `${user?.id}:${id}:${facing}`, generation: cameraControls.state?.generation });
+  const monitorAvailable = nativeCamera && isStudioRemoteCameraAvailable();
+  const monitorPremium = hasStudioMonitorPremium(profile);
+  const monitor = useStudioCameraMonitor({ ownerId: user?.id, projectId: id, kind: project?.kind, title: project?.title || '',
+    active: cameraMounted && monitorAvailable, premium: monitorPremium, ready, sourceKey: `${id}:${facing}`, camera,
+    state: studioMonitorCaptureState({ recording: phase === 'recording' && nativeRecordingConfirmed, elapsedSeconds: elapsed,
+      width: cameraControls.state?.width, height: cameraControls.state?.height, fps: cameraControls.state?.fps, cameraFacing: facing }) });
   const scriptActive = permitted && !!project?.script.trim() && showScript && followScript && !panel && !leaving && !recovery
     && (phase === 'idle' || phase === 'recording') && focused && foreground;
   const speech = useStudioTeleprompterSpeech({ ownerId: user?.id, projectId: id, script: project?.script.trim() || '',
@@ -293,6 +304,7 @@ export default function StudioCaptureScreen() {
     phaseRef.current = next;
     if (mounted.current) {
       setPhase(next);
+      if (next !== 'recording') setNativeRecordingConfirmed(false);
       if (next === 'saving') setFollowScript(false);
     }
   }
@@ -789,7 +801,7 @@ export default function StudioCaptureScreen() {
     : followScript ? 'Fale para avançar · o silêncio pausa' : 'Toque para ensaiar com sua voz';
   const scriptPlayDisabled = phase === 'countdown' || phase === 'saving' || scriptMode === 'voice' && (!voiceAvailable || speech.permission === 'requesting'
     || immersive && speech.permission !== 'granted');
-  const panelTitle = panel === 'timer' ? 'Temporizador' : panel === 'quality' ? cameraState ? 'Câmera Pro' : 'Qualidade do vídeo' : panel === 'treatment' ? 'Tratamento' : 'Teleprompter';
+  const panelTitle = panel === 'monitor' ? 'Ver no computador' : panel === 'timer' ? 'Temporizador' : panel === 'quality' ? cameraState ? 'Câmera Pro' : 'Qualidade do vídeo' : panel === 'treatment' ? 'Tratamento' : 'Teleprompter';
   const readyHint = isAudio ? 'Uma conversa. Uma ideia por take.' : project?.kind === 'aula' ? 'Seu conhecimento em uma aula.' : 'Uma ideia que merece ser compartilhada.';
   const stateHint = phase === 'saving' ? removingTake ? 'Excluindo take…' : importing ? 'Importando seus originais…' : 'Salvando seu take…'
     : phase === 'recording' ? 'Toque para encerrar o take' : phase === 'countdown' ? 'Toque para cancelar'
@@ -822,7 +834,7 @@ export default function StudioCaptureScreen() {
 
   const closeButton = <CaptureTool label="Fechar captura" onPress={closeCapture}><X size={23} strokeWidth={1.65} color={colors.text} /></CaptureTool>;
   const flipButton = !isAudio && <CaptureTool label="Alternar câmera" disabled={toolsDisabled || !Device.isDevice} onPress={() => {
-    setReady(false); setSensorOrientation(null); setFacing(previous => previous === 'front' ? 'back' : 'front'); setTorch(false); setZoom(0);
+    monitor.cameraUnavailable(); setReady(false); setSensorOrientation(null); setFacing(previous => previous === 'front' ? 'back' : 'front'); setTorch(false); setZoom(0);
   }}><SwitchCamera size={26} color={colors.text} strokeWidth={1.45} /><Text style={styles.cameraToolLabel}>Câmera</Text></CaptureTool>;
   const recordButton = <Pressable accessibilityRole="button"
     accessibilityLabel={phase === 'recording' ? 'Encerrar e salvar take' : phase === 'countdown' ? 'Cancelar contagem' : 'Começar gravação'}
@@ -847,10 +859,13 @@ export default function StudioCaptureScreen() {
       {nativeCamera ? <StudioNativeCamera ref={camera as React.Ref<StudioNativeCameraHandle>} style={StyleSheet.absoluteFill}
         onAudioMonitor={audioMonitorAvailable ? audioMonitor.onAudioMonitor : undefined}
         speechEnabled={voiceAvailable && speech.speechEnabled} speechSessionId={speech.speechSessionId} speechLocale="pt-BR" onSpeech={speech.onSpeech}
-        onCameraReady={() => { void cameraControls.initialize().then(result => { if (result !== undefined && mounted.current) setReady(result); }); }}
-        onRecordingState={event => { if (event.phase === 'recording' && phaseRef.current === 'recording') startedAt.current = Date.now(); }}
+        onCameraReady={() => { void cameraControls.initialize().then(result => { if (result !== undefined && mounted.current) { setReady(result); if (result) monitor.cameraReady(); } }); }}
+        onRecordingState={event => { if (event.phase === 'recording' && phaseRef.current === 'recording') {
+          startedAt.current = Number.isFinite(event.startedAtEpochMs) ? event.startedAtEpochMs! : Date.now(); setNativeRecordingConfirmed(true);
+        } else if (event.phase === 'stopping' || event.phase === 'finished') setNativeRecordingConfirmed(false); }}
         onInterruption={event => { if (mounted.current) {
           if (event.message) setNotice(event.message);
+          if (event.reason === 'remotePreviewUnavailable') monitor.previewFailed(event.message);
           if (event.reason === 'previewFallback') {
             setEffectSupported(false);
             setEffectError('A prévia do tratamento foi interrompida. Escolha Natural para o próximo take ou ajuste a imagem no editor.');
@@ -876,7 +891,14 @@ export default function StudioCaptureScreen() {
     </View>}
 
     <View style={[styles.topControls, { top: safeTop, left: safeLeft, right: safeRight }]}>
-      {!immersive && <View style={styles.topActionSlot}>{closeButton}</View>}
+      <View style={styles.topActionSlot}>{!immersive && closeButton}
+        {Platform.OS === 'ios' && !isAudio && captureAvailable && (!immersive || monitor.enabled) && <Pressable accessibilityRole="button" accessibilityLabel="Ver no computador"
+          accessibilityState={{ selected: monitor.phase === 'connected', disabled: leaving }} disabled={leaving} onPress={() => setPanel('monitor')}
+          style={({ pressed }) => [styles.monitorTool, monitor.phase === 'connected' && styles.monitorToolConnected, pressed && styles.pressed]}>
+          <Monitor size={20} color={monitor.phase === 'connected' ? '#75DCAF' : '#B1E8CF'} strokeWidth={1.65} />
+          <View style={styles.monitorCrown}><PlanCrown plan="premium" size={10} /></View>
+        </Pressable>}
+      </View>
       <View pointerEvents="none" style={styles.captureIdentity}>
         <View style={[styles.timerPill, phase === 'recording' && styles.timerPillActive]}>
           {phase === 'recording' && <View style={styles.recordDot} />}
@@ -981,6 +1003,10 @@ export default function StudioCaptureScreen() {
     </View>}
 
     <StudioCaptureSheet visible={!!panel} title={panelTitle} onClose={() => setPanel(null)} showKeyboardAction={panel === 'script'}>
+      {panel === 'monitor' && <StudioCameraMonitorPanel premium={monitorPremium} available={monitorAvailable} ready={ready} state={monitor}
+        upgradeDisabled={!idle || leaving || !!recovery}
+        onEnable={() => { void monitor.enable(); }} onDisable={() => { void monitor.disable(); }}
+        onUpgrade={() => { if (phaseRef.current !== 'idle' || captureContext.current.recovery || exitOperation.current) return; setPanel(null); router.push('/premium'); }} />}
       {panel === 'timer' && <>
         <Text style={styles.panelDetail}>Um instante para se posicionar antes de cada take.</Text>
         <View style={styles.optionRow}>{[0, 3, 5, 10].map(seconds => <Pressable key={seconds} accessibilityRole="button" accessibilityLabel={seconds ? `${seconds} segundos` : 'Sem contagem'}
@@ -1113,7 +1139,10 @@ const styles = StyleSheet.create({
   bottomShade: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   rightShade: { position: 'absolute', top: 0, bottom: 0, right: 0 },
   topControls: { position: 'absolute', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', height: 70 },
-  topActionSlot: { width: 68, alignItems: 'flex-start' },
+  topActionSlot: { width: 110, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  monitorTool: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(18,53,42,0.92)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#285B47' },
+  monitorToolConnected: { borderColor: '#51B58B' },
+  monitorCrown: { position: 'absolute', right: 2, bottom: 2, borderRadius: 7, padding: 2, backgroundColor: '#14231D' },
   captureIdentity: { position: 'absolute', top: 0, left: '50%', width: 200, transform: [{ translateX: -100 }], alignItems: 'center', gap: 8 },
   timerPill: { minHeight: 38, paddingHorizontal: 16, borderRadius: 24, backgroundColor: 'rgba(0,0,0,0.38)', flexDirection: 'row', alignItems: 'center', gap: 8 },
   timerPillActive: { backgroundColor: 'rgba(225,29,72,0.86)' },

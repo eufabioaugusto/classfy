@@ -32,7 +32,7 @@ function clock() {
 }
 
 function harness({ missing = false, partial = false, platform = 'ios', acquire, startAudio, connect, publishTrack, restart, sdkThrows = false, timers } = {}) {
-  const calls = { requires: [], registrations: 0, logLevels: [], captures: [], starts: 0, stops: 0, rooms: [], tracks: [], publishes: [] };
+  const calls = { requires: [], registrations: 0, audioPolicies: 0, logLevels: [], captures: [], starts: 0, stops: 0, rooms: [], tracks: [], publishes: [] };
   const TrackEvent = { Restarted: 'restarted', Ended: 'ended' };
   const RoomEvent = { ConnectionStateChanged: 'connectionStateChanged' };
   const ConnectionState = { Disconnected: 'disconnected', Connecting: 'connecting', Connected: 'connected', Reconnecting: 'reconnecting', SignalReconnecting: 'signalReconnecting' };
@@ -69,6 +69,7 @@ function harness({ missing = false, partial = false, platform = 'ios', acquire, 
       return acquire ? acquire(options, LocalTrack) : [new LocalTrack('video'), new LocalTrack('audio')];
     } };
   const native = { setLogLevel: level => calls.logLevels.push(level), registerGlobals: () => { calls.registrations += 1; },
+    setupIOSAudioManagement: () => { calls.audioPolicies += 1; },
     AudioSession: { startAudioSession: async () => { calls.starts += 1; await startAudio?.(); }, stopAudioSession: async () => { calls.stops += 1; } } };
   const webrtc = { RTCView: 'native-rtc-video' };
   const functions = Object.fromEntries(['getUserMedia', 'peerConnectionInit', 'mediaStreamTrackSetEnabled', 'audioDeviceModuleSetAutomaticAudioSessionConfiguration'].map(name => [name, () => {}]));
@@ -154,6 +155,7 @@ test('prepare tem câmera/mic privados reais, metadata efetiva e renderer sem co
   await transport.prepare({ facing: 'front', quality: '1080p' });
   assert.equal(h.calls.registrations, 1); assert.deepEqual(h.calls.logLevels, [5]);
   assert.equal(h.calls.starts, 1); assert.equal(h.calls.captures.length, 1);
+  assert.equal(h.calls.audioPolicies, 1, 'A new explicit live restores RTC audio policy before acquiring audio');
   assert.equal(h.calls.rooms.length, 0); assert.equal(h.calls.publishes.length, 0);
   assert.equal(h.calls.captures[0].video.resolution.width, 1920);
   assert.deepEqual(transport.getSnapshot().capture, { width: 1280, height: 720, frameRate: 29.97 });
@@ -163,6 +165,7 @@ test('prepare tem câmera/mic privados reais, metadata efetiva e renderer sem co
   assert.equal(element.props.children.props.streamURL, 'private-video-1');
   assert.equal(element.props.children.props.mirror, true); assert.equal(element.props.children.props.objectFit, 'contain');
   assert.equal(h.calls.rooms.length, 0); await transport.dispose();
+  assert.equal(h.calls.audioPolicies, 1, 'Media cleanup never reconfigures global audio policy');
 });
 
 test('iniciar exige prepare, publica ambos tracks explicitamente e nunca põe credenciais no snapshot', async () => {

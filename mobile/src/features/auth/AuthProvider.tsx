@@ -17,7 +17,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const loadProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id,display_name,avatar_url,creator_channel_name,creator_status,plan,entitlement_source,subscription_status,plan_expires_at,bio,interests,difficulties,cover_image_url,expo_push_token')
+      .select('id,display_name,avatar_url,creator_channel_name,creator_status,plan,entitlement_source,subscription_status,subscription_grace_until,plan_expires_at,bio,interests,difficulties,cover_image_url,expo_push_token')
       .eq('id', userId)
       .maybeSingle();
 

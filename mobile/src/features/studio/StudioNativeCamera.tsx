@@ -13,7 +13,7 @@ import { normalizeStudioCaptureGrade, type StudioGrade } from './model';
 
 export type StudioNativeRecordingState = {
   phase: 'preparing' | 'recording' | 'stopping' | 'finished'; operationId: string;
-  generation: number; revision: number; error?: string; recoveryUri?: string; result?: StudioNativeRecording;
+  generation: number; revision: number; startedAtEpochMs?: number; error?: string; recoveryUri?: string; result?: StudioNativeRecording;
 };
 export type StudioNativeCameraHandle = {
   readonly studioNative: true;

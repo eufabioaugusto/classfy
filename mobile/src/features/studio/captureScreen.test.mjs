@@ -8,6 +8,8 @@ import * as timeline from './timeline.ts';
 import * as speechTracking from './StudioTeleprompterTracking.ts';
 import * as prompterLayout from './StudioTeleprompterLayout.ts';
 import { mergeStudioCameraProSettings } from './cameraProSettings.ts';
+import * as monitorModel from './cameraMonitorModel.ts';
+import * as monitorKeepAwake from './cameraMonitorKeepAwake.ts';
 
 function load(file, dependencies, globals = {}) {
   const source = readFileSync(new URL(file, import.meta.url), 'utf8');
@@ -34,7 +36,7 @@ async function harness(options = {}) {
     const take = await runtime.media.persistStudioTake(project, { uri, name: 'Take inicial' });
     project = await runtime.store.updateStudioProject('owner', project.id, { takes: [take] });
   }
-  let id = project.id, owner = 'owner', focused = true, now = 0, timerId = 0;
+  let id = project.id, owner = 'owner', focused = true, now = 0, timerId = 0, premium = options.premium;
   let currentContext, dirty = true, effects = [], tree, nativeRecord, zoomRequest, removal;
   let windowDimensions = options.projectKind === 'short' || options.projectKind === 'podcast'
     ? { width: 393, height: 852 } : { width: 844, height: 390 };
@@ -102,7 +104,7 @@ async function harness(options = {}) {
   const nativeHost = { tag: 73 };
   const native = {
     ActivityIndicator: 'spinner', Alert: { alert: (...args) => alerts.push(args) }, AppState: appState,
-    KeyboardAvoidingView: 'keyboard', Linking: { openSettings: async () => {} }, Platform: { OS: 'ios' },
+    KeyboardAvoidingView: 'keyboard', Linking: { openSettings: async () => {} }, Platform: { OS: options.platform || 'ios' },
     Keyboard: { dismiss: () => keyboard(false), isVisible: () => keyboardVisible,
       addListener: (name, callback) => { const values = keyboardListeners.get(name) || new Set(); values.add(callback); keyboardListeners.set(name, values); return { remove: () => values.delete(callback) }; } },
     Pressable: 'button', ScrollView: 'scroll', Text: 'text', TextInput: 'input', TouchableWithoutFeedback: 'touch-dismiss', View: 'view',
@@ -162,6 +164,7 @@ async function harness(options = {}) {
     isStudioNativeCameraAvailable: () => options.native !== false,
     isStudioNativeCameraEffectsAvailable: () => false,
     isStudioNativeCameraAudioMonitorAvailable: () => options.audioMonitor === true,
+    isStudioRemoteCameraAvailable: () => options.monitor !== false,
     isStudioNativeCameraSpeechAvailable: () => options.speech === true,
     requestStudioCaptureSpeechPermissionAsync: async () => {
       calls.push({ kind: 'speech-permission' }); return { granted: options.speechDenied !== true, canAskAgain: true };
@@ -182,7 +185,7 @@ async function harness(options = {}) {
     addOrientationChangeListener: callback => { orientationListeners.add(callback); return callback; },
     removeOrientationChangeListener: callback => orientationListeners.delete(callback),
   };
-  const iconNames = 'Camera Check ChevronRight FileText Mic Minus Palette Pause Play Plus SlidersHorizontal Square SwitchCamera Timer X Zap ZapOff Video';
+  const iconNames = 'Camera Check ChevronRight Eye FileText Mic Minus Monitor Palette Pause Play Plus SlidersHorizontal Square SwitchCamera Timer X Zap ZapOff Video';
   const icons = Object.fromEntries(iconNames.split(' ').map(name => [name, name]));
   const jsxRuntime = { jsx, jsxs: jsx, Fragment: 'fragment' };
   const theme = { colors: { text: '#fff', accent: '#f06', borderSubtle: '#333' } };
@@ -209,7 +212,30 @@ async function harness(options = {}) {
     react: hooks, 'react/jsx-runtime': jsxRuntime, 'react-native': native, 'lucide-react-native': icons,
     '@/components/LoadingImage': { LoadingImage: 'image' }, '@/theme/colors': theme, './model': model,
   });
-  const auth = { useAuth: () => ({ user: { id: owner } }) };
+  const auth = { useAuth: () => ({ user: { id: owner }, profile: { plan: premium ? 'premium' : 'free', entitlement_source: 'admin',
+    plan_expires_at: '2099-01-01T00:00:00Z' } }) };
+  const monitorPublisher = load('./cameraMonitorPublisher.ts', { './cameraMonitorModel': monitorModel }, globals);
+  const monitorHook = load('./useStudioCameraMonitor.ts', { react: hooks, 'expo-crypto': { randomUUID: () => '11111111-1111-4111-8111-111111111111' },
+    'expo-keep-awake': { activateKeepAwakeAsync: async tag => { calls.push({ kind: 'monitor-keep-awake', tag }); },
+      deactivateKeepAwake: async tag => { calls.push({ kind: 'monitor-release-screen', tag }); } },
+    './cameraMonitorKeepAwake': monitorKeepAwake,
+    './remoteCameraRuntime': { remoteCameraDeviceId: async () => '22222222-2222-4222-8222-222222222222' },
+    './cameraMonitorPublisher': monitorPublisher, './StudioNativeCamera': cameraModule,
+    './cameraMonitorApi': { requestStudioCameraMonitor: async (requestOwner, action, body, scope) => {
+      calls.push({ kind: 'monitor-api', action, body: structuredClone(body), owner: requestOwner });
+      await options.monitorRequest?.(action, body);
+      assert.equal(scope.isCurrent(), true);
+      return { monitor: { id: body.sessionId, ownerId: requestOwner, deviceId: body.deviceId || body.clientId, status: action === 'monitor-close' ? 'closed' : 'active' },
+        serverAt: new Date(now).toISOString(), ...(action === 'monitor-connect' ? { connection: { url: 'wss://test.invalid', token: 'test-only', identity: 'device' } } : {}) };
+    } },
+    './cameraMonitorTransport': { createStudioMonitorPreviewTransport: notify => ({ connect: async tag => {
+      calls.push({ kind: 'monitor-preview', tag }); notify({ connected: true, reconnecting: false, viewerPresent: false });
+    }, disconnect: async () => { calls.push({ kind: 'monitor-preview-stop' }); } }) },
+  }, globals);
+  const monitorPanel = load('./StudioCameraMonitorPanel.tsx', { 'react/jsx-runtime': jsxRuntime, 'react-native': native, 'lucide-react-native': icons,
+    '@/components/PlanCrown': { PlanCrown: 'plan-crown' }, './cameraMonitorModel': monitorModel, '@/theme/colors': theme,
+    './StudioUI': { StudioButton: props => jsx('button', { ...props, accessibilityLabel: props.label }) },
+  });
   const captureSheet = load('./StudioCaptureSheet.tsx', {
     react: hooks, 'react/jsx-runtime': jsxRuntime, 'react-native': native, '@/theme/colors': theme,
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, bottom: 21, left: 47, right: 0 }) },
@@ -242,6 +268,7 @@ async function harness(options = {}) {
     'expo-linear-gradient': { LinearGradient: 'gradient' }, 'expo-status-bar': { StatusBar: 'status' },
     'expo-router': { useLocalSearchParams: () => ({ id, from: options.from === null ? undefined : options.from || 'projects' }), useNavigation: () => nativeNavigation,
       useRouter: () => ({ canGoBack: () => options.canGoBack !== false,
+        push: destination => guardedNavigate('push', destination, { type: 'PUSH', payload: destination }),
         back: () => guardedNavigate('back', undefined, { type: 'GO_BACK' }),
         replace: destination => guardedNavigate('replace', destination, { type: 'REPLACE', payload: destination }),
       }) },
@@ -260,6 +287,10 @@ async function harness(options = {}) {
     '@/features/studio/StudioCaptureAudioMonitor': { StudioCaptureAudioMonitor: 'audio-monitor' },
     '@/features/studio/StudioCaptureProControls': { StudioCaptureProControls: 'pro-controls' },
     '@/features/studio/StudioCaptureScriptPanel': scriptPanel,
+    '@/features/studio/StudioCameraMonitorPanel': monitorPanel,
+    '@/features/studio/useStudioCameraMonitor': monitorHook,
+    '@/features/studio/cameraMonitorModel': monitorModel,
+    '@/components/PlanCrown': { PlanCrown: 'plan-crown' },
     '@/features/studio/StudioTeleprompter': teleprompter,
     '@/features/studio/StudioTeleprompterLayout': prompterLayout,
     '@/features/studio/useStudioTeleprompterSpeech': teleprompterSpeech,
@@ -352,6 +383,15 @@ async function harness(options = {}) {
     owner(value) { owner = value; runtime.setOwner(value); dirty = true; },
     project(value) { id = value; dirty = true; },
     dimensions(value) { windowDimensions = value; dirty = true; },
+    nativeTag(value) { nativeHost.tag = value; },
+    premium(value) { premium = value; dirty = true; },
+    async recordingEvent(patch = {}) {
+      assert.ok(nativeRecord);
+      find(node => node.type === 'native-camera-view').props.onRecordingState({ nativeEvent: {
+        operationId: nativeRecord.operationId, phase: 'recording', generation: state.generation, revision: state.revision,
+        startedAtEpochMs: now, ...patch,
+      } }); await pump();
+    },
     async confirmExit(result = true) { assert.equal(typeof exits.at(-1)?.resolve, 'function'); exits.at(-1).resolve(result); await pump(); },
     async rejectExit() { assert.equal(typeof exits.at(-1)?.reject, 'function'); exits.at(-1).reject(Error('A orientação não foi confirmada.')); await pump(); },
     requestRemoval(action = { type: 'GO_BACK' }) {
@@ -377,6 +417,96 @@ async function harness(options = {}) {
     async dispose() { for (const context of contexts.values()) for (const value of context.slots) value?.cleanup?.(); contexts.clear(); timers.clear(); await new Promise(resolve => setImmediate(resolve)); },
   };
 }
+
+test('monitor Premium parte da captura normal, REC confirmado e encerrar prévia não interrompe o original', async () => {
+  for (const projectKind of ['aula', 'short']) {
+    const h = await harness({ premium: true, projectKind });
+    try {
+      await h.ready();
+      const nativeView = h.find(node => node.type === 'native-camera-view').props.ref;
+      const configureCount = h.calls.filter(value => value.kind === 'configure').length;
+      h.button('Ver no computador').onPress(); await h.pump();
+      const panelNodes = h.nodes();
+      const toggleIndex = panelNodes.findIndex(node => node.props?.accessibilityLabel === 'Visualizar no computador');
+      const addressIndex = panelNodes.findIndex(node => String(node.props?.accessibilityLabel || '').startsWith('Endereço do monitor:'));
+      assert.ok(toggleIndex > -1 && addressIndex > toggleIndex, 'The main action precedes connection instructions in both orientations');
+      assert.equal(h.calls.filter(value => value.kind === 'monitor-api').length, 0, 'Opening the sheet never starts sharing');
+      assert.equal(h.calls.filter(value => value.kind === 'monitor-keep-awake').length, 0);
+      h.button('Visualizar no computador').onPress(); await h.pump();
+      assert.equal(h.calls.filter(value => value.kind === 'monitor-keep-awake').length, 1);
+      assert.equal(h.find(node => node.type === 'native-camera-view').props.ref, nativeView);
+      assert.equal(h.calls.filter(value => value.kind === 'configure').length, configureCount);
+      assert.equal(h.calls.filter(value => value.kind === 'record').length, 0);
+      assert.equal(h.calls.find(value => value.kind === 'monitor-preview').tag, 73);
+      h.find(node => node.type === 'sheet-close').props.onPress(); await h.pump();
+      h.button('Começar gravação').onPress(); await h.advance(3000);
+      assert.equal(h.calls.filter(value => value.kind === 'record').length, 1);
+      assert.equal(h.calls.filter(value => value.kind === 'monitor-api' && value.action === 'monitor-heartbeat').at(-1).body.state.recording, false);
+      await h.recordingEvent();
+      assert.equal(h.calls.filter(value => value.kind === 'monitor-api' && value.action === 'monitor-heartbeat').at(-1).body.state.recording, true);
+      h.button('Ver no computador').onPress(); await h.pump();
+      assert.equal(h.button('Visualizar no computador').accessibilityState.checked, true);
+      h.button('Visualizar no computador').onPress(); await h.pump();
+      assert.equal(h.calls.filter(value => value.kind === 'stop').length, 0, 'Stopping the monitor cannot stop REC');
+      assert.equal(h.calls.filter(value => value.kind === 'monitor-preview-stop').length, 1);
+      assert.equal(h.calls.filter(value => value.kind === 'monitor-release-screen').length, 1);
+      h.find(node => node.type === 'sheet-close').props.onPress(); await h.pump();
+      h.button('Encerrar e salvar take').onPress(); await h.pump();
+      assert.equal(h.current().takes.length, 1);
+      assert.equal(h.current().pendingTakes.length, 0);
+    } finally { await h.dispose(); }
+  }
+});
+
+test('conta Free vê oferta e câmera antiga vê atualização sem publicar pista nem iniciar take', async () => {
+  for (const options of [{ premium: false }, { premium: true, monitor: false }]) {
+    const h = await harness(options);
+    try {
+      await h.ready(); h.button('Ver no computador').onPress(); await h.pump();
+      assert.equal(h.calls.filter(value => value.kind.startsWith('monitor-')).length, 0);
+      assert.equal(h.calls.filter(value => value.kind === 'record').length, 0);
+      if (!options.premium) assert.ok(h.button('Conhecer o Premium'));
+      else assert.equal(h.nodes(node => node.type === 'button' && node.props.accessibilityLabel === 'Visualizar no computador').length, 0);
+    } finally { await h.dispose(); }
+  }
+});
+
+test('monitor reatacha câmera traseira sem reabrir sessão; sair da captura fecha somente a prévia', async () => {
+  const h = await harness({ premium: true });
+  try {
+    await h.ready(); h.button('Ver no computador').onPress(); await h.pump();
+    h.button('Visualizar no computador').onPress(); await h.pump();
+    h.find(node => node.type === 'sheet-close').props.onPress(); await h.pump();
+    h.button('Alternar câmera').onPress(); h.nativeTag(99); await h.ready();
+    assert.deepEqual(h.calls.filter(value => value.kind === 'monitor-preview').map(value => value.tag), [73, 99]);
+    assert.equal(h.calls.filter(value => value.kind === 'monitor-api' && value.action === 'monitor-create').length, 1);
+    const previousStops = h.calls.filter(value => value.kind === 'monitor-preview-stop').length;
+    h.focus(false); await h.pump();
+    assert.ok(h.calls.filter(value => value.kind === 'monitor-preview-stop').length > previousStops);
+    const screenTag = h.calls.find(value => value.kind === 'monitor-keep-awake').tag;
+    assert.equal(h.calls.find(value => value.kind === 'monitor-release-screen').tag, screenTag);
+    assert.equal(h.calls.filter(value => value.kind === 'stop').length, 0);
+  } finally { await h.dispose(); }
+});
+
+test('monitor é iOS-only e plano revogado durante REC não permite oferta sair da captura', async () => {
+  const android = await harness({ platform: 'android', native: false, premium: true });
+  try { await android.pump(); assert.equal(android.nodes(node => node.props?.accessibilityLabel === 'Ver no computador').length, 0); }
+  finally { await android.dispose(); }
+  const h = await harness({ premium: true });
+  try {
+    await h.ready(); h.button('Ver no computador').onPress(); await h.pump();
+    h.button('Visualizar no computador').onPress(); await h.pump();
+    h.find(node => node.type === 'sheet-close').props.onPress(); await h.pump();
+    h.button('Começar gravação').onPress(); await h.advance(3000); await h.recordingEvent();
+    h.button('Ver no computador').onPress(); await h.pump(); h.premium(false); await h.pump();
+    const offer = h.button('Conhecer o Premium'); assert.equal(offer.disabled, true);
+    offer.onPress(); await h.pump(); assert.equal(h.navigation.length, 0);
+    assert.equal(h.calls.filter(value => value.kind === 'stop').length, 0);
+    h.find(node => node.type === 'sheet-close').props.onPress(); await h.pump();
+    h.button('Encerrar e salvar take').onPress(); await h.pump(); assert.equal(h.current().takes.length, 1);
+  } finally { await h.dispose(); }
+});
 
 test('REC → STOP salva original/journal antes de restaurar miniatura e Avançar; REC mostra somente parar', async () => {
   const h = await harness();

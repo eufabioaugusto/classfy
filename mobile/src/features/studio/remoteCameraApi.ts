@@ -30,7 +30,7 @@ export function createRemoteUploadFetch(scope: RemoteCameraScope, provider: type
     finally{signals.forEach(signal=>signal.removeEventListener('abort',abort));}
   };
 }
-async function requestRemoteCameraResponse(owner: string, action: string, body: Record<string,unknown>, scope?: RemoteCameraScope): Promise<unknown> {
+export async function requestRemoteCameraResponse(owner: string, action: string, body: Record<string,unknown>, scope?: RemoteCameraScope): Promise<unknown> {
   const check=()=>assertRemoteCameraScope(scope); check();
   const {data,error}=await withLiveDeadline(()=>supabase.auth.getSession(),scope?.signal);
   if (error || data.session?.user.id!==owner || !data.session.access_token) throw new Error('Entre na mesma conta Classfy usada no computador.');

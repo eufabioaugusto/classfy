@@ -9,6 +9,7 @@ export type MobileProfile = {
   plan: string | null;
   entitlement_source?: string | null;
   subscription_status?: string | null;
+  subscription_grace_until?: string | null;
   plan_expires_at?: string | null;
   creator_status?: string | null;
   bio?: string | null;

@@ -190,6 +190,9 @@ export function createNativeLiveTransport(): NativeLiveTransport {
         if (tracks.length) return;
         if (captureOwner && captureOwner !== owner) throw new Error('Encerre a outra prévia de live antes de abrir a câmera.');
         captureOwner = owner;
+        // A video-only Studio monitor deliberately leaves RTC audio policy off.
+        // Restore it only when this new live explicitly owns audio capture.
+        runtime.native.setupIOSAudioManagement?.();
         quality = options.quality ?? '1080p';
         const facing = options.facing ?? 'front';
         publish({ phase: 'preparing', facing, error: null });
