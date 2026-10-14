@@ -36,6 +36,7 @@ const Studio = lazy(() => import("./pages/Studio"));
 const StudioProjects = lazy(() => import("./pages/StudioProjects"));
 const StudioEditor = lazy(() => import("./pages/StudioEditor"));
 const StudioRecord = lazy(() => import("./pages/StudioRecord"));
+const StudioMonitor = lazy(() => import("./pages/StudioMonitor"));
 const StudioUpload = lazy(() => import("./pages/StudioUpload"));
 const StudioUploadCurso = lazy(() => import("./pages/StudioUploadCurso"));
 const StudioContents = lazy(() => import("./pages/StudioContents"));
@@ -88,7 +89,7 @@ function AppContent() {
   const { closeMiniPlayer } = useMiniPlayer();
   const backgroundLocation = isMobile ? (location.state as any)?.backgroundLocation : null;
   const isBroadcastRoute = /^\/live\/[^/]+\/broadcast\/?$/.test(location.pathname);
-  const isStudioWorkspace = /^\/studio\/projects\/[^/]+\/?$/.test(location.pathname) || /^\/studio\/record\/?$/.test(location.pathname);
+  const isStudioWorkspace = /^\/studio\/projects\/[^/]+\/?$/.test(location.pathname) || /^\/studio\/(record|monitor)\/?$/.test(location.pathname);
   const liveRouteId = /^\/live\/([^/]+)\/?$/.exec(location.pathname)?.[1] ?? null;
   const [liveSessionId, setLiveSessionId] = useState<string | null>(liveRouteId);
   const [liveReturnPath, setLiveReturnPath] = useState("/");
@@ -123,6 +124,7 @@ function AppContent() {
     "/studio": "Carregando Studio",
     "/studio/projects": "Carregando projetos",
     "/studio/record": "Abrindo gravação",
+    "/studio/monitor": "Abrindo monitor do iPhone",
     "/studio/goals": "Carregando metas",
     "/studio/analytics": "Carregando Analytics",
     "/studio/contents": "Carregando conteúdos",
@@ -162,6 +164,7 @@ function AppContent() {
       <Route path="/studio/projects" element={<StudioProjects />} />
       <Route path="/studio/projects/:projectId" element={<StudioEditor />} />
       <Route path="/studio/record" element={<StudioRecord />} />
+      <Route path="/studio/monitor" element={<StudioMonitor />} />
       <Route path="/studio/upload" element={<StudioUpload />} />
       <Route path="/studio/upload/curso" element={<StudioUploadCurso />} />
       <Route path="/studio/contents" element={<StudioContents />} />

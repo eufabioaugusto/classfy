@@ -8,6 +8,7 @@
     "src/components/studio/editor/**/*.ts",
     "src/pages/StudioProjects.tsx",
     "src/pages/StudioEditor.tsx",
-    "src/pages/StudioRecord.tsx"
+    "src/pages/StudioRecord.tsx",
+    "src/pages/StudioMonitor.tsx"
   ]
 }
