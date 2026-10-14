@@ -2,7 +2,7 @@ import { inspectStudioMedia } from './media';
 import { studioGrade, type StudioGrade } from '../../../../shared/studio/model';
 import { createStudioCaptureVideoProcessor, studioCaptureGrade, studioCaptureIdentityGrade, studioCaptureSourceDimensions, studioCaptureVideoControls, type StudioCaptureVideoControls, type StudioCaptureVideoPatch, type StudioCaptureVideoProcessor } from './captureVideo';
 import { createStudioSceneCapture } from './sceneCapture';
-import type { StudioCaptureScene, StudioCaptureScenes, StudioSceneConfigurationPatch } from './sceneTypes';
+import { studioSceneOutputResolutions, type StudioCaptureScene, type StudioCaptureScenes, type StudioSceneConfigurationPatch } from './sceneTypes';
 import { applyStudioCameraHardware, cloneStudioCameraHardware, StudioCameraHardwareRestoreError } from './cameraHardware';
 import { resumeStudioCaptureAudio } from './audioPreparation';
 export { studioScenesSupport } from './sceneTypes';
@@ -32,6 +32,8 @@ export type StudioCaptureController = {
   selectDevices(selection: { cameraId?: string; microphoneId?: string }): Promise<void>;
   setMicrophoneEnabled(enabled: boolean): void;
   configureVideo(patch: StudioCaptureVideoPatch): Promise<void>;
+  /** Reframe an already prepared source without reopening camera, microphone or display permissions. */
+  configureAspectRatio?(aspect: '16:9' | '9:16'): Promise<void>;
   getMicrophoneTrack(): MediaStreamTrack | null;
   /** Borrowed screen video and the scene's single mixed audio track; callers never stop these. */
   getScreenOriginalStream?(): MediaStream | null;
@@ -170,6 +172,52 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId,
     if (candidate || state.file) throw new Error('Salve ou descarte o take pendente antes de trocar a entrada.');
     if (['recording', 'stopping', 'preparing'].includes(state.phase)) throw new Error('Troque a entrada antes de iniciar a gravação.');
   };
+  const configureOutput = async (outputPatch: NonNullable<StudioCaptureVideoPatch['output']>, nextAspect = aspectRatio, negotiateSource = true) => {
+    assertCanSelect();
+    if (state.phase !== 'ready' || !pipeline || mode === 'audio') throw new Error('Escolha o formato antes de iniciar a gravação.');
+    const { width, height } = outputPatch, original = pipeline, source = original.camera ?? original.display?.getVideoTracks()[0];
+    if (!source || !(state.outputVideo && studioSceneOutputResolutions(nextAspect).some(value => value.width === width && value.height === height))) throw new Error('Escolha 720p, 1080p, 2K ou 4K no formato da gravação.');
+    const settings = source.getSettings(), frameRate = outputPatch.frameRate ?? settings.frameRate ?? 30;
+    if (![24,30,60].includes(frameRate) && frameRate !== settings.frameRate) throw new Error('Escolha uma cadência disponível para a fonte.');
+    const expected = ++generation, constraints = source.getConstraints?.() ?? {}, originalTracks = new Set(tracks), originalProcessors = new Set(processors);
+    enumeration++; stopMeter(); publish({ phase: 'preparing', error: null });
+    let changedSource = false;
+    const restoreSource = async () => {
+      if (!changedSource) return;
+      assert(expected);
+      await source.applyConstraints({ ...constraints, ...(settings.width ? { width: { exact: settings.width } } : {}), ...(settings.height ? { height: { exact: settings.height } } : {}), ...(settings.frameRate ? { frameRate: { exact: settings.frameRate } } : {}) }); assert(expected);
+      const restored = source.getSettings();
+      if (restored.width !== settings.width || restored.height !== settings.height || Math.abs((restored.frameRate ?? 0) - (settings.frameRate ?? 0)) > .1) throw new Error('A entrada não recuperou o perfil anterior.');
+      changedSource = false;
+    };
+    try {
+      // Screen size is controlled by its owner. Camera negotiation is optional;
+      // a larger composed file remains visibly marked as scaled when denied.
+      if (negotiateSource && original.camera && source.applyConstraints) {
+        const target = studioCaptureSourceDimensions(settings, width, height), targetWidth = target.width, targetHeight = target.height;
+        try {
+          changedSource = true;
+          await source.applyConstraints({ ...constraints, width: { exact: targetWidth }, height: { exact: targetHeight }, frameRate: { exact: frameRate } }); assert(expected);
+          const ack = source.getSettings();
+          if (ack.width !== targetWidth || ack.height !== targetHeight || Math.abs((ack.frameRate ?? 0) - frameRate) > .1) throw new Error('A câmera não confirmou o formato de entrada.');
+        } catch (error) { assert(expected); await restoreSource(); if (frameRate > (settings.frameRate ?? 0) + .1) throw error; }
+      }
+      const output = { width, height, frameRate, fit: mode === 'screen' ? 'contain' as const : 'cover' as const };
+      const processor = await prepareProcessor(source, expected, original.camera ? grade : studioGrade(), original.camera && state.videoControls?.zoom.mode === 'digital' ? digitalZoom : 1, output);
+      if (!processor) throw new Error('Este navegador não oferece composição nessa resolução.');
+      const stream = own(new MediaStream([...processor.stream.getVideoTracks(), ...original.stream.getAudioTracks()]), expected); assert(expected);
+      requestedOutput = output; aspectRatio = nextAspect;
+      if (original.camera && changedSource) { const confirmed = source.getSettings(); requestedProfile = { width: confirmed.width!, height: confirmed.height!, frameRate: confirmed.frameRate! }; }
+      install({ ...original, stream, processor }, expected);
+    } catch (error) {
+      if (!closed && expected === generation) {
+        [...processors].forEach(value => { if (!originalProcessors.has(value)) closeProcessor(value); }); [...tracks].forEach(value => { if (!originalTracks.has(value)) releaseTrack(value); });
+        try { await restoreSource(); assert(expected); install(original, expected); publish({ error: captureError(error) }); }
+        catch (restoreError) { if (!closed && expected === generation) { stopDevices(); publish({ phase: 'error', error: `Ative a captura novamente. ${captureError(restoreError)}` }); } }
+      }
+      throw friendlyError(error);
+    }
+  };
   const prepare = async () => {
     assertCanSelect();
     if (!media?.getUserMedia || typeof MediaRecorder === 'undefined') throw new Error('Este navegador não oferece gravação local. Use Chrome, Edge ou Safari atualizado em HTTPS.');
@@ -189,6 +237,17 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId,
   const controller: StudioCaptureController = {
     prepare,
     getMicrophoneTrack() { const microphone = pipeline?.microphone; return !closed && microphone?.kind === 'audio' && microphone.readyState === 'live' ? microphone : null; },
+    async configureAspectRatio(next) {
+      assertCanSelect();
+      if (next !== '16:9' && next !== '9:16') throw new Error('Escolha o formato horizontal ou vertical.');
+      if (state.phase !== 'ready' || !pipeline || mode === 'audio') throw new Error('Prepare a entrada antes de escolher o enquadramento.');
+      if (next === aspectRatio) return;
+      const edge = Math.min(state.width ?? requestedProfile.width, state.height ?? requestedProfile.height);
+      const short = [720, 1080, 1440, 2160].reduce((best, value) => Math.abs(value - edge) < Math.abs(best - edge) ? value : best, 1080);
+      const output = { width: next === '9:16' ? short : short * 16 / 9, height: next === '9:16' ? short * 16 / 9 : short, frameRate: state.frameRate ?? requestedProfile.frameRate };
+      // Only the recording surface changes. Sensor settings and the authorized audio graph stay intact.
+      await configureOutput(output, next, false);
+    },
     async selectDevices(selection) {
       assertCanSelect();
       const changeCamera = selection.cameraId !== undefined, changeMicrophone = selection.microphoneId !== undefined;
@@ -218,50 +277,8 @@ export function createStudioCapture({ mode, facing = 'user', deviceId, cameraId,
     async configureVideo(patch) {
       assertCanSelect();
       if (patch.output) {
-        if (state.phase !== 'ready' || !pipeline || mode === 'audio' || Object.keys(patch).some(key => key !== 'output')) throw new Error('Escolha a resolução antes de gravar, separadamente dos controles de imagem.');
-        const { width, height } = patch.output, original = pipeline, source = original.camera ?? original.display?.getVideoTracks()[0];
-        if (!source || !state.outputVideo?.resolutions.some(value => value.width === width && value.height === height)) throw new Error('Escolha 720p, 1080p, 2K ou 4K no formato da gravação.');
-        const settings = source.getSettings(), frameRate = patch.output.frameRate ?? settings.frameRate ?? 30;
-        if (![24,30,60].includes(frameRate) && frameRate !== settings.frameRate) throw new Error('Escolha uma cadência disponível para a fonte.');
-        const expected = ++generation, constraints = source.getConstraints?.() ?? {}, originalTracks = new Set(tracks), originalProcessors = new Set(processors);
-        enumeration++; stopMeter(); publish({ phase: 'preparing', error: null });
-        let changedSource = false;
-        const restoreSource = async () => {
-          if (!changedSource) return;
-          assert(expected);
-          await source.applyConstraints({ ...constraints, ...(settings.width ? { width: { exact: settings.width } } : {}), ...(settings.height ? { height: { exact: settings.height } } : {}), ...(settings.frameRate ? { frameRate: { exact: settings.frameRate } } : {}) }); assert(expected);
-          const restored = source.getSettings();
-          if (restored.width !== settings.width || restored.height !== settings.height || Math.abs((restored.frameRate ?? 0) - (settings.frameRate ?? 0)) > .1) throw new Error('A entrada não recuperou o perfil anterior.');
-          changedSource = false;
-        };
-        try {
-          // Screen size is controlled by its owner. Camera negotiation is optional;
-          // a larger composed file remains visibly marked as scaled when denied.
-          if (original.camera && source.applyConstraints) {
-            const target = studioCaptureSourceDimensions(settings, width, height), targetWidth = target.width, targetHeight = target.height;
-            try {
-              changedSource = true;
-              await source.applyConstraints({ ...constraints, width: { exact: targetWidth }, height: { exact: targetHeight }, frameRate: { exact: frameRate } }); assert(expected);
-              const ack = source.getSettings();
-              if (ack.width !== targetWidth || ack.height !== targetHeight || Math.abs((ack.frameRate ?? 0) - frameRate) > .1) throw new Error('A câmera não confirmou o formato de entrada.');
-            } catch (error) { assert(expected); await restoreSource(); if (frameRate > (settings.frameRate ?? 0) + .1) throw error; }
-          }
-          const output = { width, height, frameRate, fit: mode === 'screen' ? 'contain' as const : 'cover' as const };
-          const processor = await prepareProcessor(source, expected, original.camera ? grade : studioGrade(), original.camera && state.videoControls?.zoom.mode === 'digital' ? digitalZoom : 1, output);
-          if (!processor) throw new Error('Este navegador não oferece composição nessa resolução.');
-          const stream = own(new MediaStream([...processor.stream.getVideoTracks(), ...original.stream.getAudioTracks()]), expected); assert(expected);
-          requestedOutput = output;
-          if (original.camera && changedSource) { const confirmed = source.getSettings(); requestedProfile = { width: confirmed.width!, height: confirmed.height!, frameRate: confirmed.frameRate! }; }
-          install({ ...original, stream, processor }, expected);
-        } catch (error) {
-          if (!closed && expected === generation) {
-            [...processors].forEach(value => { if (!originalProcessors.has(value)) closeProcessor(value); }); [...tracks].forEach(value => { if (!originalTracks.has(value)) releaseTrack(value); });
-            try { await restoreSource(); assert(expected); install(original, expected); publish({ error: captureError(error) }); }
-            catch (restoreError) { if (!closed && expected === generation) { stopDevices(); publish({ phase: 'error', error: `Ative a captura novamente. ${captureError(restoreError)}` }); } }
-          }
-          throw friendlyError(error);
-        }
-        return;
+        if (Object.keys(patch).some(key => key !== 'output')) throw new Error('Escolha a resolução antes de gravar, separadamente dos controles de imagem.');
+        await configureOutput(patch.output); return;
       }
       if (mode !== 'camera' || state.phase !== 'ready' || !pipeline?.camera || !state.videoControls) throw new Error('Ative a câmera antes de ajustar a imagem.');
       const original = pipeline, camera = original.camera!, controls = state.videoControls;

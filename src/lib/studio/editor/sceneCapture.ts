@@ -152,6 +152,75 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
     pendingFinalization = pendingRecovery ? entry : null;
     publish({ phase: 'error', file: candidate, pendingRecovery, error: errorMessage(error) });
   };
+  const configureSceneVideo = async (patch: StudioCaptureVideoPatch, nextAspect = aspectRatio, negotiateInputs = true) => {
+    assertInputsEditable(); if (state.phase !== 'ready' || !composition) throw new Error('Prepare as cenas antes de ajustar a gravação.');
+    patch = { ...patch, ...patch.output };
+    if (!camera && (patch.hardware || patch.zoom !== undefined || patch.grade)) throw new Error('Prepare a câmera antes de ajustar a imagem.');
+    if (patch.hardware) {
+      if (externalCamera) throw new Error('Ajuste a câmera do iPhone pelos controles remotos.');
+      if (Object.keys(patch).some(key => key !== 'hardware')) throw new Error('Ajuste os controles da câmera separadamente do formato da gravação.');
+      const expected = generation, owned = camera!, current = controls()!;
+      publish({ phase: 'preparing', videoControls: { ...current, busy: true }, error: null });
+      try { await applyStudioCameraHardware(owned, patch.hardware, () => { assert(expected); if (camera !== owned || owned.readyState !== 'live') throw abort(); }); assert(expected); publish({ phase: 'ready', videoControls: controls(), outputVideo: outputVideo(), error: null }); }
+      catch (error) { if (!closed && expected === generation) { if (error instanceof StudioCameraHardwareRestoreError) fail(error, expected); else publish({ phase: 'ready', videoControls: controls(), outputVideo: outputVideo(), error: errorMessage(error) }); } throw error; }
+      return;
+    }
+    const current = controls() ?? { busy: false, processed: true, effects: composition.effects, grade, zoom: { mode: 'none' as const, value: 1, min: 1, max: 1, step: 1 }, resolutions: [], frameRates: [] }, nextGrade = studioCaptureGrade(grade, patch.grade), nextZoom = patch.zoom ?? current.zoom.value;
+    if (!Number.isFinite(nextZoom) || nextZoom < current.zoom.min || nextZoom > current.zoom.max) throw new Error('O zoom está fora dos limites da câmera.');
+    if (!composition.effects && !studioCaptureIdentityGrade(nextGrade)) throw new Error('O navegador não oferece processamento de cor nas cenas.');
+    const expected = generation, owned = camera, hardware = current.zoom.mode === 'hardware' && patch.zoom !== undefined, resize = patch.width !== undefined || patch.height !== undefined || patch.frameRate !== undefined;
+    const profile = studioSceneOutputProfile(nextAspect, { width, height, frameRate }, { ...(patch.width !== undefined ? { width: patch.width } : {}), ...(patch.height !== undefined ? { height: patch.height } : {}), ...(patch.frameRate !== undefined ? { frameRate: patch.frameRate } : {}) });
+    const previousEngine = composition, previous = owned?.getConstraints?.() ?? {}, previousGrade = grade, previousZoom = zoom;
+    const screenInput = display?.getVideoTracks()[0], previousScreen = screenInput?.getConstraints?.() ?? {};
+    const nextConfig = normalizeStudioSceneConfiguration(config, {}, profile.width, profile.height);
+    publish({ phase: 'preparing', videoControls: { ...current, busy: true }, error: null }); let applied = false, screenApplied = false, replacement: StudioSceneComposition | null = null;
+    try {
+      if (resize && negotiateInputs) {
+        // Ask authorized sources for detail, but Program output never depends on a camera supporting this profile.
+        if (!externalCamera && owned?.readyState === 'live' && !owned.muted) {
+          const target = studioCaptureSourceDimensions(owned.getSettings(), profile.width, profile.height);
+          try { await owned.applyConstraints({ ...previous, width: { ideal: target.width }, height: { ideal: target.height }, frameRate: { ideal: profile.frameRate } }); applied = true; }
+          catch { /* Retain the real input and disclose enlargement in outputVideo. */ }
+        }
+        assert(expected);
+        if (screenInput?.readyState === 'live' && !screenInput.muted) {
+          try { await screenInput.applyConstraints({ ...previousScreen, width: { ideal: Math.max(profile.width, profile.height) }, height: { ideal: Math.min(profile.width, profile.height) }, frameRate: { ideal: profile.frameRate, max: 60 } }); screenApplied = true; }
+          catch { /* Window/display size stays authoritative when the browser cannot deliver this preference. */ }
+          assert(expected);
+        }
+      }
+      if (hardware && owned) { await owned.applyConstraints({ ...(owned.getConstraints?.() ?? previous), advanced: [{ zoom: nextZoom } as MediaTrackConstraintSet & { zoom: number }] }); applied = true; assert(expected);
+        const settings = owned.getSettings() as MediaTrackSettings & { zoom?: number };
+        if (!Number.isFinite(settings.zoom) || Math.abs(settings.zoom! - nextZoom) > Math.max(.02, current.zoom.step)) throw new Error('A câmera não confirmou este zoom.');
+      }
+      if (resize) {
+        const attempt = newComposition(profile, expected); replacement = attempt.engine; pendingCompositions.add(replacement); own(new MediaStream([replacement.track]), expected);
+        await replacement.ready(); attempt.assertReady();
+        if (!replacement.effects && !studioCaptureIdentityGrade(nextGrade)) throw new Error('Este perfil não oferece processamento de cor. O formato anterior foi mantido.');
+        if (state.scenes!.cameraReady && owned?.readyState === 'live' && !owned.muted) { await replacement.setSource('camera', owned); attempt.assertReady(); }
+        const screen = display?.getVideoTracks()[0];
+        if (state.scenes!.screenReady && screen?.readyState === 'live' && !screen.muted) { await replacement.setSource('screen', screen); attempt.assertReady(); }
+        await replacement.configure(state.scenes!.selected, nextConfig, nextGrade, current.zoom.mode === 'hardware' ? 1 : nextZoom); attempt.assertReady();
+        if (composition !== previousEngine) throw abort();
+        // Swap only after the new worker wrote a frame for the selected scene. The audio graph and physical tracks remain owned by this session.
+        composition = replacement; pendingCompositions.delete(replacement); replacement = null;
+        aspectRatio = nextAspect; width = profile.width; height = profile.height; frameRate = profile.frameRate; config = nextConfig;
+        tracks.delete(previousEngine.track); previousEngine.dispose();
+        publish({ stream: new MediaStream([composition.track, ...destination!.stream.getAudioTracks()]), width, height, frameRate }); scenes(config);
+      } else {
+        await previousEngine.configure(state.scenes!.selected, config, nextGrade, current.zoom.mode === 'hardware' ? 1 : nextZoom); assert(expected);
+      }
+      grade = nextGrade; zoom = current.zoom.mode === 'digital' ? nextZoom : 1; publish({ phase: 'ready', videoControls: controls(), outputVideo: outputVideo(), error: null });
+    } catch (error) {
+      if (!closed && expected === generation) {
+        grade = previousGrade; zoom = previousZoom;
+        if (applied && owned?.readyState === 'live') { try { await owned.applyConstraints(previous); assert(expected); } catch (restoreError) { fail(new Error(`A câmera não recuperou o perfil anterior. ${errorMessage(restoreError)}`), expected); throw error; } }
+        if (screenApplied && screenInput?.readyState === 'live') { try { await screenInput.applyConstraints(previousScreen); assert(expected); } catch (restoreError) { fail(new Error(`A tela não recuperou o perfil anterior. ${errorMessage(restoreError)}`), expected); throw error; } }
+        publish({ phase: 'ready', videoControls: controls(), outputVideo: outputVideo(), error: errorMessage(error) });
+      }
+      throw error;
+    } finally { if (replacement && pendingCompositions.delete(replacement)) { tracks.delete(replacement.track); replacement.dispose(); } }
+  };
   const controller: StudioSceneCaptureController = {
     async prepare() {
       assertInputsEditable(); const support = getStudioSceneCapabilities(); if (!support.available) { publish({ phase: 'error', error: support.reason! }); throw new Error(support.reason); }
@@ -234,74 +303,15 @@ export function createStudioSceneCapture({ aspectRatio = '16:9', facing = 'user'
         if (!closed && expected === generation) publish({ phase: 'ready', error: errorMessage(error) }); throw error;
       }
     },
-    async configureVideo(patch: StudioCaptureVideoPatch) {
-      assertInputsEditable(); if (state.phase !== 'ready' || !composition) throw new Error('Prepare as cenas antes de ajustar a gravação.');
-      patch = { ...patch, ...patch.output };
-      if (!camera && (patch.hardware || patch.zoom !== undefined || patch.grade)) throw new Error('Prepare a câmera antes de ajustar a imagem.');
-      if (patch.hardware) {
-        if (externalCamera) throw new Error('Ajuste a câmera do iPhone pelos controles remotos.');
-        if (Object.keys(patch).some(key => key !== 'hardware')) throw new Error('Ajuste os controles da câmera separadamente do formato da gravação.');
-        const expected = generation, owned = camera!, current = controls()!;
-        publish({ phase: 'preparing', videoControls: { ...current, busy: true }, error: null });
-        try { await applyStudioCameraHardware(owned, patch.hardware, () => { assert(expected); if (camera !== owned || owned.readyState !== 'live') throw abort(); }); assert(expected); publish({ phase: 'ready', videoControls: controls(), outputVideo: outputVideo(), error: null }); }
-        catch (error) { if (!closed && expected === generation) { if (error instanceof StudioCameraHardwareRestoreError) fail(error, expected); else publish({ phase: 'ready', videoControls: controls(), outputVideo: outputVideo(), error: errorMessage(error) }); } throw error; }
-        return;
-      }
-      const current = controls() ?? { busy: false, processed: true, effects: composition.effects, grade, zoom: { mode: 'none' as const, value: 1, min: 1, max: 1, step: 1 }, resolutions: [], frameRates: [] }, nextGrade = studioCaptureGrade(grade, patch.grade), nextZoom = patch.zoom ?? current.zoom.value;
-      if (!Number.isFinite(nextZoom) || nextZoom < current.zoom.min || nextZoom > current.zoom.max) throw new Error('O zoom está fora dos limites da câmera.');
-      if (!composition.effects && !studioCaptureIdentityGrade(nextGrade)) throw new Error('O navegador não oferece processamento de cor nas cenas.');
-      const expected = generation, owned = camera, hardware = current.zoom.mode === 'hardware' && patch.zoom !== undefined, resize = patch.width !== undefined || patch.height !== undefined || patch.frameRate !== undefined;
-      const profile = studioSceneOutputProfile(aspectRatio, { width, height, frameRate }, { ...(patch.width !== undefined ? { width: patch.width } : {}), ...(patch.height !== undefined ? { height: patch.height } : {}), ...(patch.frameRate !== undefined ? { frameRate: patch.frameRate } : {}) });
-      const previousEngine = composition, previous = owned?.getConstraints?.() ?? {}, previousGrade = grade, previousZoom = zoom;
-      const screenInput = display?.getVideoTracks()[0], previousScreen = screenInput?.getConstraints?.() ?? {};
-      const nextConfig = normalizeStudioSceneConfiguration(config, {}, profile.width, profile.height);
-      publish({ phase: 'preparing', videoControls: { ...current, busy: true }, error: null }); let applied = false, screenApplied = false, replacement: StudioSceneComposition | null = null;
-      try {
-        if (resize) {
-          // Ask authorized sources for detail, but Program output never depends on a camera supporting this profile.
-          if (!externalCamera && owned?.readyState === 'live' && !owned.muted) {
-            const target = studioCaptureSourceDimensions(owned.getSettings(), profile.width, profile.height);
-            try { await owned.applyConstraints({ ...previous, width: { ideal: target.width }, height: { ideal: target.height }, frameRate: { ideal: profile.frameRate } }); applied = true; }
-            catch { /* Retain the real input and disclose enlargement in outputVideo. */ }
-          }
-          assert(expected);
-          if (screenInput?.readyState === 'live' && !screenInput.muted) {
-            try { await screenInput.applyConstraints({ ...previousScreen, width: { ideal: Math.max(profile.width, profile.height) }, height: { ideal: Math.min(profile.width, profile.height) }, frameRate: { ideal: profile.frameRate, max: 60 } }); screenApplied = true; }
-            catch { /* Window/display size stays authoritative when the browser cannot deliver this preference. */ }
-            assert(expected);
-          }
-        }
-        if (hardware && owned) { await owned.applyConstraints({ ...(owned.getConstraints?.() ?? previous), advanced: [{ zoom: nextZoom } as MediaTrackConstraintSet & { zoom: number }] }); applied = true; assert(expected);
-          const settings = owned.getSettings() as MediaTrackSettings & { zoom?: number };
-          if (!Number.isFinite(settings.zoom) || Math.abs(settings.zoom! - nextZoom) > Math.max(.02, current.zoom.step)) throw new Error('A câmera não confirmou este zoom.');
-        }
-        if (resize) {
-          const attempt = newComposition(profile, expected); replacement = attempt.engine; pendingCompositions.add(replacement); own(new MediaStream([replacement.track]), expected);
-          await replacement.ready(); attempt.assertReady();
-          if (!replacement.effects && !studioCaptureIdentityGrade(nextGrade)) throw new Error('Este perfil não oferece processamento de cor. O formato anterior foi mantido.');
-          if (state.scenes!.cameraReady && owned?.readyState === 'live' && !owned.muted) { await replacement.setSource('camera', owned); attempt.assertReady(); }
-          const screen = display?.getVideoTracks()[0];
-          if (state.scenes!.screenReady && screen?.readyState === 'live' && !screen.muted) { await replacement.setSource('screen', screen); attempt.assertReady(); }
-          await replacement.configure(state.scenes!.selected, nextConfig, nextGrade, current.zoom.mode === 'hardware' ? 1 : nextZoom); attempt.assertReady();
-          if (composition !== previousEngine) throw abort();
-          // Swap only after the new worker wrote a frame for the selected scene. The audio graph and physical tracks remain owned by this session.
-          composition = replacement; pendingCompositions.delete(replacement); replacement = null;
-          width = profile.width; height = profile.height; frameRate = profile.frameRate; config = nextConfig;
-          tracks.delete(previousEngine.track); previousEngine.dispose();
-          publish({ stream: new MediaStream([composition.track, ...destination!.stream.getAudioTracks()]), width, height, frameRate }); scenes(config);
-        } else {
-          await previousEngine.configure(state.scenes!.selected, config, nextGrade, current.zoom.mode === 'hardware' ? 1 : nextZoom); assert(expected);
-        }
-        grade = nextGrade; zoom = current.zoom.mode === 'digital' ? nextZoom : 1; publish({ phase: 'ready', videoControls: controls(), outputVideo: outputVideo(), error: null });
-      } catch (error) {
-        if (!closed && expected === generation) {
-          grade = previousGrade; zoom = previousZoom;
-          if (applied && owned?.readyState === 'live') { try { await owned.applyConstraints(previous); assert(expected); } catch (restoreError) { fail(new Error(`A câmera não recuperou o perfil anterior. ${errorMessage(restoreError)}`), expected); throw error; } }
-          if (screenApplied && screenInput?.readyState === 'live') { try { await screenInput.applyConstraints(previousScreen); assert(expected); } catch (restoreError) { fail(new Error(`A tela não recuperou o perfil anterior. ${errorMessage(restoreError)}`), expected); throw error; } }
-          publish({ phase: 'ready', videoControls: controls(), outputVideo: outputVideo(), error: errorMessage(error) });
-        }
-        throw error;
-      } finally { if (replacement) { pendingCompositions.delete(replacement); tracks.delete(replacement.track); replacement.dispose(); } }
+    configureVideo: configureSceneVideo,
+    async configureAspectRatio(next) {
+      assertInputsEditable();
+      if (next !== '16:9' && next !== '9:16') throw new Error('Escolha o formato horizontal ou vertical.');
+      if (state.phase !== 'ready' || !composition) throw new Error('Prepare as cenas antes de escolher o enquadramento.');
+      if (next === aspectRatio) return;
+      // A composition swap keeps every authorized source and the single audio destination alive.
+      const short = Math.min(width, height), long = Math.max(width, height);
+      await configureSceneVideo({ output: { width: next === '9:16' ? short : long, height: next === '9:16' ? long : short, frameRate } }, next, false);
     },
     getMicrophoneTrack() { return !closed && microphone?.readyState === 'live' ? microphone : null; },
     getScreenOriginalStream() {

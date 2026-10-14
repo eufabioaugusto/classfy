@@ -231,6 +231,45 @@ describe('perfil confirmado e pixels gravados',()=>{
     await expect(h.capture.configureVideo({output:{width:1280,height:720}})).rejects.toThrow('antes de iniciar');expect(mic.stop).not.toHaveBeenCalled();expect(context.close).not.toHaveBeenCalled();expect(mediaDevices.getUserMedia).toHaveBeenCalledOnce();
     await h.capture.stop();expect(mic.stop).toHaveBeenCalledOnce();expect(context.close).toHaveBeenCalledOnce();h.capture.dispose();
   });
+  it('Aula e Short trocam somente saída confirmada, mantendo sensor, cor, zoom e áudio autorizados',async()=>{
+    outputCompositionSupport();const p=processors(),cam=cameraWithCapabilities(),mic=new Track();mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,mic]));const h=watch({mode:'camera'});
+    await expect(h.capture.configureAspectRatio!('9:16')).rejects.toThrow('Prepare');await h.capture.prepare();await h.capture.configureVideo({output:{width:3840,height:2160,frameRate:60}});await h.capture.configureVideo({zoom:1.5,grade:{preset:'cinematic',exposure:.3}});
+    const context=Audio.instances[0],source=cam.settings(),applyCount=cam.apply.mock.calls.length;h.capture.setMicrophoneEnabled(false);
+    for(const [aspect,width,height] of [['9:16',2160,3840],['16:9',3840,2160]] as const){
+      const old=p.list.at(-1)!;await h.capture.configureAspectRatio!(aspect);
+      expect(h.state()).toMatchObject({phase:'ready',width,height,frameRate:60,microphoneEnabled:false,videoControls:{grade:{preset:'cinematic',exposure:.3},zoom:{value:1.5}}});
+      expect(p.list.at(-1)!.profile).toMatchObject({width,height,frameRate:60,fit:'cover'});expect(p.factory.mock.calls.at(-1)!.slice(0,3)).toEqual([cam.camera,h.state().videoControls!.grade,1.5]);
+      expect(old.dispose).toHaveBeenCalledOnce();expect(h.state().stream!.getAudioTracks()).toEqual([mic]);expect(mic.enabled).toBe(false);expect(cam.settings()).toEqual(source);
+      expect(h.state().outputVideo!.resolutions.every(value=>aspect==='9:16'?value.width<value.height:value.width>value.height)).toBe(true);
+    }
+    const final=p.list.at(-1)!;await h.capture.configureAspectRatio!('16:9');expect(p.list.at(-1)).toBe(final);expect(cam.apply).toHaveBeenCalledTimes(applyCount);
+    expect(mediaDevices.getUserMedia).toHaveBeenCalledOnce();expect(mediaDevices.getDisplayMedia).not.toHaveBeenCalled();expect(Audio.instances).toHaveLength(1);expect(context.close).not.toHaveBeenCalled();expect(cam.camera.stop).not.toHaveBeenCalled();expect(mic.stop).not.toHaveBeenCalled();
+    h.capture.start();expect(Recorder.instances[0].recordedStream!.getVideoTracks()[0].getSettings()).toMatchObject({width:3840,height:2160,frameRate:60});
+    await expect(h.capture.configureAspectRatio!('9:16')).rejects.toThrow('antes de iniciar');await h.capture.stop();await expect(h.capture.configureAspectRatio!('9:16')).rejects.toThrow('take pendente');h.capture.dispose();
+  });
+  it('reframe da tela conserva janela inteira e a mesma mistura de áudio sem abrir permissões novamente',async()=>{
+    outputCompositionSupport();const p=processors(),screen=new Track('video','display','Tela'),system=new Track('audio','system','Áudio sistema'),mic=new Track();mediaDevices.getDisplayMedia.mockResolvedValue(new Stream([screen,system]));mediaDevices.getUserMedia.mockResolvedValue(new Stream([mic]));const h=watch({mode:'screen'});
+    await h.capture.prepare();const mixed=h.state().stream!.getAudioTracks()[0],context=Audio.instances[0];await h.capture.configureAspectRatio!('9:16');
+    expect(p.list.at(-1)!.profile).toMatchObject({width:1080,height:1920,fit:'contain'});expect(h.state().stream!.getAudioTracks()[0]).toBe(mixed);expect(h.state().outputVideo).toMatchObject({sourceWidth:1920,sourceHeight:1080,scaled:false});
+    await h.capture.configureAspectRatio!('16:9');expect(p.list.at(-1)!.profile).toMatchObject({width:1920,height:1080,fit:'contain'});
+    expect(mediaDevices.getDisplayMedia).toHaveBeenCalledOnce();expect(mediaDevices.getUserMedia).toHaveBeenCalledOnce();expect(Audio.instances).toHaveLength(1);expect(context.close).not.toHaveBeenCalled();expect(screen.stop).not.toHaveBeenCalled();expect(mic.stop).not.toHaveBeenCalled();h.capture.dispose();
+  });
+  it('formato só é publicado após primeiro frame; cancelamento impede frame e ACK tardios',async()=>{
+    outputCompositionSupport();const p=processors(),cam=cameraWithCapabilities(),mic=new Track(),frame=deferred<void>();mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,mic]));const h=watch({mode:'camera'});await h.capture.prepare();const program=h.state().stream;
+    p.factory.mockImplementationOnce((_track,_grade,_zoom,_error,output)=>{const value={stream:new Stream([new Track('video','late','Tardio')]),effects:true,profile:output,prepare:vi.fn(()=>frame.promise),configure:vi.fn(),setVisible:vi.fn(),dispose:vi.fn()};p.list.push(value);return value as unknown as videoProcessing.StudioCaptureVideoProcessor;});
+    const changing=h.capture.configureAspectRatio!('9:16'),rejected=expect(changing).rejects.toMatchObject({name:'AbortError'});await drain();expect(h.state()).toMatchObject({phase:'preparing',width:1920,height:1080});expect(h.state().stream).toBe(program);expect(()=>h.capture.start()).toThrow('Ative');
+    h.capture.cancel();frame.resolve();await rejected;expect(h.state()).toMatchObject({phase:'idle',stream:null});expect(p.list.at(-1)!.dispose).toHaveBeenCalledOnce();expect(p.list.at(-1)!.stream.tracks[0].stop).toHaveBeenCalledOnce();expect(cam.apply).not.toHaveBeenCalled();expect(mediaDevices.getUserMedia).toHaveBeenCalledOnce();h.capture.dispose();
+  });
+  it('falha ao gerar Short mantém formato horizontal e entradas vivas para gravar ou repetir',async()=>{
+    outputCompositionSupport();const p=processors(),cam=cameraWithCapabilities(),mic=new Track();mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,mic]));const h=watch({mode:'camera'});await h.capture.prepare();const program=h.state().stream;
+    p.factory.mockImplementationOnce((_track,_grade,_zoom,_error,output)=>{const value={stream:new Stream([new Track('video','failed','Falhou')]),effects:true,profile:output,prepare:vi.fn(async()=>{throw new Error('Frame indisponível');}),configure:vi.fn(),setVisible:vi.fn(),dispose:vi.fn()};p.list.push(value);return value as unknown as videoProcessing.StudioCaptureVideoProcessor;});
+    await expect(h.capture.configureAspectRatio!('9:16')).rejects.toThrow('Frame indisponível');expect(h.state()).toMatchObject({phase:'ready',width:1920,height:1080});expect(h.state().stream).toBe(program);expect(h.state().outputVideo!.resolutions.every(value=>value.width>value.height)).toBe(true);expect(cam.apply).not.toHaveBeenCalled();expect(cam.camera.stop).not.toHaveBeenCalled();expect(mic.stop).not.toHaveBeenCalled();
+    await h.capture.configureAspectRatio!('9:16');expect(h.state()).toMatchObject({width:1080,height:1920});expect(mediaDevices.getUserMedia).toHaveBeenCalledOnce();h.capture.dispose();
+  });
+  it('sem composição disponível não finge formato vertical nem fecha fonte autorizada',async()=>{
+    const cam=cameraWithCapabilities(),mic=new Track();mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,mic]));const h=watch({mode:'camera'});await h.capture.prepare();const program=h.state().stream;
+    await expect(h.capture.configureAspectRatio!('9:16')).rejects.toThrow('formato da gravação');expect(h.state()).toMatchObject({phase:'ready',width:1920,height:1080});expect(h.state().stream).toBe(program);expect(cam.apply).not.toHaveBeenCalled();expect(mic.stop).not.toHaveBeenCalled();h.capture.dispose();
+  });
   it('câmera limitada grava arquivo 4K marcado ampliado sem fingir entrada nativa 4K',async()=>{
     outputCompositionSupport();const p=processors(),cam=cameraWithCapabilities(),mic=new Track();cam.apply.mockImplementationOnce(async()=>{});mediaDevices.getUserMedia.mockResolvedValue(new Stream([cam.camera,mic]));const h=watch({mode:'camera'});await h.capture.prepare();
     await h.capture.configureVideo({output:{width:3840,height:2160}});

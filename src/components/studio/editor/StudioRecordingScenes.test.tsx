@@ -58,7 +58,12 @@ let permissions: ReturnType<typeof vi.fn>, display: ReturnType<typeof vi.fn>;
 const projects = new Map<string, StudioProject>();
 function Screen() { const location = useLocation(), id = new URLSearchParams(location.search).get('project') ?? undefined; return <><output data-location>{location.pathname}</output>{location.pathname === '/studio/record' && <StudioRecordingWorkspace owner={owner} initialKind={initialKind} projectId={id} canUseScenes={premium} onUpgradeScenes={upgrade} />}</>; }
 async function mount() { await act(async () => root.render(<StrictMode><MemoryRouter initialEntries={['/studio/record']}><Screen /></MemoryRouter></StrictMode>)); }
-const button = (label: string) => [...host.querySelectorAll('button')].find(item => item.getAttribute('aria-label') === label || item.textContent?.trim() === label);
+// The setup now keeps the live source open until its own REC action; production retains its labels.
+function button(label: string) {
+  const setup = host.querySelector('.se-recording')?.getAttribute('data-stage') === 'setup';
+  const labels = [label, ...(setup ? label === 'Iniciar gravação' ? ['Gravar'] : ['Abrir câmera', 'Preparar câmera e tela'].includes(label) ? ['Ativar câmera'] : [] : [])];
+  return [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => labels.includes(item.getAttribute('aria-label') ?? '') || labels.includes(item.textContent?.trim() ?? ''));
+}
 async function click(label: string) { const item = button(label); expect(item, label).toBeTruthy(); await act(async () => item!.click()); }
 async function answer(label: string) { const dialog = document.querySelector('[role="alertdialog"]'); expect(dialog).toBeTruthy(); const item = [...dialog!.querySelectorAll('button')].find(value => value.textContent?.trim() === label); expect(item).toBeTruthy(); await act(async () => item!.click()); }
 async function enterScenes() { await mount(); await click('Câmera e tela · Premium'); await click('Preparar câmera e tela'); }
@@ -73,6 +78,7 @@ async function interruptEncoder(recorder: Recorder) {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   owner = 'owner'; premium = true; initialKind = 'aula'; upgrade.mockReset(); projects.clear(); compositions.length = 0; Recorder.instances = [];
   camera = new Track('video', 'Câmera real autorizada', 'camera'); mic = new Track('audio', 'Microfone autorizado', 'mic'); screen = new Track('video', 'Janela de slides', 'display'); displayAudio = new Track('audio', 'Áudio da tela', 'display-audio');

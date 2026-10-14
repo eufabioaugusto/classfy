@@ -354,6 +354,16 @@ describe('câmera remota preserva o original nativo e a autoridade do iPhone', (
     controller.cancel(); expect(studioRemoteControllerId('owner')).toBe(clientId); expect(h.request.mock.calls.some(([body]) => body.action === 'unpair')).toBe(false);
     await controller.prepare(); expect(h.request.mock.calls.filter(([body]) => body.action === 'create').every(([body]) => body.controllerId === clientId)).toBe(true);
   });
+  it('troca de Aula para Short cria sessão correta usando o mesmo vínculo do computador, sem configure de formato fictício', async () => {
+    const h=fixture();delete h.data.pairing;const aula=createStudioRemoteCapture({owner:'owner',kind:'aula',client:h.client,preview:h.preview,inspect:h.inspect});controllers.push(aula);await aula.prepare();const clientId=studioRemoteControllerId('owner');aula.dispose();
+    h.data.session={...h.data.session,id:'session-short',kind:'short',deviceState:{...h.data.session.deviceState,width:2160,height:3840}};
+    const short=createStudioRemoteCapture({owner:'owner',kind:'short',client:h.client,preview:h.preview,inspect:h.inspect});controllers.push(short);let state!:StudioCaptureState;short.subscribe(value=>state=value);expect(short.configureAspectRatio).toBeUndefined();await short.prepare();
+    expect(h.request.mock.calls.filter(([body])=>body.action==='create').map(([body])=>[body.kind,body.controllerId])).toEqual([['aula',clientId],['short',clientId]]);expect(short.getEnvelope()!.session).toMatchObject({id:'session-short',kind:'short'});expect(state).toMatchObject({phase:'ready',width:2160,height:3840});expect(h.request.mock.calls.some(([body])=>body.action==='command')).toBe(false);expect(h.data.takes).toHaveLength(0);
+  });
+  it('resposta antiga com formato Aula não é adotada por controller Short e não abre preview', async () => {
+    const h=fixture();const short=createStudioRemoteCapture({owner:'owner',kind:'short',client:h.client,preview:h.preview,inspect:h.inspect,persist:false});controllers.push(short);let state!:StudioCaptureState;short.subscribe(value=>state=value);
+    await expect(short.prepare()).rejects.toMatchObject({code:'session_kind_mismatch'});expect(short.getEnvelope()).toBeNull();expect(state).toMatchObject({phase:'error',stream:null});expect(h.preview).not.toHaveBeenCalled();expect(h.request.mock.calls.some(([body])=>body.action==='connect')).toBe(false);
+  });
   it('cancelamento de criação pendente ignora resposta tardia e permite conectar novamente', async () => {
     const h = fixture(false), pending = deferred<StudioRemoteResponse>(), originalRequest = h.request.getMockImplementation()!;
     h.request.mockImplementationOnce(() => pending.promise);
