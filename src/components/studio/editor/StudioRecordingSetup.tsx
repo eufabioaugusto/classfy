@@ -61,57 +61,63 @@ export function StudioRecordingSetup({
   const emptyDescription = liveSelected ? 'Configure a sala antes de entrar ao vivo.' : kind === 'podcast' ? 'Ative o microfone para acompanhar o áudio antes de gravar.' : layout === 'screen' ? 'Compartilhe uma tela ou aba para conferir a cena.' : iphone ? 'Conecte o iPhone para ver a cena e ajustar a câmera.' : 'Ative a câmera para ver a cena antes de gravar.';
   const guidance = context ?? (liveSelected ? 'Você controla quando a transmissão começa.' : kind === 'podcast' ? 'Escolha seu microfone e confira o áudio.' : layout === 'scenes' ? 'Alterne entre câmera, tela e os dois juntos durante a gravação.' : portrait ? 'Short em 9:16. Confira o enquadramento vertical.' : 'Aula em 16:9. Confira o enquadramento horizontal.');
 
-  return <main className={`srs-setup${ready ? ' is-ready' : ''}${preparing ? ' is-preparing' : ''}`}>
-    <header className="srs-heading">
-      <div><span>CLASSFY STUDIO</span><h1>Prepare sua gravação.</h1></div>
-      {!liveSelected && <label className="srs-title-field" htmlFor={`${id}-title`}><span>Nome da gravação <small>Opcional</small></span><input id={`${id}-title`} aria-label="Nome da gravação" placeholder={placeholder} value={title} maxLength={160} disabled={disabled || formatLocked} onChange={event => onTitle(event.target.value)} /></label>}
-    </header>
+  return <main className={`srs-setup${portrait ? ' is-portrait' : ''}${!video ? ' is-audio' : ''}${ready ? ' is-ready' : ''}${preparing ? ' is-preparing' : ''}`}>
+    <div className="srs-workbench">
+      <aside className="srs-configuration" aria-label="Configuração da gravação">
+        <header className="srs-heading">
+          <div><span>CLASSFY STUDIO</span><h1>Prepare sua gravação.</h1></div>
+          {!liveSelected && <label className="srs-title-field" htmlFor={`${id}-title`}><span>Nome da gravação <small>Opcional</small></span><input id={`${id}-title`} aria-label="Nome da gravação" placeholder={placeholder} value={title} maxLength={160} disabled={disabled || formatLocked} onChange={event => onTitle(event.target.value)} /></label>}
+        </header>
 
-    <div className="srs-options">
-      <section className="srs-option-row" aria-labelledby={`${id}-format`}>
-        <h2 id={`${id}-format`}>Formato</h2>
-        <div className="srs-formats se-recording-formats" role="group" aria-labelledby={`${id}-format`}>
-          {formats.map(({ value, name, Icon }) => {
-            const selected = value === (liveSelected ? 'live' : kind);
-            return <button type="button" key={value} aria-label={name} aria-pressed={selected} className={selected ? 'selected' : ''} disabled={disabled || formatLocked} onClick={() => onFormat(value)}><Icon size={17} strokeWidth={1.7} aria-hidden="true" /><span>{name}</span></button>;
-          })}
+        <div className="srs-options">
+          <section className="srs-option-row" aria-labelledby={`${id}-format`}>
+            <h2 id={`${id}-format`}>Formato</h2>
+            <div className="srs-formats se-recording-formats" role="group" aria-labelledby={`${id}-format`}>
+              {formats.map(({ value, name, Icon }) => {
+                const selected = value === (liveSelected ? 'live' : kind);
+                return <button type="button" key={value} aria-label={name} aria-pressed={selected} className={selected ? 'selected' : ''} disabled={disabled || formatLocked} onClick={() => onFormat(value)}><Icon size={17} strokeWidth={1.7} aria-hidden="true" /><span>{name}</span></button>;
+              })}
+            </div>
+          </section>
+          {video && <>
+            <section className="srs-option-row" aria-labelledby={`${id}-layout`}>
+              <h2 id={`${id}-layout`}>Cena</h2>
+              <div className="srs-layouts" role="group" aria-labelledby={`${id}-layout`}>
+                <button type="button" aria-label="Só câmera" aria-pressed={layout === 'camera'} disabled={disabled} onClick={() => onLayout('camera')}><Camera size={17} strokeWidth={1.7} aria-hidden="true" /><span>Só câmera</span></button>
+                <button type="button" aria-label="Só tela" aria-pressed={layout === 'screen'} disabled={disabled} onClick={() => onLayout('screen')}><Monitor size={17} strokeWidth={1.7} aria-hidden="true" /><span>Só tela</span></button>
+                <button type="button" aria-label="Câmera e tela · Premium" aria-pressed={layout === 'scenes'} disabled={disabled} title={canUseScenes ? 'Alterne câmera, tela e tela com você.' : 'Gravação com cenas disponível no Premium.'} onClick={() => onLayout('scenes')}><span className="srs-scenes-icon" aria-hidden="true"><Monitor size={17} strokeWidth={1.7} /><Camera size={9} strokeWidth={2} /></span><span>Câmera e tela</span><PremiumBadge /></button>
+              </div>
+            </section>
+            {layout !== 'screen' && <section className="srs-option-row" aria-labelledby={`${id}-camera`}>
+              <h2 id={`${id}-camera`}>Câmera</h2>
+              <div className="srs-sources" role="group" aria-labelledby={`${id}-camera`}>
+                <button type="button" aria-label="Computador" aria-pressed={!iphone} disabled={disabled} onClick={() => onCameraSource('computer')}><Camera size={17} strokeWidth={1.7} aria-hidden="true" /><span>Computador</span></button>
+                <button type="button" aria-label="Meu iPhone · Premium" aria-pressed={iphone} disabled={disabled} onClick={() => onCameraSource('iphone')}><Smartphone size={17} strokeWidth={1.7} aria-hidden="true" /><span>Meu iPhone</span><PremiumBadge /></button>
+              </div>
+            </section>}
+          </>}
         </div>
-      </section>
-      {video && <>
-        <section className="srs-option-row" aria-labelledby={`${id}-layout`}>
-          <h2 id={`${id}-layout`}>Cena</h2>
-          <div className="srs-layouts" role="group" aria-labelledby={`${id}-layout`}>
-            <button type="button" aria-label="Só câmera" aria-pressed={layout === 'camera'} disabled={disabled} onClick={() => onLayout('camera')}><Camera size={17} strokeWidth={1.7} aria-hidden="true" /><span>Só câmera</span></button>
-            <button type="button" aria-label="Só tela" aria-pressed={layout === 'screen'} disabled={disabled} onClick={() => onLayout('screen')}><Monitor size={17} strokeWidth={1.7} aria-hidden="true" /><span>Só tela</span></button>
-            <button type="button" aria-label="Câmera e tela · Premium" aria-pressed={layout === 'scenes'} disabled={disabled} title={canUseScenes ? 'Alterne câmera, tela e tela com você.' : 'Gravação com cenas disponível no Premium.'} onClick={() => onLayout('scenes')}><span className="srs-scenes-icon" aria-hidden="true"><Monitor size={17} strokeWidth={1.7} /><Camera size={9} strokeWidth={2} /></span><span>Câmera e tela</span><PremiumBadge /></button>
+      </aside>
+
+      <div className="srs-output">
+        <section className={`srs-scene${portrait ? ' is-portrait' : ''}${!video ? ' is-audio' : ''}`} aria-label="Prévia e preparação">
+          <div className="srs-scene-top"><p className="srs-context" aria-live="polite">{guidance}</p>{ready ? <span className="srs-state"><i />Pronto para gravar</span> : preparing ? <span className="srs-state is-working" role="status"><Loader2 size={14} className="srs-spin" />Preparando…</span> : null}</div>
+          <div className="srs-stage" aria-busy={preparing}>
+            {preview ? <div className="srs-preview-content">{preview}</div> : <div className="srs-empty-scene"><span className="srs-empty-icon" aria-hidden="true"><CaptureIcon size={31} strokeWidth={1.35} /></span><h2>{emptyTitle}</h2><p>{emptyDescription}</p></div>}
+            {tools && <div className="srs-scene-tools">{tools}</div>}
           </div>
+          {devices && <div className="srs-devices">{devices}</div>}
         </section>
-        {layout !== 'screen' && <section className="srs-option-row" aria-labelledby={`${id}-camera`}>
-          <h2 id={`${id}-camera`}>Câmera</h2>
-          <div className="srs-sources" role="group" aria-labelledby={`${id}-camera`}>
-            <button type="button" aria-label="Computador" aria-pressed={!iphone} disabled={disabled} onClick={() => onCameraSource('computer')}><Camera size={17} strokeWidth={1.7} aria-hidden="true" /><span>Computador</span></button>
-            <button type="button" aria-label="Meu iPhone · Premium" aria-pressed={iphone} disabled={disabled} onClick={() => onCameraSource('iphone')}><Smartphone size={17} strokeWidth={1.7} aria-hidden="true" /><span>Meu iPhone</span><PremiumBadge /></button>
+
+        <div className="srs-action">
+          {error && <p className="srs-error" role="alert">{error}</p>}
+          <div className="srs-action-row">
+            {preparing && onCancelPreparation && <button type="button" className="srs-cancel" onClick={onCancelPreparation}>Cancelar</button>}
+            <button type="button" className={`srs-open${ready ? ' is-record' : ''}`} disabled={disabled || openDisabled} onClick={onOpen}>{preparing ? <Loader2 size={18} className="srs-spin" aria-hidden="true" /> : ready && !liveSelected ? <i className="srs-record-dot" aria-hidden="true" /> : <CaptureIcon size={18} aria-hidden="true" />}<span>{liveSelected ? 'Preparar live' : cta}</span>{!ready && !preparing && <ArrowRight size={17} aria-hidden="true" />}</button>
           </div>
-        </section>}
-      </>}
-    </div>
-
-    <section className={`srs-scene${portrait ? ' is-portrait' : ''}${!video ? ' is-audio' : ''}`} aria-label="Prévia e preparação">
-      <div className="srs-scene-top"><p className="srs-context" aria-live="polite">{guidance}</p>{ready ? <span className="srs-state"><i />Pronto para gravar</span> : preparing ? <span className="srs-state is-working" role="status"><Loader2 size={14} className="srs-spin" />Preparando…</span> : null}</div>
-      <div className="srs-stage" aria-busy={preparing}>
-        {preview ? <div className="srs-preview-content">{preview}</div> : <div className="srs-empty-scene"><span className="srs-empty-icon" aria-hidden="true"><CaptureIcon size={31} strokeWidth={1.35} /></span><h2>{emptyTitle}</h2><p>{emptyDescription}</p></div>}
-        {tools && <div className="srs-scene-tools">{tools}</div>}
+          <p className="srs-private"><ShieldCheck size={13} aria-hidden="true" /><span>{liveSelected ? 'Você só entra ao vivo quando estiver pronto.' : 'Sua prévia é privada. A gravação começa quando você escolher.'}</span></p>
+        </div>
       </div>
-      {devices && <div className="srs-devices">{devices}</div>}
-    </section>
-
-    <div className="srs-action">
-      {error && <p className="srs-error" role="alert">{error}</p>}
-      <div className="srs-action-row">
-        {preparing && onCancelPreparation && <button type="button" className="srs-cancel" onClick={onCancelPreparation}>Cancelar</button>}
-        <button type="button" className={`srs-open${ready ? ' is-record' : ''}`} disabled={disabled || openDisabled} onClick={onOpen}>{preparing ? <Loader2 size={18} className="srs-spin" aria-hidden="true" /> : ready && !liveSelected ? <i className="srs-record-dot" aria-hidden="true" /> : <CaptureIcon size={18} aria-hidden="true" />}<span>{liveSelected ? 'Preparar live' : cta}</span>{!ready && !preparing && <ArrowRight size={17} aria-hidden="true" />}</button>
-      </div>
-      <p className="srs-private"><ShieldCheck size={13} aria-hidden="true" /><span>{liveSelected ? 'Você só entra ao vivo quando estiver pronto.' : 'Sua prévia é privada. A gravação começa quando você escolher.'}</span></p>
     </div>
     {!liveSelected && recovery && <div className="srs-recovery">{recovery}</div>}
   </main>;

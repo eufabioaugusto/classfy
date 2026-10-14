@@ -3,12 +3,14 @@
   --srs-text: #f3f1f3;
   --srs-muted: #a4a3ae;
   --srs-line: #2a2b32;
-  --srs-preview-height: clamp(280px, 44dvh, 520px);
-  width: min(1104px, 100%);
-  margin: auto;
-  padding: 28px 28px 30px;
+  --srs-preview-height: clamp(280px, calc(100dvh - 430px), 620px);
+  width: min(1400px, 100%);
+  margin: 0 auto;
+  padding: 32px 32px 30px;
   color: var(--srs-text);
 }
+.srs-workbench { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+.srs-configuration, .srs-output { min-width: 0; }
 .srs-heading { display: flex; justify-content: space-between; align-items: center; gap: 28px; margin-bottom: 22px; }
 .srs-heading > div > span { color: #ba8a94; font-size: 10px; font-weight: 650; letter-spacing: .14em; }
 .srs-heading h1 { margin: 7px 0 0; font-size: clamp(25px, 2.3vw, 30px); font-weight: 550; letter-spacing: -.04em; line-height: 1.2; }
@@ -17,7 +19,7 @@
 .srs-title-field small { color: #92909d; font-size: 10px; font-weight: 400; }
 .srs-setup .srs-title-field input { width: 100%; height: 39px; font-size: 14px; padding: 9px 11px; border: 1px solid var(--srs-line); border-radius: 8px; background: #121319; color: var(--srs-text); outline: none; }
 .srs-title-field input::placeholder { color: #777480; }
-.srs-options { display: flex; flex-direction: column; width: fit-content; max-width: min(700px, 100%); margin-inline: auto; gap: 9px; padding: 16px 20px; border: 1px solid #25262e; border-radius: 13px; background: #111318; }
+.srs-options { display: flex; flex-direction: column; width: 100%; gap: 9px; padding: 16px 20px; border: 1px solid #25262e; border-radius: 13px; background: #111318; }
 .srs-option-row { display: grid; grid-template-columns: 77px minmax(0, 1fr); align-items: center; gap: 15px; }
 .srs-option-row h2 { margin: 0; color: #aaa6b1; font-size: 13px; line-height: 1.4; font-weight: 500; }
 .srs-setup .srs-formats, .srs-layouts, .srs-sources { display: flex; align-items: stretch; gap: 6px; width: fit-content; max-width: 100%; padding: 3px; border: 1px solid #292a32; border-radius: 9px; background: #0c0e12; }
@@ -29,15 +31,15 @@
 .srs-premium > svg { color: #d9b685; }
 .srs-scenes-icon { position: relative; display: flex; flex: none; }
 .srs-scenes-icon svg:last-child { position: absolute; bottom: -2px; right: -3px; background: #16161c; border-radius: 3px; }
-.srs-scene { margin-top: 16px; min-width: 0; }
+.srs-scene { min-width: 0; }
 .srs-scene-top { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 32px; margin-bottom: 10px; }
 .srs-context { margin: 0; color: #a49da9; font-size: 12px; line-height: 1.5; }
 .srs-state { display: inline-flex; align-items: center; gap: 7px; color: #c9d7cd; font-size: 11px; line-height: 1.3; white-space: nowrap; }
 .srs-state > i { width: 6px; height: 6px; border-radius: 50%; background: #66c695; box-shadow: 0 0 0 3px #66c69512; }
 .srs-state.is-working { color: #c1aaba; }
-.srs-stage { display: grid; position: relative; width: min(100%, calc(var(--srs-preview-height) * 1.7777778)); aspect-ratio: 16 / 9; margin: 0 auto; overflow: hidden; border: 1px solid #2b2b33; border-radius: 15px; background: #07080b; isolation: isolate; }
+.srs-stage { display: grid; position: relative; width: 100%; aspect-ratio: 16 / 9; margin: 0 auto; overflow: hidden; border: 1px solid #2b2b33; border-radius: 15px; background: #07080b; isolation: isolate; }
 .srs-scene.is-portrait .srs-stage { width: min(100%, calc(var(--srs-preview-height) * .5625)); aspect-ratio: 9 / 16; }
-.srs-scene.is-audio .srs-stage { width: min(100%, 700px); aspect-ratio: 2.6; min-height: 210px; }
+.srs-scene.is-audio .srs-stage { width: 100%; aspect-ratio: 2.6; min-height: 210px; }
 .srs-empty-scene { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 28px; background: radial-gradient(ellipse at 50% 45%, #28172165, transparent 62%); }
 .srs-empty-icon { display: grid; place-items: center; width: 61px; height: 61px; margin-bottom: 17px; border: 1px solid #46313e; border-radius: 19px; background: #271b23; color: #d688a0; }
 .srs-empty-scene h2 { max-width: 340px; margin: 0 0 9px; color: #e7e0e9; font-size: 20px; font-weight: 500; line-height: 1.3; letter-spacing: -.02em; }
@@ -50,7 +52,7 @@
 .srs-scene-tools { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .srs-scene-tools > * { pointer-events: auto; }
 .srs-devices { margin-top: 13px; min-width: 0; }
-.srs-action { width: min(100%, 560px); margin: 17px auto 0; }
+.srs-action { width: 100%; margin: 16px 0 0; }
 .srs-action-row { display: flex; align-items: center; gap: 10px; }
 .srs-setup .srs-open { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; min-height: 46px; padding: 11px 17px; border: 1px solid #ef5066; border-radius: 9px; background: #ef5066; color: #fff; font-size: 14px; font-weight: 600; transition: background .15s; }
 .srs-open:hover:not(:disabled) { background: #fa6277; border-color: #fa6277; }
@@ -66,7 +68,32 @@
 .srs-setup button:disabled { opacity: .46; cursor: not-allowed; }
 .srs-spin { animation: srs-spin 1s linear infinite; }
 @keyframes srs-spin { to { transform: rotate(360deg); } }
-@media (min-width: 1700px) { .srs-setup { padding-top: 38px; } }
+@media (min-width: 1100px) {
+  .srs-setup { width: min(1400px, calc(436px + var(--srs-preview-height) * 1.7777778), 100%); }
+  .srs-workbench { grid-template-columns: 340px minmax(0, 1fr); align-items: start; gap: 32px; }
+  .srs-configuration { padding: 23px 22px; border: 1px solid #25262e; border-radius: 15px; background: #111318; }
+  .srs-heading { display: block; margin-bottom: 26px; }
+  .srs-heading h1 { font-size: 28px; max-width: 250px; }
+  .srs-title-field { width: 100%; margin-top: 24px; }
+  .srs-setup .srs-title-field input { height: 42px; }
+  .srs-options { gap: 22px; padding: 0; border: 0; border-radius: 0; background: none; }
+  .srs-option-row { display: flex; flex-direction: column; align-items: stretch; gap: 9px; }
+  .srs-setup .srs-formats, .srs-layouts, .srs-sources { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+  .srs-setup .srs-formats > button, .srs-layouts > button, .srs-sources > button { min-width: 0; min-height: 41px; padding: 9px 8px; font-size: 13px; }
+  .srs-layouts > button:last-child { grid-column: 1 / -1; }
+  .srs-sources .srs-premium > span { display: none; }
+  .srs-output { width: min(100%, calc(var(--srs-preview-height) * 1.7777778)); justify-self: start; }
+  .srs-scene-top { min-height: 26px; margin-bottom: 10px; }
+  .srs-setup.is-portrait { --srs-preview-height: clamp(360px, calc(100dvh - 490px), 620px); width: min(864px, 100%); }
+  .srs-setup.is-portrait .srs-output { width: 100%; }
+  .srs-setup.is-audio { width: min(1100px, 100%); }
+  .srs-scene.is-audio .srs-stage { min-height: 280px; }
+}
+@media (min-width: 601px) and (max-width: 1099px) {
+  .srs-setup { width: min(940px, 100%); }
+  .srs-setup.is-portrait { width: min(740px, 100%); }
+  .srs-workbench { gap: 22px; }
+}
 @media (max-width: 800px) {
   .srs-setup { padding: 22px 22px 28px; }
   .srs-heading { gap: 18px; }
@@ -79,6 +106,7 @@
 @media (max-width: 600px) {
   .srs-setup { --srs-preview-height: clamp(280px, 48dvh, 480px); width: min(560px, 100%); margin: 0 auto; padding: 20px 16px calc(125px + env(safe-area-inset-bottom)); }
   .srs-heading { display: block; margin-bottom: 16px; }
+  .srs-workbench { gap: 18px; }
   .srs-heading > div > span { display: none; }
   .srs-heading h1 { font-size: 24px; }
   .srs-title-field { flex-direction: row; align-items: center; gap: 12px; width: 100%; margin-top: 16px; }
@@ -132,22 +160,24 @@
 .srs-preview-content .src-pairing-symbol { width: 44px; height: 44px; margin: 10px auto; border-radius: 13px; }
 .srs-preview-content .src-pairing h2 { font-size: 23px; }
 .srs-preview-content .src-pairing-body { margin: 16px 0; }
-.srs-devices { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
-.srs-devices .se-recording-devices { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
-.srs-devices .se-recording-device { width: 210px; min-height: 53px; background: #15161c; border-radius: 9px; }
+.srs-devices { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; border: 1px solid #25262e; border-radius: 12px; background: #111318; }
+.srs-devices .se-recording-devices { flex: 1 1 390px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.srs-devices .se-recording-device { flex: 1 1 160px; width: auto; min-height: 53px; background: #15161c; border-radius: 9px; }
+.srs-devices .se-recording-microphone-control { flex: 1 1 190px; }
+.srs-devices .se-recording-microphone-control .se-recording-device { width: auto; }
 .srs-devices .se-recording-device > span { font-size: 10px; }
 .srs-devices .se-recording-device select { font-size: 12px; }
-.srs-devices .se-recording-monitor, .srs-devices .src-status, .srs-devices .src-status.src-status--above-meter { position: relative; inset: auto; width: 210px; max-width: 100%; min-height: 53px; padding: 9px 11px; border-radius: 9px; background: #101218; }
+.srs-devices .se-recording-monitor, .srs-devices .src-status, .srs-devices .src-status.src-status--above-meter { flex: 1 1 180px; position: relative; inset: auto; width: auto; max-width: 100%; min-height: 53px; padding: 9px 11px; border-radius: 9px; background: #101218; }
 .srs-devices .se-recording-monitor > div:first-child { font-size: 11px; }
 .srs-devices .se-recording-monitor small { font-size: 10px; }
-.srs-devices .src-audio { position: relative; inset: auto; width: 230px; max-width: 100%; }
+.srs-devices .src-audio { flex: 1 1 210px; position: relative; inset: auto; width: auto; max-width: 100%; }
 .srs-devices .src-audio-trigger { min-height: 53px; padding: 9px 11px; border-radius: 9px; background: #101218; }
 .srs-devices .src-audio-heading > strong { font-size: 12px; }
 .srs-devices .src-audio-trigger > small { font-size: 10px; }
 .srs-devices .src-status > span { font-size: 11px; }
 .srs-devices .src-status > small { font-size: 10px; }
 .srs-devices .se-scenes { flex-basis: 100%; }
-.srs-adjustments { display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.srs-adjustments { display: flex; align-items: center; flex-wrap: wrap; flex-basis: 100%; gap: 8px; padding-top: 10px; border-top: 1px solid #292a32; }
 .srs-adjustments .se-recording-button { min-height: 38px; font-size: 12px; }
 .srs-preview-content .se-recording-audio-stage { width: 100%; height: 100%; }
 .srs-scene-tools .src-controls, .srs-scene-tools .se-recording-tools { top: 10px; right: 10px; bottom: 10px; width: min(350px, calc(100% - 20px)); max-height: none; border-radius: 12px; }
@@ -162,7 +192,7 @@
   .srs-preview-content .src-pairing-code > small { font-size: 8px; }
   .srs-preview-content .src-pairing-code button { padding: 8px; }
   .srs-preview-content .src-pairing-code strong { font-size: 10px; }
-  .srs-devices { align-items: stretch; gap: 8px; }
+  .srs-devices { align-items: stretch; gap: 8px; padding: 10px; }
   .srs-devices .se-recording-devices { width: 100%; gap: 8px; }
   .srs-devices .se-recording-device { flex: 1 1 130px; width: auto; }
   .srs-devices .se-recording-microphone-control { flex: 1 1 175px; min-width: 0; }
