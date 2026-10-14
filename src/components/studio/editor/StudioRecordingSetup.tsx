@@ -104,7 +104,7 @@ export function StudioRecordingSetup({
 
       <div className="srs-output">
         <section className={`srs-scene${portrait ? ' is-portrait' : ''}${!video ? ' is-audio' : ''}`} aria-label="Prévia e preparação">
-          <div className="srs-scene-top"><p className="srs-context" aria-live="polite">{guidance}</p>{ready ? <span className="srs-state"><i />Pronto para gravar</span> : preparing ? <span className="srs-state is-working" role="status"><Loader2 size={14} className="srs-spin" />Preparando…</span> : null}</div>
+          <div className="srs-scene-top"><p className="srs-context" aria-live="polite">{guidance}</p>{ready ? <span className="srs-state"><i />Prévia pronta</span> : preparing ? <span className="srs-state is-working" role="status"><Loader2 size={14} className="srs-spin" />Preparando…</span> : null}</div>
           <div className="srs-stage" aria-busy={preparing}>
             <div className="srs-frame">
               {preview ? <div className="srs-preview-content">{preview}</div> : <div className="srs-empty-scene"><span className="srs-empty-icon" aria-hidden="true"><CaptureIcon size={31} strokeWidth={1.35} /></span><h2>{emptyTitle}</h2><p>{emptyDescription}</p></div>}
@@ -118,9 +118,9 @@ export function StudioRecordingSetup({
           {error && <p className="srs-error" role="alert">{error}</p>}
           <div className="srs-action-row">
             {preparing && onCancelPreparation && <button type="button" className="srs-cancel" onClick={onCancelPreparation}>Cancelar</button>}
-            <button type="button" className={`srs-open${ready ? ' is-record' : ''}`} disabled={disabled || openDisabled} onClick={onOpen}>{preparing ? <Loader2 size={18} className="srs-spin" aria-hidden="true" /> : ready && !liveSelected ? <i className="srs-record-dot" aria-hidden="true" /> : <CaptureIcon size={18} aria-hidden="true" />}<span>{liveSelected ? 'Preparar live' : cta}</span>{!ready && !preparing && <ArrowRight size={17} aria-hidden="true" />}</button>
+            <button type="button" className="srs-open" disabled={disabled || openDisabled} onClick={onOpen}>{preparing ? <Loader2 size={18} className="srs-spin" aria-hidden="true" /> : <CaptureIcon size={18} aria-hidden="true" />}<span>{liveSelected ? 'Preparar live' : cta}</span>{!preparing && <ArrowRight size={17} aria-hidden="true" />}</button>
           </div>
-          <p className="srs-private"><ShieldCheck size={13} aria-hidden="true" /><span>{liveSelected ? 'Você só entra ao vivo quando estiver pronto.' : 'Sua prévia é privada. A gravação começa quando você escolher.'}</span></p>
+          <p className="srs-private"><ShieldCheck size={13} aria-hidden="true" /><span>{liveSelected ? 'Você só entra ao vivo quando estiver pronto.' : ready ? 'Na próxima tela, ajuste a cena antes de gravar.' : 'Sua prévia é privada. A gravação começa quando você escolher.'}</span></p>
         </div>
       </div>
     </div>

@@ -71,13 +71,15 @@ function Screen() {
 async function mount(url = '/studio/record', browser = false) {
   await act(async () => root.render(<StrictMode>{browser ? <BrowserRouter><Screen /></BrowserRouter> : <MemoryRouter initialEntries={[url]}><Screen /></MemoryRouter>}</StrictMode>));
 }
-// The setup now keeps the live source open until its own REC action; production retains its labels.
+// Preparing a take enters the production stage first; only its REC action starts capture.
 function button(label: string) {
   const setup = host.querySelector('.se-recording')?.getAttribute('data-stage') === 'setup';
-  const labels = [label, ...(setup ? label === 'Iniciar gravação' ? ['Gravar'] : ['Abrir câmera', 'Preparar câmera e tela'].includes(label) ? ['Ativar câmera'] : [] : [])];
+  const labels = [label, ...(setup ? ['Abrir câmera', 'Preparar câmera e tela'].includes(label) ? ['Ativar câmera'] : [] : [])];
   return [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => labels.includes(item.getAttribute('aria-label') ?? '') || labels.includes(item.textContent?.trim() ?? ''));
 }
 async function click(label: string) { const target = button(label); expect(target, label).toBeTruthy(); await act(async () => target!.click()); }
+async function enterProduction() { if (host.querySelector('.se-recording')?.getAttribute('data-stage') === 'setup') await click('Ir para gravação'); }
+async function startTake() { await enterProduction(); await click('Iniciar gravação'); }
 const confirmation = () => document.querySelector('[role="alertdialog"]');
 async function answer(label: string) {
   expect(confirmation(), 'Confirmação visual aberta').toBeTruthy();
@@ -107,7 +109,7 @@ const activeVisibility = () => {
   const listeners = new Set(added.mock.calls.filter(([name]) => name === 'visibilitychange').map(([, listener]) => listener));
   removed.mock.calls.filter(([name]) => name === 'visibilitychange').forEach(([, listener]) => listeners.delete(listener)); return listeners.size;
 };
-async function record() { await click(initialKind === 'podcast' ? 'Ativar microfone' : 'Abrir câmera'); await click('Iniciar gravação'); await click('Encerrar gravação'); }
+async function record() { await click(initialKind === 'podcast' ? 'Ativar microfone' : 'Abrir câmera'); await startTake(); await click('Encerrar gravação'); }
 async function pop(index: number, url: string) { window.history.replaceState({ idx: index, key: `entry-${index}` }, '', url); await act(async () => window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))); }
 beforeEach(() => {
   localStorage.clear();
@@ -151,9 +153,15 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect((preview?.srcObject as MediaStream | null)?.getTracks()).toEqual(stream.getTracks()); expect(stream.getVideoTracks()[0].readyState).toBe('live');
     const prepared = preview!.srcObject;
     expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup');
-    expect(button('Gravar')?.disabled).toBe(false); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled();
-    await click('Gravar');
+    expect(button('Ir para gravação')?.disabled).toBe(false); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled();
+    expect(button('Iniciar gravação')).toBeUndefined();
+    await click('Ir para gravação');
     expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production');
+    expect(host.querySelector('aside[aria-label="Configurações da gravação"]')).toBeTruthy();
+    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject).toBe(prepared);
+    expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled();
+    expect(permissions).toHaveBeenCalledTimes(1); expect(stream.getTracks().every(track => track.stop.mock.calls.length === 0)).toBe(true);
+    await click('Iniciar gravação');
     expect(Recorder.instances).toHaveLength(1); expect(Recorder.instances[0].stream).toBe(prepared); expect(permissions).toHaveBeenCalledTimes(1);
     expect(stream.getTracks().every(track => track.stop.mock.calls.length === 0)).toBe(true);
     expect(io.create).not.toHaveBeenCalled(); await click('Encerrar gravação'); expect(io.create).toHaveBeenCalledTimes(1);
@@ -174,11 +182,11 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
       expect((host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject as MediaStream | null)?.getVideoTracks()[0].readyState).toBe('live');
       expect(processor).toHaveBeenLastCalledWith(track, expect.anything(), expect.any(Number), expect.any(Function), expect.objectContaining(label === 'Short' ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 }));
       expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup');
-      expect(permissions).toHaveBeenCalledTimes(1); expect(track.stop).not.toHaveBeenCalled(); expect(button('Gravar')?.disabled).toBe(false);
+      expect(permissions).toHaveBeenCalledTimes(1); expect(track.stop).not.toHaveBeenCalled(); expect(button('Ir para gravação')?.disabled).toBe(false);
     }
     expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled();
     const prepared = host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject;
-    await input('Nome da gravação', 'Short nomeado depois da prévia'); await click('Gravar'); await click('Encerrar gravação');
+    await input('Nome da gravação', 'Short nomeado depois da prévia'); await click('Ir para gravação'); await click('Iniciar gravação'); await click('Encerrar gravação');
     expect([...projects.values()][0]).toMatchObject({ kind: 'short', title: 'Short nomeado depois da prévia' });
     expect(permissions).toHaveBeenCalledTimes(1); expect(Recorder.instances[0].stream).toBe(prepared);
   });
@@ -191,24 +199,24 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await click('Só tela');
     expect(camera.getTracks().every(track => track.stop.mock.calls.length === 1)).toBe(true);
     expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject ?? null).toBeNull();
-    expect(display).not.toHaveBeenCalled(); expect(permissions).toHaveBeenCalledTimes(1); expect(button('Gravar')).toBeUndefined();
-    await click('Compartilhar tela'); expect(display).toHaveBeenCalledTimes(1); expect(button('Gravar')?.disabled).toBe(false);
+    expect(display).not.toHaveBeenCalled(); expect(permissions).toHaveBeenCalledTimes(1); expect(button('Ir para gravação')).toBeUndefined();
+    await click('Compartilhar tela'); expect(display).toHaveBeenCalledTimes(1); expect(button('Ir para gravação')?.disabled).toBe(false);
     const screen = await display.mock.results[0].value as Stream;
     await format('Podcast');
     expect(screen.getTracks().every(track => track.stop.mock.calls.length === 1)).toBe(true);
     expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject ?? null).toBeNull(); expect(button('Ativar microfone')).toBeTruthy();
-    expect(button('Gravar')).toBeUndefined(); expect(permissions).toHaveBeenCalledTimes(2); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled();
+    expect(button('Ir para gravação')).toBeUndefined(); expect(permissions).toHaveBeenCalledTimes(2); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled();
   });
 
   it('cancelar a abertura libera uma permissão tardia e mantém a preparação pronta para novo gesto', async () => {
     const permission = deferred<Stream>(); permissions.mockReturnValueOnce(permission.promise);
-    await mount(); await click('Ativar câmera'); expect(button('Cancelar')).toBeTruthy(); expect(button('Gravar')).toBeUndefined();
+    await mount(); await click('Ativar câmera'); expect(button('Cancelar')).toBeTruthy(); expect(button('Ir para gravação')).toBeUndefined();
     await click('Cancelar'); expect(button('Ativar câmera')?.disabled).toBe(false);
     const stale = new Stream([new Track('video'), new Track()]); await act(async () => permission.resolve(stale));
     expect(stale.getTracks().every(track => track.stop.mock.calls.length === 1)).toBe(true);
-    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject ?? null).toBeNull(); expect(button('Gravar')).toBeUndefined();
+    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject ?? null).toBeNull(); expect(button('Ir para gravação')).toBeUndefined();
     expect(io.create).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
-    await click('Ativar câmera'); expect(permissions).toHaveBeenCalledTimes(2); expect(button('Gravar')?.disabled).toBe(false);
+    await click('Ativar câmera'); expect(permissions).toHaveBeenCalledTimes(2); expect(button('Ir para gravação')?.disabled).toBe(false);
   });
 
   it('cancelar um reenquadramento em andamento não instala frames nem erros atrasados na nova preparação', async () => {
@@ -218,7 +226,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
       stream: new Stream([output]), effects: true, profile, prepare: () => processing.promise, configure: vi.fn(), setVisible: vi.fn(), dispose: vi.fn(),
     } as unknown as videoProcessing.StudioCaptureVideoProcessor : null);
     await mount(); await click('Ativar câmera'); const camera = await permissions.mock.results[0].value as Stream;
-    await format('Short'); expect(button('Cancelar')).toBeTruthy(); expect(button('Gravar')).toBeUndefined();
+    await format('Short'); expect(button('Cancelar')).toBeTruthy(); expect(button('Ir para gravação')).toBeUndefined();
     await click('Cancelar'); expect(camera.getTracks().every(track => track.stop.mock.calls.length === 1)).toBe(true);
     await act(async () => processing.resolve());
     expect(host.querySelector('[role="alert"]')).toBeNull();
@@ -226,13 +234,13 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(formatButton('Aula')?.getAttribute('aria-pressed')).toBe('true'); expect(formatButton('Short')?.getAttribute('aria-pressed')).toBe('false');
     expect(button('Ativar câmera')?.disabled).toBe(false); expect(output.stop).toHaveBeenCalledTimes(1);
     expect(io.create).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
-    await click('Ativar câmera'); expect(permissions).toHaveBeenCalledTimes(2); expect(button('Gravar')?.disabled).toBe(false);
+    await click('Ativar câmera'); expect(permissions).toHaveBeenCalledTimes(2); expect(button('Ir para gravação')?.disabled).toBe(false);
   });
 
   it('perda da câmera durante a preparação impede REC até reativar a fonte', async () => {
     await mount(); await click('Ativar câmera'); const stream = await permissions.mock.results[0].value as Stream;
     await act(async () => stream.getVideoTracks()[0].end());
-    expect(!button('Gravar') || button('Gravar')!.disabled).toBe(true);
+    expect(!button('Ir para gravação') || button('Ir para gravação')!.disabled).toBe(true);
     expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled(); expect(permissions).toHaveBeenCalledTimes(1);
   });
 
@@ -257,7 +265,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await click('Gravar outro take');
     expect(processor).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.any(Number), expect.any(Function), expect.objectContaining({ width: 1080, height: 1920 }));
     expect(permissions).toHaveBeenCalledTimes(2); const preview = host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject;
-    await click('Iniciar gravação'); expect(Recorder.instances[0].stream).toBe(preview); await click('Encerrar gravação');
+    await startTake(); expect(Recorder.instances[0].stream).toBe(preview); await click('Encerrar gravação');
     expect([...projects.values()][0].takes).toHaveLength(2); expect([...projects.values()][0].kind).toBe('short'); expect(io.create).toHaveBeenCalledTimes(1);
   });
 
@@ -278,7 +286,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject).toBe(preview);
     expect(preview.getTracks().every(track => track.stop.mock.calls.length === 0)).toBe(true);
     expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup'); expect(formatButton('Aula')?.getAttribute('aria-pressed')).toBe('true');
-    expect(button('Gravar')?.disabled).toBe(false); expect(host.querySelector('[role="alert"]')).toBeNull(); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(0);
+    expect(button('Ir para gravação')?.disabled).toBe(false); expect(host.querySelector('[role="alert"]')).toBeNull(); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(0);
     expect(Recorder.instances).toHaveLength(0); expect(permissions).toHaveBeenCalledTimes(1);
   });
 
@@ -335,7 +343,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     vi.useFakeTimers(); await mount(); expect(permissions).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(activeVisibility()).toBe(2);
     await format('Podcast'); await click('Ativar microfone'); expect(permissions).toHaveBeenCalledTimes(1); expect(host.querySelector('[aria-label="Microfone em uso: USB Microphone"]')).toBeTruthy();
     await act(async () => vi.advanceTimersByTime(100)); expect(host.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).toBe('-6.020599913279624');
-    await click('Iniciar gravação'); expect(host.querySelector('header')).toBeNull(); expect(host.querySelector('.se-recording-takes')).toBeNull(); expect(button('Trocar câmera')).toBeUndefined(); expect(host.querySelector('[role="timer"]')).toBeTruthy();
+    await startTake(); expect(host.querySelector('header')).toBeNull(); expect(host.querySelector('.se-recording-takes')).toBeNull(); expect(button('Trocar câmera')).toBeUndefined(); expect(host.querySelector('[role="timer"]')).toBeTruthy();
     await click('Encerrar gravação'); expect(io.save).toHaveBeenCalledTimes(1); expect(Recorder.instances).toHaveLength(1); expect(host.textContent).toContain('Takes salvos');
     const review = host.querySelector<HTMLAudioElement>('audio[aria-label="Reproduzir take salvo"]');
     expect(review).toBeTruthy(); expect(review!.controls).toBe(false); expect(button('Reproduzir take')).toBeTruthy();
@@ -349,7 +357,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production'); expect(activeVisibility()).toBe(2);
     const review = host.querySelector<HTMLVideoElement>('video[aria-label="Reproduzir take salvo"]');
     expect(review).toBeTruthy(); expect(review!.controls).toBe(false); expect(button('Reproduzir take')).toBeTruthy();
-    await click('Gravar outro take'); await click('Iniciar gravação'); await click('Encerrar gravação'); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(2); expect(io.create).toHaveBeenCalledTimes(1); expect(io.save).toHaveBeenCalledTimes(2);
+    await click('Gravar outro take'); await startTake(); await click('Encerrar gravação'); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(2); expect(io.create).toHaveBeenCalledTimes(1); expect(io.save).toHaveBeenCalledTimes(2);
     const value = [...projects.values()][0]; expect(compileStudioRecipe(value).durationTicks).toBe(480000);
     await click('Excluir take 1'); await answer('Excluir take'); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); expect(assets.size).toBe(4);
     await click('Ir para edição'); expect(host.querySelector('[data-location]')?.textContent).toBe(`/studio/projects/${value.id}`); expect(activeVisibility()).toBe(0);
@@ -395,7 +403,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
       } as unknown as StudioRemoteCaptureController;
     });
     await act(async () => root.render(<MemoryRouter initialEntries={['/studio/record']}><StudioRecordingWorkspace owner="owner" initialKind="aula" canUseScenes /></MemoryRouter>));
-    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); await click('Iniciar gravação'); await click('Encerrar gravação');
+    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); await startTake(); await click('Encerrar gravação');
     expect(host.textContent).toContain('Não foi possível preparar esta parte'); expect(host.textContent).not.toMatch(/Tentar salvar|tente recuperar/); expect(button('Retomar transferência')?.disabled).toBe(false);
     await click('Retomar transferência'); expect(host.querySelector('.se-recording-recovery')?.getAttribute('aria-busy')).toBe('true');
     expect(host.textContent).toContain('Enviando original do iPhone… 25%'); expect(button('Transferindo original…')?.disabled).toBe(true); expect(button('Descartar trecho')?.disabled).toBe(true);
@@ -411,7 +419,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(host.querySelector('.se-recording-stage.short')).toBeTruthy(); await click('Excluir take 1'); await answer('Excluir take'); expect(button('Ir para edição')?.disabled).toBe(true);
     expect(button('Voltar à preparação')).toBeUndefined(); await click('Configurações da gravação');
     expect(host.querySelectorAll('.se-recording-formats button')).toHaveLength(0); expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production');
-    await click('Fechar configurações'); await click('Abrir câmera'); expect(permissions.mock.calls.at(-1)![0].video).toBeTruthy(); await click('Iniciar gravação'); await click('Encerrar gravação'); expect([...projects.values()][0].kind).toBe('short'); expect(io.create).toHaveBeenCalledTimes(1);
+    await click('Fechar configurações'); await click('Abrir câmera'); expect(permissions.mock.calls.at(-1)![0].video).toBeTruthy(); await startTake(); await click('Encerrar gravação'); expect([...projects.values()][0].kind).toBe('short'); expect(io.create).toHaveBeenCalledTimes(1);
   });
 
   it('seleção do mic remoto usa UID do iPhone, bloqueia REC sem confirmação e mantém medidor no take', async () => {
@@ -445,12 +453,13 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     });
     await act(async () => root.render(<MemoryRouter initialEntries={['/studio/record']}><StudioRecordingWorkspace owner="owner" initialKind="aula" canUseScenes /></MemoryRouter>));
     await click('Meu iPhone · Premium'); await click('Conectar meu iPhone');
+    await enterProduction();
     expect(button('Iniciar gravação')?.disabled).toBe(true); expect(host.textContent).toContain('Confirme o microfone do iPhone'); expect(host.querySelector('[role="meter"]')).toBeNull();
-    await click('Iniciar gravação'); expect(start).not.toHaveBeenCalled();
+    await startTake(); expect(start).not.toHaveBeenCalled();
     await click('Selecionar microfone do iPhone'); const option = [...host.querySelectorAll<HTMLButtonElement>('.src-audio-option')].find(value => value.textContent?.includes(usb.name))!;
     await act(async () => option.click()); expect(configure).toHaveBeenCalledWith({ audioInputId: usb.id }); expect(permissions).not.toHaveBeenCalled();
     expect(button('Iniciar gravação')?.disabled).toBe(false); expect(host.querySelector('.src-audio-heading')?.textContent).toContain(usb.name);
-    await click('Iniciar gravação'); expect(start).toHaveBeenCalledTimes(1); expect(button('Selecionar microfone do iPhone')?.disabled).toBe(true); expect(host.querySelector('[role="meter"]')).toBeTruthy(); expect(host.querySelector('[role="dialog"]')).toBeNull();
+    await startTake(); expect(start).toHaveBeenCalledTimes(1); expect(button('Selecionar microfone do iPhone')?.disabled).toBe(true); expect(host.querySelector('[role="meter"]')).toBeTruthy(); expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it('saída tranquila não pede confirmação nem trava leaving; captura pronta é encerrada antes de voltar', async () => {
@@ -459,7 +468,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
   });
 
   it('POP cancelado preserva REC; POP confirmado espera o take durável antes de liberar histórico', async () => {
-    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined); await mount('/studio/record', true); await click('Abrir câmera'); await click('Iniciar gravação');
+    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined); await mount('/studio/record', true); await click('Abrir câmera'); await startTake();
     await pop(0, '/studio/projects'); await pop(1, '/studio/record'); expect(confirmation()?.textContent).toContain('Salvar e sair?'); await answer('Cancelar'); expect(host.querySelector('.is-recording')).toBeTruthy(); expect(Recorder.instances[0].stop).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled(); expect(go).toHaveBeenCalledTimes(1);
     const held = deferred<void>(), save = io.save.getMockImplementation()!; io.save.mockImplementationOnce(async (...args) => { await held.promise; return save(...args); });
     await pop(0, '/studio/projects'); await pop(1, '/studio/record'); await answer('Salvar e sair'); expect(go).toHaveBeenCalledTimes(2); expect(host.querySelector('.se-recording')).toBeTruthy();
@@ -473,7 +482,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
   });
 
   it('diálogo de exclusão permite cancelar e reserva um único take contra cliques duplicados/conflitantes', async () => {
-    await mount(); await record(); await click('Gravar outro take'); await click('Iniciar gravação'); await click('Encerrar gravação');
+    await mount(); await record(); await click('Gravar outro take'); await startTake(); await click('Encerrar gravação');
     const original = [...projects.values()][0], source = host.querySelector('video[aria-label="Reproduzir take salvo"]')?.getAttribute('src');
     const first = button('Excluir take 1')!, second = button('Excluir take 2')!;
     await act(async () => { first.click(); second.click(); first.click(); });
@@ -497,7 +506,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
   });
 
   it('REC salva parcial enquanto o diálogo de saída está aberto; confirmar compartilha o salvamento sem duplicar', async () => {
-    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined); await mount('/studio/record', true); await click('Abrir câmera'); await click('Iniciar gravação');
+    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined); await mount('/studio/record', true); await click('Abrir câmera'); await startTake();
     await pop(0, '/studio/projects'); await pop(1, '/studio/record'); expect(confirmation()?.textContent).toContain('Salvar e sair?'); expect(Recorder.instances[0].state).toBe('recording');
     expect(button('Encerrar gravação')?.disabled).toBe(true); await click('Encerrar gravação'); expect(Recorder.instances[0].stop).not.toHaveBeenCalled();
     await visibility('hidden'); expect(Recorder.instances[0].stop).toHaveBeenCalledTimes(1); expect(io.save).toHaveBeenCalledTimes(1); expect([...projects.values()][0].takes).toHaveLength(1);
@@ -508,14 +517,14 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
   it('permissão resolve durante saída pendente; cancelar mantém a entrada pronta e impede REC até responder', async () => {
     const permission = deferred<Stream>(); permissions.mockReturnValueOnce(permission.promise); await mount(); await click('Abrir câmera'); await click('Voltar aos projetos');
     expect(confirmation()?.textContent).toContain('Cancelar a abertura?'); const stream = new Stream([new Track('video'), new Track()]); await act(async () => permission.resolve(stream));
-    expect(button('Iniciar gravação')?.disabled).toBe(true); await click('Iniciar gravação'); expect(Recorder.instances).toHaveLength(0); expect(stream.getTracks().every(track => track.readyState === 'live')).toBe(true);
-    await answer('Cancelar'); expect(confirmation()).toBeNull(); expect(button('Iniciar gravação')?.disabled).toBe(false); expect(button('Voltar aos projetos')?.disabled).toBe(false);
-    await click('Iniciar gravação'); await click('Encerrar gravação'); expect(io.save).toHaveBeenCalledTimes(1); expect(permissions).toHaveBeenCalledTimes(1);
+    expect(button('Iniciar gravação')).toBeUndefined(); expect(button('Ir para gravação')?.disabled).toBe(true); await click('Ir para gravação'); expect(Recorder.instances).toHaveLength(0); expect(stream.getTracks().every(track => track.readyState === 'live')).toBe(true);
+    await answer('Cancelar'); expect(confirmation()).toBeNull(); expect(button('Ir para gravação')?.disabled).toBe(false); expect(button('Voltar aos projetos')?.disabled).toBe(false);
+    await startTake(); await click('Encerrar gravação'); expect(io.save).toHaveBeenCalledTimes(1); expect(permissions).toHaveBeenCalledTimes(1);
   });
 
   it('descarte visual preserva o candidato ao cancelar e só remove o trecho pendente após aprovação', async () => {
     await mount(); await record(); const saved = [...projects.values()][0];
-    io.save.mockRejectedValueOnce(new Error('Sem espaço para o segundo take.')); await click('Gravar outro take'); await click('Iniciar gravação'); await click('Encerrar gravação');
+    io.save.mockRejectedValueOnce(new Error('Sem espaço para o segundo take.')); await click('Gravar outro take'); await startTake(); await click('Encerrar gravação');
     const original = io.inspect.mock.calls.at(-1)![0]; await click('Descartar trecho'); expect(confirmation()?.textContent).toContain('Este trecho ainda não foi salvo'); expect(button('Salvar take')?.disabled).toBe(true);
     await click('Salvar take'); expect(io.save).toHaveBeenCalledTimes(2); await answer('Cancelar'); expect(button('Baixar original')).toBeTruthy();
     const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined); await click('Baixar original'); expect(URL.createObjectURL).toHaveBeenLastCalledWith(original); expect(download).toHaveBeenCalledTimes(1);
@@ -524,7 +533,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
   });
 
   it('double Back durante o diálogo restaura a entrada e libera apenas o destino final após um salvamento', async () => {
-    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined); await mount('/studio/record', true); await click('Abrir câmera'); await click('Iniciar gravação');
+    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined); await mount('/studio/record', true); await click('Abrir câmera'); await startTake();
     await pop(0, '/studio/projects'); await pop(1, '/studio/record'); await pop(-1, '/studio'); await pop(1, '/studio/record');
     expect(document.querySelectorAll('[role="alertdialog"]')).toHaveLength(1); expect(Recorder.instances[0].stop).not.toHaveBeenCalled(); expect(go.mock.calls.map(args => args[0])).toEqual([1,2]);
     await answer('Salvar e sair'); expect(Recorder.instances[0].stop).toHaveBeenCalledTimes(1); expect(io.save).toHaveBeenCalledTimes(1); expect(go).toHaveBeenLastCalledWith(-2);
@@ -532,12 +541,12 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
 
   it('diálogo pausa countdown; Cancelar retoma o restante e confirmar saída cancela sem criar outro take', async () => {
     vi.useFakeTimers(); await mount(); await click('Abrir câmera'); await click('Configurações da gravação'); await click('Gravação'); await select('Temporizador','3'); await click('Fechar configurações');
-    await click('Iniciar gravação'); await act(async()=>vi.advanceTimersByTime(1000)); expect(host.querySelector('.se-recording-countdown strong')?.textContent).toBe('2');
+    await startTake(); await act(async()=>vi.advanceTimersByTime(1000)); expect(host.querySelector('.se-recording-countdown strong')?.textContent).toBe('2');
     await click('Voltar aos projetos'); expect(confirmation()?.textContent).toContain('Cancelar a contagem?'); await act(async()=>vi.advanceTimersByTime(10000));
     expect(host.querySelector('.se-recording-countdown strong')?.textContent).toBe('2'); expect(Recorder.instances).toHaveLength(0); expect(io.save).not.toHaveBeenCalled();
     await answer('Cancelar'); await act(async()=>vi.advanceTimersByTime(1000)); expect(host.querySelector('.se-recording-countdown strong')?.textContent).toBe('1');
     await act(async()=>vi.advanceTimersByTime(1000)); expect(Recorder.instances).toHaveLength(1); expect(Recorder.instances[0].state).toBe('recording'); await click('Encerrar gravação');
-    await click('Gravar outro take'); await click('Iniciar gravação'); await click('Voltar aos projetos'); await answer('Sair da gravação'); await act(async()=>vi.advanceTimersByTime(10000));
+    await click('Gravar outro take'); await startTake(); await click('Voltar aos projetos'); await answer('Sair da gravação'); await act(async()=>vi.advanceTimersByTime(10000));
     expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/projects'); expect(Recorder.instances).toHaveLength(1); expect(io.save).toHaveBeenCalledTimes(1); expect([...projects.values()][0].takes).toHaveLength(1);
   });
 
@@ -569,7 +578,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(mic.value).toBe('external-mic'); expect(mic.selectedOptions[0].textContent).toBe('Microfone externo');
     expect(host.querySelector('[aria-label="Microfone em uso: Microfone externo"]')).toBeTruthy();
     expect(((host.querySelector('video[aria-label="Prévia da gravação"]') as HTMLVideoElement).srcObject as MediaStream).getVideoTracks()[0].getSettings().deviceId).toBe('continuity-id');
-    await click('Iniciar gravação');
+    await startTake();
     expect(host.querySelectorAll('[data-testid="recording-toolbar"] button')).toHaveLength(1); expect(button('Encerrar gravação')).toBeTruthy();
     expect(host.querySelectorAll('select')).toHaveLength(0); expect(button('Desativar microfone')).toBeUndefined(); expect(button('Voltar aos projetos')).toBeUndefined();
     expect(host.querySelector('[role="timer"]')).toBeTruthy(); expect(host.querySelector('[aria-label="Microfone em uso: Microfone externo"]')).toBeTruthy();
@@ -600,7 +609,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(host.querySelector('[aria-label="Prévia e preparação"] [aria-busy="true"]')).toBeNull(); expect(host.querySelector('[role="alert"]')?.textContent).toContain('Permita câmera e microfone');
     expect(host.textContent).not.toContain('Permission denied'); expect(host.textContent).toContain('permissões deste site');
     await click('Abrir câmera'); expect(permissions).toHaveBeenCalledTimes(2);
-    expect(host.querySelector('[role="alert"]')).toBeNull(); expect(button('Iniciar gravação')?.disabled).toBe(false);
+    expect(host.querySelector('[role="alert"]')).toBeNull(); expect(button('Ir para gravação')?.disabled).toBe(false);
   });
 
   it('erro de entrada ocupada mostra orientação de dispositivo, sem diagnosticar permissão negada', async () => {
@@ -672,7 +681,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(io.save).toHaveBeenCalledTimes(1); expect(io.create).toHaveBeenCalledTimes(1); expect(permissions).toHaveBeenCalledTimes(2);
     await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(host.querySelector('aside[aria-label="Configurações da gravação"]')).toBeNull(); expect(preview.srcObject).toBe(stream);
-    await click('Iniciar gravação'); await click('Encerrar gravação');
+    await startTake(); await click('Encerrar gravação');
     const updated = [...projects.values()][0];
     expect(updated.id).toBe(saved.id); expect(updated.title).toBe('Aula com dois takes'); expect(updated.takes).toHaveLength(2);
     expect(updated.takes[0]).toEqual(firstTake); expect(updated.editing!.assets[0]).toEqual(firstAsset);
@@ -682,15 +691,16 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
   it('temporizador cancelado ou ocultado não inicia REC nem cria take; nova contagem completa inicia uma única gravação', async () => {
     vi.useFakeTimers(); await mount(); await click('Abrir câmera');
     await click('Configurações da gravação'); await click('Gravação'); await select('Temporizador', '3'); await click('Fechar configurações');
+    await enterProduction();
     const preview = host.querySelector('video[aria-label="Prévia da gravação"]') as HTMLVideoElement, stream = preview.srcObject as unknown as Stream;
-    await click('Iniciar gravação'); expect(host.querySelector('.se-recording-countdown strong')?.textContent).toBe('3');
+    await startTake(); expect(host.querySelector('.se-recording-countdown strong')?.textContent).toBe('3');
     expect(Recorder.instances).toHaveLength(0); await click('Cancelar contagem'); await act(async () => vi.advanceTimersByTime(5000));
     expect(host.querySelector('.se-recording-countdown')).toBeNull(); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled();
-    await click('Iniciar gravação'); await act(async () => vi.advanceTimersByTime(1000)); expect(host.querySelector('.se-recording-countdown strong')?.textContent).toBe('2');
+    await startTake(); await act(async () => vi.advanceTimersByTime(1000)); expect(host.querySelector('.se-recording-countdown strong')?.textContent).toBe('2');
     await visibility('hidden'); await act(async () => vi.advanceTimersByTime(5000));
     expect(host.querySelector('.se-recording-countdown')).toBeNull(); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled();
     await visibility('visible'); expect(preview.srcObject).toBe(stream); expect(permissions).toHaveBeenCalledTimes(1);
-    await click('Iniciar gravação');
+    await startTake();
     for (let second = 0; second < 3; second++) await act(async () => vi.advanceTimersByTime(1000));
     expect(Recorder.instances).toHaveLength(1); expect(Recorder.instances[0].state).toBe('recording');
     expect(host.querySelector('.se-recording-countdown')).toBeNull(); expect(host.querySelector('[role="timer"]')).toBeTruthy(); expect(io.create).not.toHaveBeenCalled();
@@ -701,7 +711,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     vi.useFakeTimers(); await mount(); await click('Abrir câmera');
     await click('Configurações da gravação'); await click('Gravação'); await select('Temporizador', '3'); await click('Fechar configurações');
     const stream = await permissions.mock.results[0].value;
-    await click('Iniciar gravação'); await act(async () => vi.advanceTimersByTime(1000)); owner = 'other'; await mount();
+    await startTake(); await act(async () => vi.advanceTimersByTime(1000)); owner = 'other'; await mount();
     await act(async () => vi.advanceTimersByTime(5000));
     expect(stream.tracks.every((track: Track) => track.readyState === 'ended')).toBe(true); expect(Recorder.instances).toHaveLength(0);
     expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup'); expect(host.querySelector('.se-recording-countdown')).toBeNull();
@@ -723,7 +733,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(prompter.textContent).toContain('Um roteiro para a aula'); expect(preview.style.transform).toBe('scaleX(-1)'); expect(prompter.scrollTop).toBe(0);
     Object.defineProperty(prompter, 'clientHeight', { configurable: true, value: 100 });
     prompter.querySelectorAll<HTMLElement>('[data-word-index]').forEach(element => Object.defineProperty(element, 'offsetTop', { configurable: true, value: Number(element.dataset.wordIndex) * 40 }));
-    await click('Iniciar gravação');
+    await startTake();
     expect(host.querySelector('.se-recording-grid')).toBeNull(); expect(host.querySelector('aside')).toBeNull(); expect(host.querySelector('[aria-label="Teleprompter"]')).toBeTruthy();
     // The live track is retained; the presentation moves from preparation to the production stage.
     prompter = host.querySelector('[aria-label="Texto do roteiro"]') as HTMLDivElement;
@@ -754,7 +764,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await select('Microfone', 'external-mic'); const replacement = (await permissions.mock.results[1].value).getAudioTracks()[0];
     expect(camera.stop).not.toHaveBeenCalled(); expect(permissions).toHaveBeenCalledTimes(2);
     await click('Retomar leitura'); expect(Recognition.instances.at(-1)!.start).toHaveBeenCalledWith(replacement);
-    await click('Iniciar gravação'); const current = Recognition.instances.at(-1)!;
+    await startTake(); const current = Recognition.instances.at(-1)!;
     expect(current.start).toHaveBeenCalledWith(replacement); expect(Recorder.instances).toHaveLength(1);
     expect(Recorder.instances[0].stream.getAudioTracks()).toEqual([replacement]); expect(button('Encerrar gravação')).toBeTruthy();
     expect(host.querySelector('select[aria-label="Microfone"]')).toBeNull(); expect(io.create).not.toHaveBeenCalled();
@@ -779,7 +789,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
   it('ocultar aba durante REC encerra voz e salva take uma vez; voltar não religa captura ou transcrição', async () => {
     speechBoundary(); await mount(); await click('Abrir câmera');
     await click('Roteiro e teleprompter'); await input('Roteiro do teleprompter', 'Aprendemos iluminação e praticamos fotografia juntos.'); await toggle('Teleprompter'); await click('Fechar configurações');
-    await click('Iniciar gravação'); const recognition = Recognition.instances.at(-1)!, late = recognition.onresult;
+    await startTake(); const recognition = Recognition.instances.at(-1)!, late = recognition.onresult;
     expect(recognition.start).toHaveBeenCalledTimes(1); await visibility('hidden');
     expect(Recorder.instances[0].stop).toHaveBeenCalledTimes(1); expect(recognition.abort).toHaveBeenCalled(); expect(io.save).toHaveBeenCalledTimes(1);
     expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); expect(host.textContent).toContain('gravação foi encerrada ao sair desta aba');
