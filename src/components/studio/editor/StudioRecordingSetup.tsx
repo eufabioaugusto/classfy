@@ -82,10 +82,12 @@ export function StudioRecordingSetup({
           {video && <>
             <section className="srs-option-row" aria-labelledby={`${id}-layout`}>
               <h2 id={`${id}-layout`}>Cena</h2>
-              <div className="srs-layouts" role="group" aria-labelledby={`${id}-layout`}>
-                <button type="button" aria-label="Só câmera" aria-pressed={layout === 'camera'} disabled={disabled} onClick={() => onLayout('camera')}><Camera size={17} strokeWidth={1.7} aria-hidden="true" /><span>Só câmera</span></button>
-                <button type="button" aria-label="Só tela" aria-pressed={layout === 'screen'} disabled={disabled} onClick={() => onLayout('screen')}><Monitor size={17} strokeWidth={1.7} aria-hidden="true" /><span>Só tela</span></button>
-                <button type="button" aria-label="Câmera e tela · Premium" aria-pressed={layout === 'scenes'} disabled={disabled} title={canUseScenes ? 'Alterne câmera, tela e tela com você.' : 'Gravação com cenas disponível no Premium.'} onClick={() => onLayout('scenes')}><span className="srs-scenes-icon" aria-hidden="true"><Monitor size={17} strokeWidth={1.7} /><Camera size={9} strokeWidth={2} /></span><span>Câmera e tela</span><PremiumBadge /></button>
+              <div className="srs-scene-choices" role="group" aria-labelledby={`${id}-layout`}>
+                <div className="srs-layouts">
+                  <button type="button" aria-label="Só câmera" aria-pressed={layout === 'camera'} disabled={disabled} onClick={() => onLayout('camera')}><Camera size={17} strokeWidth={1.7} aria-hidden="true" /><span>Só câmera</span></button>
+                  <button type="button" aria-label="Só tela" aria-pressed={layout === 'screen'} disabled={disabled} onClick={() => onLayout('screen')}><Monitor size={17} strokeWidth={1.7} aria-hidden="true" /><span>Só tela</span></button>
+                </div>
+                <button type="button" className="srs-scenes-card" aria-label="Câmera e tela · Premium" aria-pressed={layout === 'scenes'} disabled={disabled} title={canUseScenes ? 'Alterne câmera, tela e tela com você.' : 'Gravação com cenas disponível no Premium.'} onClick={() => onLayout('scenes')}><span className="srs-scenes-icon" aria-hidden="true"><Monitor size={20} strokeWidth={1.7} /><Camera size={10} strokeWidth={2} /></span><span>Câmera e tela</span><PremiumBadge /></button>
               </div>
             </section>
             {layout !== 'screen' && <section className="srs-option-row" aria-labelledby={`${id}-camera`}>

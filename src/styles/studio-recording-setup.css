@@ -32,7 +32,15 @@
 .srs-premium > svg { color: inherit; }
 .srs-premium > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .srs-scenes-icon { position: relative; display: flex; flex: none; }
-.srs-scenes-icon svg:last-child { position: absolute; bottom: -2px; right: -3px; background: #16161c; border-radius: 3px; }
+.srs-scenes-icon svg:last-child { position: absolute; bottom: -2px; right: -3px; background: var(--srs-card-background); border-radius: 3px; }
+.srs-scene-choices { display: grid; gap: 9px; width: fit-content; max-width: 100%; min-width: 0; }
+.srs-scene-choices .srs-layouts { width: 100%; }
+.srs-scene-choices .srs-layouts > button { flex: 1; }
+.srs-scenes-card { --srs-card-background: var(--srs-accent); display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 12px 15px; border: 1px solid transparent; border-radius: 9px; background: var(--srs-card-background); color: #fff; font-size: 14px; font-weight: 500; line-height: 1.3; text-align: left; transition: background .15s, border-color .15s, box-shadow .15s; }
+.srs-scenes-card .srs-premium { margin-left: auto; color: #fff; }
+.srs-scenes-card .srs-premium > svg { width: 18px; height: 18px; }
+.srs-scenes-card:hover:not(:disabled) { --srs-card-background: #fa6277; }
+.srs-scenes-card[aria-pressed="true"] { --srs-card-background: #cd3048; border-color: #ffc6d0; box-shadow: 0 0 0 2px #ef50662b; }
 .srs-scene { min-width: 0; }
 .srs-scene-top { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 32px; margin-bottom: 10px; }
 .srs-context { margin: 0; color: #a49da9; font-size: 12px; line-height: 1.5; }
@@ -42,7 +50,6 @@
 .srs-stage { display: grid; position: relative; width: 100%; aspect-ratio: 16 / 9; margin: 0 auto; overflow: hidden; border: 1px solid #2b2b33; border-radius: 15px; background: #07080b; isolation: isolate; }
 .srs-frame { position: absolute; top: 50%; left: 50%; width: 100%; height: 100%; transform: translate(-50%, -50%); overflow: hidden; }
 .srs-scene.is-portrait .srs-frame { width: 31.640625%; }
-.srs-scene.is-audio .srs-stage { width: 100%; aspect-ratio: 2.6; min-height: 210px; }
 .srs-empty-scene { display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%; height: 100%; text-align: center; padding: 28px; background: radial-gradient(ellipse at 50% 45%, #28172165, transparent 62%); }
 .srs-empty-icon { display: grid; place-items: center; width: 61px; height: 61px; margin-bottom: 17px; border: 1px solid #46313e; border-radius: 19px; background: #271b23; color: #d688a0; }
 .srs-empty-scene h2 { max-width: 340px; margin: 0 0 9px; color: #e7e0e9; font-size: 20px; font-weight: 500; line-height: 1.3; letter-spacing: -.02em; }
@@ -85,10 +92,9 @@
   .srs-setup .srs-formats > button, .srs-layouts > button, .srs-sources > button { min-width: 0; min-height: 41px; padding: 9px 8px; font-size: 13px; }
   .srs-setup .srs-formats > button { gap: 3px; padding-inline: 4px; }
   .srs-formats > button > svg { display: none; }
-  .srs-layouts > button:last-child { grid-column: 1 / -1; }
+  .srs-scene-choices { width: 100%; }
   .srs-output { width: 100%; }
   .srs-scene-top { min-height: 26px; margin-bottom: 10px; }
-  .srs-scene.is-audio .srs-stage { min-height: 280px; }
 }
 @media (min-width: 601px) and (max-width: 1099px) {
   .srs-workbench { gap: 22px; }
@@ -117,14 +123,14 @@
   .srs-option-row h2 { font-size: 12px; }
   .srs-setup .srs-formats, .srs-layouts, .srs-sources { display: grid; width: 100%; max-width: none; gap: 3px; padding: 3px; }
   .srs-setup .srs-formats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .srs-layouts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .srs-scene-choices { width: 100%; }
+  .srs-layouts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .srs-sources { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .srs-setup .srs-formats > button, .srs-layouts > button, .srs-sources > button { gap: 6px; min-width: 0; min-height: 42px; padding: 8px 6px; font-size: 13px; white-space: normal; }
   .srs-setup .srs-formats > button { padding-inline: 4px; font-size: 12px; white-space: nowrap; }
   .srs-formats > button > svg { width: 14px; height: 14px; }
-  .srs-layouts > button > svg, .srs-layouts .srs-scenes-icon { display: none; }
+  .srs-layouts > button > svg { display: none; }
   .srs-layouts > button > span:not(.srs-premium) { max-width: 80px; }
-  .srs-layouts .srs-premium { align-self: center; }
   .srs-scene-top { align-items: flex-start; gap: 12px; margin-bottom: 10px; }
   .srs-context { font-size: 11px; }
   .srs-state { font-size: 10px; margin-top: 2px; }
@@ -139,7 +145,6 @@
   .srs-empty-scene p { max-width: 280px; font-size: 12px; line-height: 1.5; }
   .srs-scene.is-portrait .srs-empty-scene { padding: 15px; }
   .srs-scene.is-portrait .srs-empty-scene h2 { font-size: 17px; }
-  .srs-scene.is-audio .srs-stage { min-height: 230px; }
   .srs-devices { margin-top: 11px; }
   .srs-action { position: fixed; inset: auto 0 0; z-index: 5; width: min(560px, 100%); margin: 0 auto; padding: 13px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid #3b303b; background: #131318f5; backdrop-filter: blur(12px); box-shadow: 0 -8px 24px #06070b44; }
   .srs-private { margin-top: 8px; font-size: 10px; }
