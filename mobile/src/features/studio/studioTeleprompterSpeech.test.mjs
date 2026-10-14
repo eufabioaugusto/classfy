@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as tracking from './StudioTeleprompterTracking.ts';
 
-function harness({ available = true, permission = { granted: true, canAskAgain: false }, deferPermission = false, generation = 7 } = {}) {
-  let options = { ownerId: 'owner', projectId: 'project', script: 'Iluminação suave melhora detalhes. Aprendemos áudio com cuidado. Iluminação suave melhora detalhes.', active: false, isFocused: true, foreground: true, resetKey: 0, generation };
+function harness({ available = true, permission = { granted: true, canAskAgain: false }, deferPermission = false, generation = 7,
+  script = 'Iluminação suave melhora detalhes. Aprendemos áudio com cuidado. Iluminação suave melhora detalhes.' } = {}) {
+  let options = { ownerId: 'owner', projectId: 'project', script, active: false, isFocused: true, foreground: true, resetKey: 0, generation };
   let cursor = 0, effects = [], dirty = true, result, disposed = false, providerCalls = 0, resolvePermission;
   const slots = [], listeners = new Set();
   const equal = (a, b) => a && b && a.length === b.length && a.every((item, index) => Object.is(item, b[index]));
@@ -84,6 +85,49 @@ test('silêncio nativo aguarda voz sem desligar intent ou transformar pausa em e
     h.emit({ type: 'status', status: 'listening', sequence: 3 });
     h.emit({ segmentId: 2, sequence: 4, transcript: 'aprendemos áudio com cuidado' }); await h.pump();
     assert.equal(h.state().readWordCount, 8); assert.equal(h.state().status, 'listening'); assert.equal(h.calls(), 1);
+  } finally { h.dispose(); }
+});
+test('parágrafo confirmado renova somente a leitura e aceita fala não cumulativa sem depender dos tempos do serviço', async () => {
+  const h = harness({ script: 'Iluminação suave melhora detalhes.\n\nAprendemos áudio com cuidado.\n\nIluminação suave melhora detalhes.' });
+  try {
+    await start(h);
+    const firstSession = h.state().speechSessionId;
+    h.emit({ isFinal: false }); await h.pump(); assert.equal(h.state().readWordCount, 4);
+    const secondSession = h.state().speechSessionId;
+    assert.notEqual(secondSession, firstSession); assert.equal(h.state().speechEnabled, true);
+    // Apple can report only the new utterance with all timestamps zero. A
+    // paragraph boundary renews the native request without resetting words.
+    h.emit({ sessionId: firstSession, sequence: 99, isFinal: true, transcript: 'Iluminação suave melhora detalhes. Aprendemos áudio com cuidado.' });
+    await h.pump(); assert.equal(h.state().readWordCount, 4);
+    h.emit({ isFinal: false, transcript: 'Aprendemos áudio com cuidado.' });
+    await h.pump(); assert.equal(h.state().readWordCount, 8);
+    const thirdSession = h.state().speechSessionId;
+    assert.notEqual(thirdSession, secondSession);
+    h.emit({ sequence: 1, type: 'status', status: 'paused', code: 'awaiting_speech_service' });
+    await h.pump();
+    assert.equal(h.state().speechEnabled, true); assert.equal(h.state().speechSessionId, thirdSession);
+    assert.equal(h.state().readWordCount, 8); assert.equal(h.state().message, 'Retomando leitura…');
+    // A delayed final cannot color the identical phrase in paragraph three.
+    h.emit({ sessionId: firstSession, sequence: 100, isFinal: true }); await h.pump(); assert.equal(h.state().readWordCount, 8);
+    h.emit({ sequence: 2, type: 'status', status: 'listening' });
+    h.emit({ sequence: 3, isFinal: false }); await h.pump();
+    assert.equal(h.state().readWordCount, 12); assert.equal(h.state().status, 'listening');
+    assert.equal(h.state().speechSessionId, thirdSession); assert.equal(h.calls(), 1);
+  } finally { h.dispose(); }
+});
+test('silêncio e frase incompleta não renovam parágrafo; resultado com duas quebras renova uma vez sem perder palavras', async () => {
+  const h = harness({ script: 'Iluminação suave melhora detalhes.\r\nAprendemos áudio com cuidado.\n\nIluminação suave melhora detalhes.' });
+  try {
+    await start(h); const first = h.state().speechSessionId;
+    h.emit({ isFinal: false, transcript: 'Iluminação suave melhora' }); await h.pump();
+    assert.equal(h.state().readWordCount, 3); assert.equal(h.state().speechSessionId, first);
+    h.emit({ type: 'status', status: 'paused', code: 'awaiting_speech', sequence: 2 }); await h.pump();
+    assert.equal(h.state().speechSessionId, first); assert.equal(h.state().readWordCount, 3);
+    h.emit({ sequence: 3, isFinal: false, transcript: 'Iluminação suave melhora detalhes. Aprendemos áudio com cuidado.' }); await h.pump();
+    assert.equal(h.state().readWordCount, 8); const third = h.state().speechSessionId; assert.notEqual(third, first);
+    h.emit({ sessionId: first, sequence: 4, isFinal: true }); await h.pump(); assert.equal(h.state().readWordCount, 8);
+    h.emit({ isFinal: false }); await h.pump(); assert.equal(h.state().readWordCount, 12);
+    assert.equal(h.state().speechSessionId, third); assert.equal(h.calls(), 1);
   } finally { h.dispose(); }
 });
 test('ausência de modelo, idioma e áudio comunica causa sem pedir atualização de um binário atual', async () => {

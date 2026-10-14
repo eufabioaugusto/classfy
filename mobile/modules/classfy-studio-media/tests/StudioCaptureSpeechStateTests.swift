@@ -101,11 +101,68 @@ struct StudioCaptureSpeechStateTests {
     _ = recovery.failed(now: 3602.1)
     recovery.noteResult()
     try requireSpeech(recovery.failed(now: 3602.2) == .retry(after: 0.25), "actual transcript resets failure budget")
-    try requireSpeech(!recovery.waitAfterEmptyFinal(now: 3602.3), "recent voice retains ready reader")
+    try requireSpeech(recovery.waitAfterEmptyFinal(now: 3602.3), "empty final keeps a cooldown even with recent room noise")
     try requireSpeech(recovery.waitAfterEmptyFinal(now: 3610), "empty final after silence waits for fresh audio")
     try requireSpeech(!recovery.noteAudio(rms: 0.1, now: 3610.1)
       && recovery.noteAudio(rms: 0.1, now: 3610.4), "minimum wakeup cooldown prevents fast task loop")
     passed("active recognition failures remain bounded; result and explicit reset recover")
+
+    var availability = StudioCaptureSpeechRecovery()
+    availability.waitForAvailability(now: 20)
+    try requireSpeech(availability.noteAudio(rms: 0.1, now: 20.6) && availability.awaitingActivity,
+      "wake-up intent remains until a real task starts")
+    try requireSpeech(availability.noteAudio(rms: 0.1, now: 20.9) && availability.awaitingActivity,
+      "failed availability attempt cannot consume recovery intent")
+    availability.started()
+    try requireSpeech(!availability.awaitingActivity && !availability.noteAudio(rms: 0.1, now: 21.2),
+      "successful task consumes intent once")
+    passed("temporary availability retains intent until request creation")
+
+    func timed(_ text: String, start: Double) -> [StudioCaptureSpeechTranscript.Segment] {
+      let value = text as NSString
+      var location = 0
+      return text.split(separator: " ").enumerated().map { index, word in
+        let range = value.range(of: String(word), options: [], range: NSRange(location: location, length: value.length - location))
+        location = NSMaxRange(range)
+        return .init(timestamp: start + Double(index) * 0.4, duration: 0.3, range: range)
+      }
+    }
+    var rolling = StudioCaptureSpeechTranscript()
+    let firstText = "Olá, creator com atenção."
+    try requireSpeech(rolling.append(formattedString: firstText, segments: timed(firstText, start: 0)) == firstText,
+      "UTF16 ranges preserve accents and punctuation")
+    let secondText = "Depois aprendemos áudio."
+    let secondProvisional = timed(secondText, start: 0).map {
+      StudioCaptureSpeechTranscript.Segment(timestamp: 0, duration: 0, range: $0.range)
+    }
+    try requireSpeech(rolling.append(formattedString: secondText, segments: secondProvisional) == nil
+      && rolling.heldResult && !rolling.timeUsable && rolling.fullWordCount == 4
+      && rolling.currentResultWordCount == 3 && rolling.segmentCount == 4,
+      "provisional second utterance holds publication and preserves trusted first paragraph")
+    try requireSpeech(rolling.append(formattedString: secondText, segments: timed(secondText, start: 4)) == firstText + " " + secondText,
+      "new utterance at later audio times preserves old prefix")
+    let revisedText = "Depois cuidamos do áudio."
+    try requireSpeech(rolling.append(formattedString: revisedText, segments: timed(revisedText, start: 4)) == firstText + " " + revisedText,
+      "overlapping interim revision replaces instead of duplicating")
+    let thirdText = "Finalizamos esta aula."
+    try requireSpeech(rolling.append(formattedString: thirdText, segments: timed(thirdText, start: 8)) == firstText + " " + revisedText + " " + thirdText,
+      "three utterances remain cumulative in the same task")
+    passed("timestamped utterances preserve prefix and revise overlap without duplicate words")
+
+    let provisional = timed("Hipótese provisória", start: 0).map {
+      StudioCaptureSpeechTranscript.Segment(timestamp: 0, duration: 0, range: $0.range)
+    }
+    try requireSpeech(rolling.append(formattedString: "Hipótese provisória", segments: provisional) == nil
+      && rolling.heldResult && !rolling.timeUsable && rolling.firstTimestamp == 0
+      && rolling.fullWordCount == 11 && rolling.currentResultWordCount == 2,
+      "all-zero provisional times hold output without erasing timed history")
+    let rollback = "Correção mais antiga."
+    try requireSpeech(rolling.append(formattedString: rollback, segments: timed(rollback, start: 1)) == "Olá, creator " + rollback
+      && !rolling.heldResult, "valid earlier overlap replaces only the old overlapping span")
+    rolling.reset()
+    try requireSpeech(rolling.append(formattedString: secondText, segments: timed(secondText, start: 0)) == secondText,
+      "a real new task cannot inherit the previous task transcript")
+    passed("provisional timing holds history, valid timing replaces overlap, and new task resets history")
 
     let voice = try speechPCM((0..<480).map { sin(Float($0) * 2 * .pi / 48) * 0.5 })
     var received: [CMSampleBuffer] = []

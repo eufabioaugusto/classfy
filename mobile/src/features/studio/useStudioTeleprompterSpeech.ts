@@ -18,6 +18,7 @@ const sameIdentity = (a: Options, b: Options) => a.ownerId === b.ownerId && a.pr
 function speechMessage(status: Status, code?: string) {
   if (status === 'denied') return 'Permita o reconhecimento de voz nos Ajustes para acompanhar sua leitura.';
   if (status === 'paused' && code === 'awaiting_speech') return 'Aguardando sua voz.';
+  if (status === 'paused' && code === 'awaiting_speech_service') return 'Retomando leitura…';
   if (status === 'unavailable') {
     if (code === 'on_device_unavailable' || code === 'speech_locale_unavailable') return 'O reconhecimento em português não está disponível neste aparelho. Escolha a rolagem automática.';
     if (code === 'capture_audio_unavailable') return 'O áudio da câmera não está disponível para acompanhar sua voz. Confira o microfone ou escolha a rolagem automática.';
@@ -37,6 +38,7 @@ export function useStudioTeleprompterSpeech(options: Options) {
   const [, refresh] = useState(0);
   const mounted = useRef(true), current = useRef(options), backgroundEpoch = useRef(0), permissionEpoch = useRef(0);
   const matcher = useRef<ReturnType<typeof createStudioTeleprompterMatcher>>(null!);
+  const recognizedPosition = useRef(0);
   if (!matcher.current) matcher.current = createStudioTeleprompterMatcher(options.script);
   const fault = useRef(false), request = useRef<{ identity: Options; epoch: number; scopeEpoch: number; promise: Promise<boolean> } | null>(null);
   const stream = useRef<{ id: string; enabled: boolean; generation?: number; sequence: number }>(null!);
@@ -46,6 +48,7 @@ export function useStudioTeleprompterSpeech(options: Options) {
   if (changed || options.isFocused !== current.current.isFocused) permissionEpoch.current++;
   if (changed) {
     matcher.current = createStudioTeleprompterMatcher(options.script);
+    recognizedPosition.current = 0;
     fault.current = false;
     stream.current = { id: nextSession(), enabled: false, generation: undefined, sequence: -1 };
   }
@@ -70,6 +73,7 @@ export function useStudioTeleprompterSpeech(options: Options) {
     return () => { mounted.current = false; backgroundEpoch.current++; stream.current.enabled = false; subscription.remove(); };
   }, []);
   useEffect(() => {
+    recognizedPosition.current = 0;
     setReadWordCount(matcher.current.reset().readWordCount);
     setStatus(available ? 'paused' : 'unavailable');
     setMessage(available ? '' : speechMessage('unavailable'));
@@ -135,10 +139,23 @@ export function useStudioTeleprompterSpeech(options: Options) {
     if (event.type !== 'result' || typeof event.transcript !== 'string' || !event.transcript.trim()
       || !Number.isSafeInteger(event.segmentId) || event.segmentId < 0) return;
     const result = matcher.current.follow({ text: event.transcript, final: event.isFinal === true, segmentId: `${owned.id}:${event.generation}:${event.segmentId}` });
-    if (result.matched) setReadWordCount(result.readWordCount);
+    if (result.matched) {
+      const previousPosition = recognizedPosition.current;
+      recognizedPosition.current = result.readWordCount;
+      setReadWordCount(result.readWordCount);
+      // A confirmed script paragraph is an explicit recognition boundary.
+      // Start the next request from that position, even when Apple's partial
+      // timestamps stay provisional. This prop only renews Speech, not REC.
+      if (result.readWordCount < matcher.current.tokens.length
+        && matcher.current.tokens.slice(previousPosition, result.readWordCount).some(word => /[\r\n]/.test(word.punctuation))) {
+        stream.current = { ...owned, id: nextSession(), sequence: -1 };
+        refresh(value => value + 1);
+      }
+    }
     setStatus('listening'); setMessage('');
   };
   const reset = () => {
+    recognizedPosition.current = 0;
     matcher.current.reset(); setReadWordCount(0); fault.current = false;
     stream.current = { id: nextSession(), enabled: false, generation: current.current.generation, sequence: -1 };
     refresh(value => value + 1);
