@@ -16,6 +16,7 @@ export interface StudioRecordingSetupProps {
   disabled?: boolean;
   openDisabled?: boolean;
   canUseScenes: boolean;
+  premiumLoading?: boolean;
   cta: string;
   onFormat: (format: StudioKind | 'live') => void;
   onLayout: (layout: StudioRecordingLayout) => void;
@@ -47,7 +48,7 @@ function PremiumBadge() {
 /** Presentational preparation surface. Capture and its lifecycle belong to the workspace. */
 export function StudioRecordingSetup({
   kind, liveSelected, mode, remoteScenes, title, formatLocked = false, disabled = false, openDisabled = false,
-  canUseScenes, cta, onFormat, onLayout, onCameraSource, onTitle, onOpen, recovery, error,
+  canUseScenes, premiumLoading = false, cta, onFormat, onLayout, onCameraSource, onTitle, onOpen, recovery, error,
   preview, devices, tools, context, preparing = false, ready = false, onCancelPreparation,
 }: StudioRecordingSetupProps) {
   const id = useId();
@@ -87,7 +88,7 @@ export function StudioRecordingSetup({
                   <button type="button" aria-label="Só câmera" aria-pressed={layout === 'camera'} disabled={disabled} onClick={() => onLayout('camera')}><Camera size={17} strokeWidth={1.7} aria-hidden="true" /><span>Só câmera</span></button>
                   <button type="button" aria-label="Só tela" aria-pressed={layout === 'screen'} disabled={disabled} onClick={() => onLayout('screen')}><Monitor size={17} strokeWidth={1.7} aria-hidden="true" /><span>Só tela</span></button>
                 </div>
-                <button type="button" className="srs-scenes-card" aria-label="Câmera e tela · Premium" aria-pressed={layout === 'scenes'} disabled={disabled} title={canUseScenes ? 'Alterne câmera, tela e tela com você.' : 'Gravação com cenas disponível no Premium.'} onClick={() => onLayout('scenes')}><span className="srs-scenes-icon" aria-hidden="true"><Monitor size={20} strokeWidth={1.7} /><Camera size={10} strokeWidth={2} /></span><span>Câmera e tela</span><PremiumBadge /></button>
+                <button type="button" className={`srs-scenes-card${!canUseScenes ? ' is-locked' : ''}`} aria-label="Câmera e tela · Premium" aria-pressed={layout === 'scenes'} aria-haspopup={!canUseScenes ? 'dialog' : undefined} aria-busy={premiumLoading || undefined} disabled={disabled} title={premiumLoading ? 'Confirmando seu plano.' : canUseScenes ? 'Novo · Liberado no seu Premium. Alterne câmera, tela e tela com você.' : 'Disponível no Premium. Assine aqui e continue sua preparação.'} onClick={() => onLayout('scenes')}><span className="srs-scenes-icon" aria-hidden="true"><Monitor size={20} strokeWidth={1.7} /><Camera size={10} strokeWidth={2} /></span><span>Câmera e tela</span>{premiumLoading ? <span className="srs-scenes-badge" role="status"><Loader2 size={15} className="srs-spin" aria-hidden="true" /><span className="srs-visually-hidden">Confirmando plano</span></span> : canUseScenes ? <span className="srs-scenes-badge">Novo</span> : <PremiumBadge />}</button>
               </div>
             </section>
             {layout !== 'screen' && <section className="srs-option-row" aria-labelledby={`${id}-camera`}>

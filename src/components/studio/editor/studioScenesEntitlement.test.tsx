@@ -117,7 +117,7 @@ describe('entitlement de cenas e oferta ligada à conta atual', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(window.open).not.toHaveBeenCalled(); expect(io.invoke).not.toHaveBeenCalled(); expect(access.canUseScenes).toBe(false);
     const onConfirmed = io.checkout.mock.calls[0][1];
     io.invoke.mockResolvedValue({ data: { hasSubscription: true, plan: 'premium' }, error: null });
-    await act(async () => onConfirmed()); expect(access.canUseScenes).toBe(false);
+    await act(async () => { await expect(onConfirmed()).rejects.toThrow('Atualize o acesso'); }); expect(access.canUseScenes).toBe(false);
     io.rows.set('creator', profile()); await act(async () => onConfirmed()); expect(access.canUseScenes).toBe(true);
   });
   it('owner/unmount após handoff não verifica nem libera a conta nova pelo callback antigo', async () => {

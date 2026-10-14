@@ -62,7 +62,7 @@ function AudioMonitor({ state }: { state: StudioCaptureState }) {
 }
 
 /** Private production stage. No device or draft is opened before an explicit gesture. */
-export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = '', projectId, canUseScenes = false, onUpgradeScenes, onUpgradeRemote }: { owner: string; initialKind?: StudioKind; initialTitle?: string; projectId?: string; canUseScenes?: boolean; onUpgradeScenes?: () => void; onUpgradeRemote?: () => void }) {
+export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = '', projectId, canUseScenes = false, premiumLoading = false, onUpgradeScenes, onUpgradeRemote }: { owner: string; initialKind?: StudioKind; initialTitle?: string; projectId?: string; canUseScenes?: boolean; premiumLoading?: boolean; onUpgradeScenes?: () => void; onUpgradeRemote?: () => void }) {
   const navigate = useNavigate(), location = useLocation();
   const [stage, setStage] = useState<'setup' | 'production'>('setup'), [kind, setKind] = useState<StudioKind>(initialKind ?? 'aula');
   const [captureRevision, setCaptureRevision] = useState(0), selectionTouched = useRef(false);
@@ -573,7 +573,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
   }}>
     {stage === 'setup' && <header className="se-recording-header"><div className="se-recording-brand"><button className="se-recording-icon" aria-label="Voltar aos projetos" disabled={leaving || confirmationPending} onClick={() => void leave()}><ArrowLeft size={20} /></button><img src="/brand/classfy-simbolo-vermelho.svg" alt="Classfy" /><span>Studio</span><i /><strong>Gravar</strong></div><span className="se-recording-header-note"><ShieldCheck size={15} />Seu espaço privado</span></header>}
     {stage === 'setup' ? <StudioRecordingSetup kind={kind} liveSelected={liveSelected} mode={mode} remoteScenes={remoteScenes} title={title}
-      formatLocked={loading || !!project} disabled={occupied || pendingFile} openDisabled={!!error && !!projectId && !project || ready && !remoteScreenRequired && !remoteAudioReady} canUseScenes={canUseScenes}
+      formatLocked={loading || !!project} disabled={occupied || pendingFile} openDisabled={!!error && !!projectId && !project || ready && !remoteScreenRequired && !remoteAudioReady} canUseScenes={canUseScenes} premiumLoading={premiumLoading}
       cta={liveSelected ? 'Preparar live' : setupCTA} onFormat={next => void chooseSetupFormat(next)} onLayout={chooseSetupLayout} onCameraSource={chooseSetupCamera}
       onTitle={setTitle} onOpen={liveSelected ? () => navigate('/studio/live') : remoteScreenRequired ? prepareScreen : ready ? start : openCapture}
       preview={!liveSelected ? preflightPreview : undefined} devices={!liveSelected ? preflightDevices : undefined} tools={preflightTools} context={setupContext}

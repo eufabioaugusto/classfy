@@ -14,7 +14,7 @@ function StudioRecordSession({ owner, params }: { owner: string; params: URLSear
   const initialKind: StudioKind | undefined = kind === 'aula' || kind === 'short' || kind === 'podcast' ? kind : undefined;
   return <>
     <StudioRecordingWorkspace owner={owner} initialKind={initialKind} initialTitle={params.get('title')?.slice(0, 160)}
-      projectId={params.get('project') ?? undefined} canUseScenes={entitlement.canUseScenes} onUpgradeScenes={() => { setUpgradeFeature('scenes'); setUpgradeOpen(true); }} onUpgradeRemote={() => { setUpgradeFeature('iphone'); setUpgradeOpen(true); }} />
+      projectId={params.get('project') ?? undefined} canUseScenes={entitlement.canUseScenes} premiumLoading={entitlement.loading} onUpgradeScenes={() => { setUpgradeFeature('scenes'); setUpgradeOpen(true); }} onUpgradeRemote={() => { setUpgradeFeature('iphone'); setUpgradeOpen(true); }} />
     <StudioScenesUpgradeDialog owner={owner} open={upgradeOpen} onOpenChange={setUpgradeOpen} entitlement={entitlement} feature={upgradeFeature} />
   </>;
 }
