@@ -15,7 +15,7 @@ export function StudioCameraMonitorPanel({ premium, available, ready, state, onE
   return <View style={styles.panel}>
     <View style={styles.heading}><View style={styles.symbol}><Monitor size={25} color="#75DCAF" /></View>
       <View style={styles.headingText}><Text style={styles.title}>Seu enquadramento, em outra tela.</Text>
-        <Text style={styles.detail}>Use a câmera traseira e acompanhe a cena no navegador. A gravação e os ajustes ficam no iPhone.</Text></View>
+        <Text style={styles.detail}>O monitor abre automaticamente na Classfy do computador. Mantenha o navegador aberto na mesma conta.</Text></View>
       <PlanCrown plan="premium" size={16} />
     </View>
     {!premium ? <StudioButton label="Conhecer o Premium" disabled={upgradeDisabled} icon={<PlanCrown plan="premium" size={16} />} onPress={onUpgrade} />
@@ -24,13 +24,13 @@ export function StudioCameraMonitorPanel({ premium, available, ready, state, onE
         onPress={onDisable} style={styles.toggle}><Text style={styles.toggleText}>Visualizar no computador</Text><View style={[styles.switch, styles.switchOn]}><View style={[styles.thumb, { alignSelf: 'flex-end' }]} /></View></Pressable>
       : <Pressable accessibilityRole="switch" accessibilityLabel="Visualizar no computador" accessibilityState={{ checked: false, disabled: !ready }} disabled={!ready}
         onPress={onEnable} style={[styles.toggle, !ready && { opacity: 0.45 }]}><Text style={styles.toggleText}>{ready ? 'Visualizar no computador' : 'Aguarde a câmera preparar a imagem'}</Text><View style={styles.switch}><View style={styles.thumb} /></View></Pressable>}
-    <View style={styles.address}><Text style={styles.addressLabel}>No computador, abra</Text>
+    <View style={styles.address}><Text style={styles.addressLabel}>Para abrir o monitor manualmente</Text>
       <Text selectable accessibilityLabel={`Endereço do monitor: ${STUDIO_CAMERA_MONITOR_URL}`} style={styles.url}>classfy.com.br/studio/monitor</Text>
       <Text style={styles.detail}>Entre na mesma conta Classfy deste iPhone.</Text>
     </View>
     {state.enabled && <View accessibilityLiveRegion="polite" style={styles.status}>
       {connected ? state.viewerPresent ? <Eye size={16} color="#75DCAF" /> : <Check size={16} color="#75DCAF" /> : <Monitor size={16} color={colors.muted} />}
-      <Text style={styles.statusText}>{connected ? state.viewerPresent ? 'Visualizando no computador' : 'Prévia conectada · abra o monitor no computador'
+      <Text style={styles.statusText}>{connected ? state.viewerPresent ? 'Visualizando no computador' : 'Monitor ativo · aguardando seu navegador'
         : state.phase === 'waiting' ? 'Aguardando a câmera deste iPhone…' : 'Conectando a prévia…'}</Text>
     </View>}
     {!!state.error && <Text accessibilityLiveRegion="polite" style={styles.error}>{state.error}</Text>}
