@@ -21,6 +21,25 @@ export function cameraConnectionAccess(session: JsonObject, role: string): { ide
     canPublishData: true,
   } };
 }
+/** Monitor viewers receive no camera data/control publishing permission. */
+export function monitorConnectionAccess(monitor: JsonObject, role: string, clientId: string): { identity: string; grant: VideoGrant } {
+  if (!['device', 'viewer'].includes(role) || !UUID.test(clientId)) throw new CameraError('studio_camera_invalid_request');
+  if (monitor.status !== 'active' || [monitor.id, monitor.deviceId].some(value => typeof value !== 'string' || !UUID.test(value)) ||
+      !Number.isFinite(Date.parse(String(monitor.expiresAt))) || Date.parse(String(monitor.expiresAt)) <= Date.now())
+    throw new CameraError('studio_camera_monitor_expired');
+  if (role === 'device' && clientId !== monitor.deviceId) throw new CameraError('studio_camera_client_mismatch');
+  return { identity: `studio-monitor-${role}-${monitor.id}-${clientId}`, grant: {
+    roomJoin: true, room: `classfy-studio-monitor-${monitor.id}`, canPublish: role === 'device',
+    canPublishSources: role === 'device' ? [TrackSource.CAMERA] : [], canSubscribe: role === 'viewer', canPublishData: false,
+  } };
+}
+async function monitorConnection(monitor: JsonObject, role: string, clientId: string) {
+  const { url, key, secret } = rtcConfig();
+  const { identity, grant } = monitorConnectionAccess(monitor, role, clientId);
+  const ttl = Math.max(1, Math.min(60, Math.floor((Date.parse(String(monitor.expiresAt)) - Date.now()) / 1000)));
+  const token = new AccessToken(key, secret, { identity, ttl }); token.addGrant(grant);
+  return { url, token: await token.toJwt(), identity, expiresAt: new Date(Date.now() + ttl * 1000).toISOString() };
+}
 async function connection(session: JsonObject, role: string) {
   const { url, key, secret } = rtcConfig();
   const { identity, grant } = cameraConnectionAccess(session, role);
@@ -41,12 +60,14 @@ export async function handleCameraRequest(req: Request): Promise<Response> {
     let code: string | undefined;
     if (action === 'create') { rtcConfig(); code = generatePairingCode(); params.pairingHash = await pairingHash(code); }
     if (action === 'join') { rtcConfig(); params.pairingHash = await pairingHash(String(params.code)); delete params.code; }
-    if (action === 'connect') rtcConfig();
-    const { data, error } = await client.rpc('studio_camera_action', { p_user: user.id, p_action: action, p_params: params });
+    if (action === 'connect' || action === 'monitor-create' || action === 'monitor-connect') rtcConfig();
+    const isMonitor = action.startsWith('monitor-');
+    const { data, error } = await client.rpc(isMonitor ? 'studio_camera_monitor_action' : 'studio_camera_action', { p_user: user.id, p_action: action, p_params: params });
     if (error) throw error;
     const response = data as JsonObject;
     const objectPath = response._objectPath;
     const roomsToClose = response._roomsToClose;
+    const monitorRoomsToClose = response._monitorRoomsToClose;
     const partIndex = response._partIndex; const partOffset = response._partOffset;
     const partBytes = response._partBytes; const totalParts = response._totalParts; const partMime = response._partMime;
     const partUploaded = response._partUploaded === true;
@@ -54,6 +75,8 @@ export async function handleCameraRequest(req: Request): Promise<Response> {
     const session = response.session as JsonObject;
     if (action === 'create' && !session.deviceId) response.pairing = { code, expiresAt: session.expiresAt };
     if (action === 'join' || action === 'connect') response.connection = await connection(session, action === 'join' ? 'device' : String(params.role));
+    if (action === 'monitor-create' || action === 'monitor-connect') response.connection = await monitorConnection(response.monitor as JsonObject,
+      action === 'monitor-create' ? 'device' : String(params.role), action === 'monitor-create' ? String(params.deviceId) : String(params.clientId));
     if (action === 'upload-start') {
       const take = (response.takes as JsonObject[]).find(item => item.id === params.takeId);
       if (take?.status !== 'uploaded') {
@@ -86,15 +109,19 @@ export async function handleCameraRequest(req: Request): Promise<Response> {
       response.download = { ...(count === 1 ? { url: parts[0].url } : {}), parts, bytes: original.bytes, mime: original.mime,
         totalParts: count, nextPartIndex: end < count ? end : null, expiresAt: new Date(Date.now() + seconds * 1000).toISOString() };
     }
-    if (action === 'close' || action === 'unpair' || (action === 'create' || action === 'join') && Array.isArray(roomsToClose) && roomsToClose.length > 0) {
+    if (action === 'close' || action === 'unpair' || action === 'monitor-close' ||
+        Array.isArray(roomsToClose) && roomsToClose.length > 0 || Array.isArray(monitorRoomsToClose) && monitorRoomsToClose.length > 0) {
       // Connection and its preview room have no Mux stream, live, or egress.
       try {
         const { url, key, secret } = rtcConfig();
         // IDs come only from the owner-scoped RPC, after authority has moved.
         // Never tear down the newly created/joined session on provider failure.
         const rooms = action === 'close' ? [session.id] : Array.isArray(roomsToClose) ? roomsToClose : [];
+        const monitorRooms = [...new Set([...(Array.isArray(monitorRoomsToClose) ? monitorRoomsToClose : []),
+          ...(action === 'monitor-close' ? [(response.monitor as JsonObject).id] : [])])];
         const service = new RoomServiceClient(url.replace(/^ws/, 'http'), key, secret);
-        await Promise.allSettled(rooms.map(id => service.deleteRoom(`classfy-studio-camera-${id}`)));
+        await Promise.allSettled([...rooms.map(id => service.deleteRoom(`classfy-studio-camera-${id}`)),
+          ...monitorRooms.map(id => service.deleteRoom(`classfy-studio-monitor-${id}`))]);
       } catch { /* The durable session is closed even if the provider is offline. */ }
     }
     response.serverAt = new Date().toISOString();

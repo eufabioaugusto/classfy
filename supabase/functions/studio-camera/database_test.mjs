@@ -104,7 +104,36 @@ try {
  if(racing[1].status==='fulfilled')assert.equal((await sql(`SELECT status FROM studio_camera_sessions WHERE id='${current}';`)).stdout.trim(),'starting');
  await sql(await readFile(new URL('recovery_priority_test.sql',import.meta.url),'utf8'));
  await sql(await readFile(new URL('audio_input_test.sql',import.meta.url),'utf8'));
+ const monitorMigration=await readFile(new URL('../../migrations/20261014230000_studio_mobile_camera_monitor.sql',import.meta.url),'utf8');
+ await sql(monitorMigration);await sql(monitorMigration);
+ await sql(await readFile(new URL('monitor_test.sql',import.meta.url),'utf8'));
+ // Legacy physical controls still work through the new mode-authority wrapper.
+ await sql(await readFile(new URL('audio_input_test.sql',import.meta.url),'utf8').then(text=>text.replaceAll('0000000000e1','0000000000e2')));
+ const monitorDevice='30000000-0000-4000-8000-0000000000b0';
+ const sameMonitor='60000000-0000-4000-8000-0000000000b0';
+ const creates=await Promise.all([1,2].map(()=>sql(`SELECT set_config('request.jwt.claim.role','service_role',false); SELECT studio_camera_monitor_action('${user}','monitor-create','{"sessionId":"${sameMonitor}","deviceId":"${monitorDevice}","kind":"aula","title":"Concorrência"}');`)));
+ assert.equal(creates.length,2);
+ assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_monitor_sessions WHERE owner_id='${user}' AND status='active';`)).stdout.trim()),1);
+ await sql(`SELECT set_config('request.jwt.claim.role','service_role',false); SELECT studio_camera_monitor_action('${user}','monitor-close','{"sessionId":"${sameMonitor}","deviceId":"${monitorDevice}"}');`);
+ const competing=await Promise.allSettled([1,2].map(n=>sql(`SELECT set_config('request.jwt.claim.role','service_role',false); SELECT studio_camera_monitor_action('${user}','monitor-create','{"sessionId":"60000000-0000-4000-8000-0000000000b${n}","deviceId":"${monitorDevice}","kind":"short","title":"Concorrência"}');`)));
+ assert.equal(competing.filter(result=>result.status==='fulfilled').length,1);
+ assert.match(competing.find(result=>result.status==='rejected').reason.stderr,/studio_camera_monitor_busy/);
+ assert.equal(Number((await sql(`SELECT count(*) FROM studio_camera_monitor_sessions WHERE owner_id='${user}' AND status='active';`)).stdout.trim()),1);
+ const currentMonitor=(await sql(`SELECT id FROM studio_camera_monitor_sessions WHERE owner_id='${user}' AND status='active';`)).stdout.trim();
+ await sql(`SELECT set_config('request.jwt.claim.role','service_role',false); SELECT studio_camera_monitor_action('${user}','monitor-close','{"sessionId":"${currentMonitor}","deviceId":"${monitorDevice}"}');`);
+ const racingController='20000000-0000-4000-8000-00000000fb01';
+ await sql(`INSERT INTO studio_camera_pairings(owner_id,controller_id,device_id) VALUES('${user}','${racingController}','${monitorDevice}');`);
+ const racingRemote=JSON.parse((await sql(`SELECT set_config('request.jwt.claim.role','service_role',false); SELECT studio_camera_action('${user}','create','{"kind":"aula","controllerId":"${racingController}","pairingHash":"${'f'.repeat(64)}"}');`)).stdout.trim().split('\n').at(-1)).session.id;
+ await sql(`UPDATE studio_camera_sessions SET device_seen_at=now() WHERE id='${racingRemote}';`);
+ const acquiring=await Promise.allSettled([
+  sql(`SELECT set_config('request.jwt.claim.role','service_role',false); SELECT studio_camera_action('${user}','command','{"sessionId":"${racingRemote}","commandId":"40000000-0000-4000-8000-00000000fb01","type":"start","payload":{"takeId":"50000000-0000-4000-8000-00000000fb01"}}');`),
+  sql(`SELECT set_config('request.jwt.claim.role','service_role',false); SELECT studio_camera_monitor_action('${user}','monitor-create','{"sessionId":"60000000-0000-4000-8000-00000000fb01","deviceId":"${monitorDevice}","kind":"short","title":"Disputa de modo"}');`),
+ ]);
+ assert.equal(acquiring.filter(result=>result.status==='fulfilled').length,1);
+ assert.match(acquiring.find(result=>result.status==='rejected').reason.stderr,/studio_camera_busy|studio_camera_monitor_conflict|studio_camera_not_ready/);
+ assert.equal(Number((await sql(`SELECT (SELECT count(*) FROM studio_camera_monitor_sessions WHERE owner_id='${user}' AND device_id='${monitorDevice}' AND status='active')+(SELECT count(*) FROM studio_camera_sessions WHERE owner_id='${user}' AND device_id='${monitorDevice}' AND status IN ('starting','recording','stopping'));`)).stdout.trim()),1);
  console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency, durable pairings, safe camera handoff, protected original recovery priority and acknowledged audio input selection.');
+ console.log('Mobile monitor QA passed: private viewer lifecycle, Premium/ownership, protected remote handoff, bounded display state, preview-only expiry/close, preserved local REC, restrictive ACL and concurrent idempotency/allocation.');
 } finally {
  if (started) await command('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']).catch(() => undefined);
  await rm(temporary, { recursive: true, force: true });

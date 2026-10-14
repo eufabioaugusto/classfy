@@ -127,8 +127,47 @@ export function configuration(value: unknown): JsonObject {
   if (!Object.keys(result).length) throw new CameraError('studio_camera_invalid_configuration');
   return result;
 }
+/** The mobile monitor carries display state only, never instructions or originals. */
+export function monitorState(value: unknown): JsonObject {
+  const state = object(value); const result: JsonObject = {};
+  if (Object.keys(state).some(key => !['recording', 'elapsedSeconds', 'width', 'height', 'fps', 'cameraFacing'].includes(key)))
+    throw new CameraError('studio_camera_invalid_request');
+  if (state.recording !== undefined) {
+    if (typeof state.recording !== 'boolean') throw new CameraError('studio_camera_invalid_request');
+    result.recording = state.recording;
+  }
+  if (state.elapsedSeconds !== undefined) result.elapsedSeconds = finite(state.elapsedSeconds, 0, 86400);
+  for (const dimension of ['width', 'height']) if (state[dimension] !== undefined) result[dimension] = finite(state[dimension], 1, 7680, true);
+  if (state.fps !== undefined) result.fps = finite(state.fps, 1, 120);
+  if (state.cameraFacing !== undefined) {
+    if (!['front', 'back'].includes(String(state.cameraFacing))) throw new CameraError('studio_camera_invalid_request');
+    result.cameraFacing = state.cameraFacing;
+  }
+  return result;
+}
 export function validateRequest(value: unknown): { action: string; params: JsonObject } {
   const source = object(value); const action = String(source.action ?? ''); const params: JsonObject = {};
+  if (action.startsWith('monitor-')) {
+    if (!['monitor-create', 'monitor-discover', 'monitor-connect', 'monitor-heartbeat', 'monitor-close'].includes(action))
+      throw new CameraError('studio_camera_unknown_action');
+    if (action === 'monitor-discover') return { action, params };
+    params.sessionId = uuid(source.sessionId);
+    if (action === 'monitor-create' || action === 'monitor-close') params.deviceId = uuid(source.deviceId);
+    if (action === 'monitor-create') {
+      if (!['aula', 'short'].includes(String(source.kind)) || source.title !== undefined && (typeof source.title !== 'string' || source.title.length > 150))
+        throw new CameraError('studio_camera_invalid_request');
+      params.kind = source.kind; params.title = source.title ?? '';
+    }
+    if (action === 'monitor-connect' || action === 'monitor-heartbeat') {
+      if (!['viewer', 'device'].includes(String(source.role))) throw new CameraError('studio_camera_invalid_request');
+      params.role = source.role; params.clientId = uuid(source.clientId);
+      if (source.state !== undefined) {
+        if (action !== 'monitor-heartbeat' || source.role !== 'device') throw new CameraError('studio_camera_invalid_request');
+        params.state = monitorState(source.state);
+      }
+    }
+    return { action, params };
+  }
   if (!['create', 'join', 'discover', 'unpair', 'connect', 'status', 'command', 'ack', 'heartbeat', 'upload-start', 'upload-complete', 'download', 'close'].includes(action))
     throw new CameraError('studio_camera_unknown_action');
   if (action === 'create') {
@@ -222,6 +261,10 @@ export const errors: Record<string, { status: number; message: string }> = {
   studio_camera_original_not_ready: { status: 409, message: 'O original ainda está sendo preparado no iPhone.' },
   studio_camera_upload_limit: { status: 413, message: 'Este original ultrapassa o limite de envio disponível. Preserve o arquivo no iPhone.' },
   studio_camera_provider_unavailable: { status: 503, message: 'A conexão da câmera está temporariamente indisponível.' },
+  studio_camera_monitor_conflict: { status: 409, message: 'Encerre o monitor do iPhone antes de usar a câmera remota.' },
+  studio_camera_monitor_busy: { status: 409, message: 'Já existe um monitor ativo. Encerre-o no iPhone antes de abrir outro.' },
+  studio_camera_monitor_expired: { status: 409, message: 'O monitor ficou desconectado. Abra uma nova conexão pelo iPhone.' },
+  studio_camera_monitor_premium_required: { status: 403, message: 'Visualizar a câmera do iPhone no computador faz parte do Premium.' },
 };
 export function publicError(error: unknown): { code: string; message: string; status: number } {
   const raw = error instanceof Error ? error.message : typeof error === 'object' && error ? String((error as JsonObject).message ?? '') : '';
