@@ -61,7 +61,7 @@ async function mount() { await act(async () => root.render(<StrictMode><MemoryRo
 const button = (label: string) => [...host.querySelectorAll('button')].find(item => item.getAttribute('aria-label') === label || item.textContent?.trim() === label);
 async function click(label: string) { const item = button(label); expect(item, label).toBeTruthy(); await act(async () => item!.click()); }
 async function answer(label: string) { const dialog = document.querySelector('[role="alertdialog"]'); expect(dialog).toBeTruthy(); const item = [...dialog!.querySelectorAll('button')].find(value => value.textContent?.trim() === label); expect(item).toBeTruthy(); await act(async () => item!.click()); }
-async function enterScenes() { await mount(); await click('Gravação com cenas · Premium'); await click('Abrir produção com cenas'); }
+async function enterScenes() { await mount(); await click('Câmera e tela · Premium'); await click('Preparar câmera e tela'); }
 async function interruptEncoder(recorder: Recorder) {
   // MediaRecorder becomes inactive before delivering error, final data and stop.
   // No Workspace STOP action runs in this path.
@@ -97,16 +97,36 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi
 
 describe('produção Premium com Workspace e controller de cenas reais', () => {
   it('Free abre upgrade sem mudar modo, pedir fontes, gravar ou criar projeto; Podcast não oferece cenas', async () => {
-    premium = false; await mount(); await click('Gravação com cenas · Premium'); expect(upgrade).toHaveBeenCalledTimes(1);
-    expect(button('Gravação com cenas · Premium')?.getAttribute('aria-pressed')).toBe('false'); expect(button('Abrir câmera')).toBeTruthy();
+    premium = false; await mount(); await click('Câmera e tela · Premium'); expect(upgrade).toHaveBeenCalledTimes(1);
+    expect(button('Câmera e tela · Premium')?.getAttribute('aria-pressed')).toBe('false'); expect(button('Abrir câmera')).toBeTruthy();
+    await click('Meu iPhone · Premium'); expect(upgrade).toHaveBeenCalledTimes(2);
+    expect(button('Meu iPhone · Premium')?.getAttribute('aria-pressed')).toBe('false'); expect(button('Computador')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Abrir câmera')).toBeTruthy();
     expect(permissions).not.toHaveBeenCalled(); expect(display).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
-    const podcast = [...host.querySelectorAll('.se-recording-formats button')].find(value => value.querySelector('strong')?.textContent === 'Podcast'); await act(async () => (podcast as HTMLButtonElement).click());
-    expect(button('Gravação com cenas · Premium')).toBeUndefined(); expect(button('Ativar microfone')).toBeTruthy();
+    await click('Podcast');
+    expect(button('Câmera e tela · Premium')).toBeUndefined(); expect(button('Ativar microfone')).toBeTruthy();
   });
 
   it('capacidade ausente explica o limite antes de qualquer permissão, mantendo gravação simples', async () => {
-    vi.stubGlobal('MediaStreamTrackGenerator', undefined); await mount(); await click('Gravação com cenas · Premium');
+    vi.stubGlobal('MediaStreamTrackGenerator', undefined); await mount(); await click('Câmera e tela · Premium');
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('Chrome ou Edge'); expect(permissions).not.toHaveBeenCalled(); expect(display).not.toHaveBeenCalled(); expect(button('Abrir câmera')).toBeTruthy();
+  });
+
+  it('Só tela aguarda o gesto final e abre compartilhamento com microfone, sem pedir câmera', async () => {
+    await mount(); await click('Só tela');
+    expect(button('Só tela')?.getAttribute('aria-pressed')).toBe('true'); expect(button('Computador')).toBeUndefined(); expect(button('Meu iPhone · Premium')).toBeUndefined();
+    expect(permissions).not.toHaveBeenCalled(); expect(display).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled();
+    await click('Compartilhar tela');
+    expect(display).toHaveBeenCalledTimes(1); expect(permissions).toHaveBeenCalledTimes(1); expect(permissions.mock.calls[0][0]).toMatchObject({ video: false, audio: true });
+    expect(button('Iniciar gravação')?.disabled).toBe(false); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled();
+    expect(host.querySelector('select[aria-label="Câmera"]')).toBeNull();
+  });
+
+  it('escolher e abandonar cenas na preparação não abre nenhuma fonte nem cria take', async () => {
+    await mount(); await click('Câmera e tela · Premium'); expect(button('Preparar câmera e tela')).toBeTruthy();
+    expect(permissions).not.toHaveBeenCalled(); expect(display).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled();
+    await click('Voltar aos projetos');
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull(); expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/projects');
+    expect(permissions).not.toHaveBeenCalled(); expect(display).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
   });
 
   it('abre câmera primeiro e compartilha tela só pelo gesto; alterna REC sem trocar Program ou encerrar gravador e preserva take após perda da tela', async () => {
@@ -205,7 +225,7 @@ describe('produção Premium com Workspace e controller de cenas reais', () => {
     await enterScenes(); await click('Iniciar gravação'); await interruptEncoder(Recorder.instances[0]);
     await click('Descartar trecho'); await answer('Cancelar'); expect(io.disposeBuffer).not.toHaveBeenCalled(); expect(button('Salvar take')?.disabled).toBe(false);
     await click('Descartar trecho'); await answer('Descartar trecho');
-    expect(io.disposeBuffer).toHaveBeenCalledTimes(1); expect(host.querySelector('.se-recording-recovery')).toBeNull(); expect(button('Abrir produção com cenas')).toBeTruthy();
+    expect(io.disposeBuffer).toHaveBeenCalledTimes(1); expect(host.querySelector('.se-recording-recovery')).toBeNull(); expect(button('Preparar câmera e tela')).toBeTruthy();
     expect(io.create).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(1);
   });
 
@@ -218,7 +238,7 @@ describe('produção Premium com Workspace e controller de cenas reais', () => {
 
   it('troca de owner invalida picker pendente e não contamina novas fontes/projeto', async () => {
     const choosing = deferred<Stream>(); display.mockReturnValue(choosing.promise); await enterScenes(); await click('Compartilhar tela'); owner = 'other'; premium = false; await mount();
-    await act(async () => choosing.resolve(new Stream([screen, displayAudio]))); expect(screen.readyState).toBe('ended'); expect(camera.readyState).toBe('ended'); expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup'); expect(button('Gravação com cenas · Premium')?.getAttribute('aria-pressed')).toBe('false'); expect(io.create).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled();
+    await act(async () => choosing.resolve(new Stream([screen, displayAudio]))); expect(screen.readyState).toBe('ended'); expect(camera.readyState).toBe('ended'); expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup'); expect(button('Câmera e tela · Premium')?.getAttribute('aria-pressed')).toBe('false'); expect(io.create).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled();
   });
 
   it('expiração Premium durante REC preserva gravador e salvamento, mas próxima abertura exige upgrade', async () => {
