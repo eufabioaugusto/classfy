@@ -153,7 +153,8 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   };
   const forgetIntent = () => { forgotten = true; ownedRecoveryKeys.add(recoveryKey()); try { for (const key of ownedRecoveryKeys) localStorage.removeItem(key); ownedRecoveryKeys.clear(); } catch { /* Best effort metadata cleanup, never delete the phone original. */ } };
   const adopt = (response: StudioRemoteResponse, token: number) => {
-    assert(token); if (envelope && response.session.id !== envelope.session.id) throw new StudioRemoteCameraError('A sessão da câmera mudou.');
+    assert(token); if (response.session.kind !== options.kind) throw new StudioRemoteCameraError('A conexão do iPhone não confirmou o formato escolhido. Conecte novamente.', 'session_kind_mismatch');
+    if (envelope && response.session.id !== envelope.session.id) throw new StudioRemoteCameraError('A sessão da câmera mudou.');
     if (envelope && response.session.sequence < envelope.session.sequence) return;
     // A status request started before an ACK can finish after it. Terminal
     // receipts are immutable; that older snapshot must not undo confirmation.

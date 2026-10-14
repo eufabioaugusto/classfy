@@ -113,7 +113,12 @@ function controlledCapture(withScenes: boolean) {
 
 let root: Root, host: HTMLDivElement, base: ReturnType<typeof controlledCapture>, scenes: ReturnType<typeof controlledCapture>;
 let permissions: ReturnType<typeof vi.fn>;
-const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find(value => value.getAttribute('aria-label') === label || value.textContent?.trim() === label);
+// The setup now keeps the live source open until its own REC action; production retains its labels.
+function button(label: string) {
+  const setup = host.querySelector('.se-recording')?.getAttribute('data-stage') === 'setup';
+  const labels = [label, ...(setup ? label === 'Iniciar gravação' ? ['Gravar'] : ['Abrir câmera', 'Preparar câmera e tela'].includes(label) ? ['Ativar câmera'] : [] : [])];
+  return [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => labels.includes(item.getAttribute('aria-label') ?? '') || labels.includes(item.textContent?.trim() ?? ''));
+}
 async function click(label: string) { const target = button(label); expect(target, label).toBeTruthy(); await act(async () => target!.click()); }
 const footer = () => host.querySelector<HTMLSelectElement>('select[aria-label="Microfone"]')!;
 async function selectMicrophone(id: string) { expect(footer()).toBeTruthy(); await act(async () => { footer().value = id; footer().dispatchEvent(new Event('change', { bubbles: true })); }); }
@@ -132,6 +137,7 @@ function expectNoCapture() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   // Feature availability is a browser boundary; the tests never construct a worker or capture hardware.
   for (const name of ['MediaStreamTrackProcessor', 'MediaStreamTrackGenerator', 'Worker', 'OffscreenCanvas', 'VideoFrame']) vi.stubGlobal(name, class {});
@@ -147,6 +153,52 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Workspace de cenas com a narração real do iPhone', () => {
+  it('o botão principal completa a tela das cenas remotas antes de oferecer REC, sem reabrir o iPhone', async () => {
+    await mountScenes(); const picker = deferred(), program = host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject;
+    await act(async () => scenes.publish({ scenes: { ...scenes.snapshot().scenes!, screenReady: false, screenName: undefined, preparingScreen: false } }));
+    const primary = () => host.querySelector<HTMLButtonElement>('.srs-open')!;
+    expect(primary().textContent?.trim()).toBe('Compartilhar tela'); expect(primary().disabled).toBe(false);
+    expect(host.textContent).not.toContain('Pronto para gravar'); expect(button('Gravar')).toBeUndefined();
+    scenes.controller.prepareScreen = vi.fn(async () => {
+      scenes.publish({ scenes: { ...scenes.snapshot().scenes!, preparingScreen: true } });
+      await picker.promise;
+      scenes.publish({ scenes: { ...scenes.snapshot().scenes!, preparingScreen: false, screenReady: true, screenName: 'Apresentação compartilhada' } });
+    });
+    await act(async () => primary().click());
+    expect(scenes.controller.prepareScreen).toHaveBeenCalledTimes(1); expect(scenes.controller.start).not.toHaveBeenCalled();
+    expect(primary().disabled).toBe(true); expect(host.textContent).not.toContain('Pronto para gravar');
+    await act(async () => primary().click()); expect(scenes.controller.prepareScreen).toHaveBeenCalledTimes(1);
+    await act(async () => picker.resolve());
+    expect(primary().textContent?.trim()).toBe('Gravar'); expect(primary().disabled).toBe(false); expect(host.textContent).toContain('Pronto para gravar');
+    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject).toBe(program);
+    await act(async () => primary().click()); expect(scenes.controller.start).toHaveBeenCalledTimes(1);
+    expect(scenes.controller.prepare).toHaveBeenCalledTimes(1); expect(base.controller.prepare).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled();
+  });
+
+  it('trocar um iPhone já preparado encerra o transporte sem desvincular e exige gesto para abrir o computador', async () => {
+    await mount(); await click('Meu iPhone · Premium'); await click('Conectar meu iPhone');
+    const remote = base.controller;
+    expect(remote.prepare).toHaveBeenCalledTimes(1); expect(button('Gravar')?.disabled).toBe(false);
+    expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup');
+    await click('Computador');
+    expect(remote.cancel).toHaveBeenCalledTimes(1); expect(remote.unlinkRemote).not.toHaveBeenCalled(); expect(remote.dispose).toHaveBeenCalled();
+    const local = factories.local.mock.results.at(-1)!.value;
+    expect(local.prepare).not.toHaveBeenCalled(); expect(button('Gravar')).toBeUndefined(); expect(button('Ativar câmera')).toBeTruthy();
+    await click('Ativar câmera'); expect(local.prepare).toHaveBeenCalledTimes(1); expect(remote.prepare).toHaveBeenCalledTimes(1);
+    expect(permissions).not.toHaveBeenCalled();
+  });
+
+  it('trocar Aula por Short no iPhone preparado não grava com protocolo antigo nem abre nova conexão automaticamente', async () => {
+    await mount(); await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); const previous = base.controller;
+    await click('Short');
+    expect(previous.cancel).toHaveBeenCalledTimes(1); expect(previous.unlinkRemote).not.toHaveBeenCalled(); expect(previous.start).not.toHaveBeenCalled();
+    expect(factories.remote).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'short' }));
+    expect(base.controller).not.toBe(previous); expect(base.controller.prepare).not.toHaveBeenCalled();
+    expect(button('Gravar')).toBeUndefined(); expect(button('Conectar meu iPhone')).toBeTruthy();
+    await click('Conectar meu iPhone'); expect(base.controller.prepare).toHaveBeenCalledTimes(1); expect(button('Gravar')?.disabled).toBe(false);
+    expect(previous.prepare).toHaveBeenCalledTimes(1); expect(permissions).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['iPhone antes de cenas', ['Meu iPhone · Premium', 'Câmera e tela · Premium']],
     ['cenas antes do iPhone', ['Câmera e tela · Premium', 'Meu iPhone · Premium']],
@@ -198,7 +250,7 @@ describe('Workspace de cenas com a narração real do iPhone', () => {
     expect(footer().value).toBe(studioRemoteMicrophoneId(null));
     expect(host.querySelector('[aria-label="Nível do microfone do iPhone"]')?.getAttribute('aria-valuenow')).toBe('-27');
     expect(host.querySelector('[aria-label="Nível real do microfone"]')).toBeNull();
-    expect(host.textContent).toContain('Imagem e áudio no iPhone'); expect(permissions).not.toHaveBeenCalled();
+    expect(footer().selectedOptions[0]?.textContent).toBe('Automático · iPhone'); expect(permissions).not.toHaveBeenCalled();
   });
 
   it('footer espera ACK USB mantendo input anterior e reserva REC, inclusive se controller continua ready', async () => {
@@ -232,11 +284,11 @@ describe('Workspace de cenas com a narração real do iPhone', () => {
     expect(scenes.controller.selectDevices).toHaveBeenLastCalledWith({ microphoneId: computerUSB.id });
     expect(footer().value).toBe(computerUSB.id); expect(host.querySelector('[aria-label="Selecionar microfone do iPhone"]')).toBeNull();
     expect(host.querySelector('[aria-label="Nível real do microfone"]')?.getAttribute('aria-valuenow')).toBe('-12');
-    expect(host.textContent).toContain('Imagem do iPhone · áudio no computador');
+    expect(footer().selectedOptions[0]?.textContent).toBe(computerUSB.name);
     await selectMicrophone(studioRemoteMicrophoneId(null));
     expect(scenes.controller.selectDevices).toHaveBeenLastCalledWith({ microphoneId: studioRemoteMicrophoneId(null) });
     expect(footer().value).toBe(studioRemoteMicrophoneId(null)); expect(host.querySelector('[aria-label="Nível real do microfone"]')).toBeNull();
-    expect(host.querySelector('[aria-label="Nível do microfone do iPhone"]')).toBeTruthy(); expect(host.textContent).toContain('Imagem e áudio no iPhone');
+    expect(host.querySelector('[aria-label="Nível do microfone do iPhone"]')).toBeTruthy(); expect(footer().selectedOptions[0]?.textContent).toBe('Automático · iPhone');
   });
 
   it('mute não publica níveis nativos como voz gravada e conserva seletor de fonte/inputs', async () => {
@@ -256,7 +308,7 @@ describe('Workspace de cenas com a narração real do iPhone', () => {
     await act(async () => reply.reject(new Error('O iPhone não confirmou esse microfone USB.')));
     expect(footer().value).toBe(studioRemoteMicrophoneId(null)); expect(footer().disabled).toBe(false);
     expect(host.textContent).toContain('O iPhone não confirmou esse microfone USB.');
-    expect(scenes.controller.start).not.toHaveBeenCalled(); expect(host.textContent).toContain('Imagem e áudio no iPhone');
+    expect(scenes.controller.start).not.toHaveBeenCalled(); expect(footer().selectedOptions[0]?.textContent).toBe('Automático · iPhone');
   });
 
   it('REC impede mudança de narração pelo footer e picker, mantendo PCM real somente para monitoramento', async () => {

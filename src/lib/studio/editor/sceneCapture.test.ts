@@ -100,6 +100,28 @@ describe('sessão única de cenas Premium', () => {
     expect(media.getUserMedia).toHaveBeenCalledTimes(1); expect(media.getDisplayMedia).toHaveBeenCalledTimes(1); expect(s.camera.stop).not.toHaveBeenCalled(); expect(s.screen.stop).not.toHaveBeenCalled(); expect(s.mic.stop).not.toHaveBeenCalled();
     await h.capture.stop(); h.capture.dispose();
   });
+  it('Aula e Short reframam Program preservando fonte, cena, preview, áudio e resolução selecionada', async () => {
+    const s=sources();media.getUserMedia.mockResolvedValue(new Stream([s.camera,s.mic]));media.getDisplayMedia.mockResolvedValue(new Stream([s.screen,s.system]));const h=watch();
+    await expect(h.capture.configureAspectRatio!('9:16')).rejects.toThrow('Prepare');await h.capture.prepare();await h.capture.prepareScreen!();h.capture.selectScene!('screen-camera');await h.capture.configureVideo({output:{width:3840,height:2160,frameRate:60}});await h.capture.configureVideo({zoom:1.5,grade:{preset:'cinematic'}});
+    const mixed=h.state().stream!.getAudioTracks()[0],preview=h.state().cameraPreviewStream,context=Audio.instances[0],cameraApplies=s.camera.applyConstraints.mock.calls.length,screenApplies=s.screen.applyConstraints.mock.calls.length;
+    h.capture.setMicrophoneEnabled(false);
+    for(const [aspect,width,height] of [['9:16',2160,3840],['16:9',3840,2160]] as const){
+      const old=composition();await h.capture.configureAspectRatio!(aspect);expect(h.state()).toMatchObject({phase:'ready',width,height,frameRate:60,microphoneEnabled:false,scenes:{selected:'screen-camera',cameraReady:true,screenReady:true},videoControls:{zoom:{value:1.5},grade:{preset:'cinematic'}}});
+      expect(composition().options).toMatchObject({width,height,fps:60});expect(composition().setSource).toHaveBeenCalledWith('camera',s.camera);expect(composition().setSource).toHaveBeenCalledWith('screen',s.screen);expect(old.dispose).toHaveBeenCalledOnce();
+      expect(h.state().stream!.getAudioTracks()[0]).toBe(mixed);expect(h.state().cameraPreviewStream).toBe(preview);expect(h.state().outputVideo!.resolutions.every(value=>aspect==='9:16'?value.width<value.height:value.width>value.height)).toBe(true);
+    }
+    const final=composition();await h.capture.configureAspectRatio!('16:9');expect(composition()).toBe(final);expect(media.getUserMedia).toHaveBeenCalledOnce();expect(media.getDisplayMedia).toHaveBeenCalledOnce();expect(s.camera.applyConstraints).toHaveBeenCalledTimes(cameraApplies);expect(s.screen.applyConstraints).toHaveBeenCalledTimes(screenApplies);expect(Audio.instances).toHaveLength(1);expect(context.close).not.toHaveBeenCalled();expect(s.camera.stop).not.toHaveBeenCalled();expect(s.screen.stop).not.toHaveBeenCalled();expect(s.mic.stop).not.toHaveBeenCalled();
+    h.capture.start();await expect(h.capture.configureAspectRatio!('9:16')).rejects.toThrow('antes de iniciar');expect(Recorder.instances[0].options?.videoBitsPerSecond).toBeGreaterThan(60_000_000);await h.capture.stop();await expect(h.capture.configureAspectRatio!('9:16')).rejects.toThrow('take pendente');h.capture.dispose();
+  });
+  it('falha de frame no novo formato conserva worker anterior e não altera proporção confirmada', async () => {
+    const s=sources();media.getUserMedia.mockResolvedValue(new Stream([s.camera,s.mic]));const h=watch();await h.capture.prepare();const old=composition(),program=h.state().stream;mocks.configureError=new Error('O worker não confirmou imagem');
+    await expect(h.capture.configureAspectRatio!('9:16')).rejects.toThrow('não confirmou');expect(h.state()).toMatchObject({phase:'ready',width:1920,height:1080});expect(h.state().stream).toBe(program);expect(h.state().outputVideo!.resolutions.every(value=>value.width>value.height)).toBe(true);expect(old.dispose).not.toHaveBeenCalled();expect(composition().dispose).toHaveBeenCalledOnce();expect(s.camera.applyConstraints).not.toHaveBeenCalled();expect(s.camera.stop).not.toHaveBeenCalled();expect(s.mic.stop).not.toHaveBeenCalled();
+    mocks.configureError=null;await h.capture.configureAspectRatio!('9:16');expect(h.state()).toMatchObject({width:1080,height:1920});expect(media.getUserMedia).toHaveBeenCalledOnce();h.capture.dispose();
+  });
+  it('descarte enquanto novo worker prepara não publica proporção ou stream tardios', async () => {
+    const s=sources();media.getUserMedia.mockResolvedValue(new Stream([s.camera,s.mic]));const h=watch();await h.capture.prepare();const waiting=pending<void>();mocks.readyWait=waiting.promise;
+    const changing=h.capture.configureAspectRatio!('9:16');expect(h.state()).toMatchObject({phase:'preparing',width:1920,height:1080});const replacement=composition();const rejected=expect(changing).rejects.toMatchObject({name:'AbortError'});h.capture.dispose();waiting.resolve();await rejected;expect(h.state().stream).toBeNull();expect(replacement.dispose).toHaveBeenCalledOnce();expect(s.camera.applyConstraints).not.toHaveBeenCalled();expect(media.getUserMedia).toHaveBeenCalledOnce();
+  });
   it('ampliação usa dimensões reais e geometria da fonte, independente das resoluções oferecidas pela câmera', async () => {
     const s = sources(); media.getUserMedia.mockResolvedValue(new Stream([s.camera, s.mic])); media.getDisplayMedia.mockResolvedValue(new Stream([s.screen])); const h = watch();
     await h.capture.prepare(); await h.capture.prepareScreen!(); s.camera.applyConstraints.mockRejectedValueOnce(new DOMException('Fonte limitada a 1080p', 'OverconstrainedError')); s.screen.applyConstraints.mockRejectedValueOnce(new DOMException('Janela não oferece 4K', 'OverconstrainedError'));

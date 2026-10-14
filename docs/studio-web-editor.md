@@ -11,11 +11,17 @@
 
 ## Preparação da gravação
 
-A entrada usa três grupos de seleção: **Qual é o formato?**, **O que vai aparecer?** e **Qual câmera você quer usar?**. O resumo ao lado atualiza o enquadramento ilustrado, a composição e a fonte, com uma única ação para abrir a captura. A ilustração não representa uma prévia ao vivo. O nome é opcional, e a câmera/microfone só são solicitados após o botão de abertura.
+A entrada mantém **Formato**, **Cena** e **Câmera** em três faixas compactas. A cena selecionada aparece como prévia real na própria preparação; antes de ativar a entrada há um estado vazio explícito, sem ilustração de câmera. Uma orientação contextual e o nome opcional substituem o resumo redundante. Abrir a rota, restaurar escolhas ou mudar a fonte não solicita dispositivos nem inicia REC.
 
-**Câmera e tela · Premium** e **Meu iPhone · Premium** são escolhas combináveis. Trocar para iPhone preserva a composição; trocar de volta ao computador também preserva as cenas. Só tela oculta a seleção da câmera; Podcast e Live ocultam as escolhas de vídeo. Os gates de plano e suporte continuam no workspace. O formato fica bloqueado ao reabrir um projeto existente, mesmo sem takes.
+O botão principal acompanha a ação seguinte: **Ativar câmera**, **Compartilhar tela**, **Conectar meu iPhone** ou **Ativar microfone**, depois **Gravar**. A preparação e o REC usam a mesma captura. O projeto local só é criado após o primeiro take válido. A prévia permite conferir a entrada de câmera/microfone, níveis reais, qualidade, ajustes de imagem, roteiro e composição antes de gravar; a superfície de produção aparece ao iniciar REC. A preparação em andamento pode ser cancelada, descartando também streams ou frames que chegarem atrasados.
 
-No celular, os modos de composição aparecem em linhas largas e o botão principal fica fixo no rodapé, com espaço reservado para conteúdo, erros e safe-area. A preparação foi conferida no Chrome em 1440×900, 768×1024 e 393×852. A suíte do Studio passou com 806 testes antes da revisão final dos gates; os workspaces afetados passaram com 72 testes após essa revisão, incluindo 13 novas jornadas de seleção, planos, expiração e abertura dos controllers. Typecheck dedicado, lint sem erros e build passaram. Essa verificação não repete a validação física da câmera remota.
+**Câmera e tela · Premium** e **Meu iPhone · Premium** continuam combináveis. Só tela oculta a seleção de câmera; Podcast e Live ocultam vídeo. Os gates permanecem no workspace. Nas cenas remotas, conectar o iPhone ainda não libera REC: a ação principal pede compartilhar a tela primeiro. Live conserva `/studio/live`. O formato fica bloqueado ao reabrir projeto existente.
+
+Na câmera/tela/cenas locais já prontas, alternar Aula/Short recompõe o frame 16:9/9:16 e preserva fontes autorizadas, áudio, ajustes e perfil de qualidade. O formato só é apresentado como confirmado após o novo frame estar disponível. O protocolo remoto mantém o formato do original no tipo da sessão: mudar Aula/Short encerra a sessão de prévia e exige uma nova ação de conexão, reutilizando o vínculo persistente do iPhone. Recuperar uma gravação de outro formato também reconfigura o próximo take.
+
+As últimas escolhas ativadas são guardadas neste navegador por conta, sem IDs de dispositivos, credenciais ou mídia. Na restauração, plano e suporte são revalidados; a preferência nunca liga a câmera automaticamente. Armazenamento restrito não impede gravar. No celular, os segmentos ficam em linhas largas e a ação principal permanece no rodapé, com espaço para erros e safe-area; o painel de ajustes fica acima dos seletores.
+
+Validação deste refinamento: **832 testes em 72 suítes**, TypeScript dedicado, lint do escopo sem erros e build passaram. Chrome com fontes sintéticas e captura/Worker/encoder/armazenamento reais confirmou prévia, trocas de formato, REC sem segunda abertura da fonte e takes 1080×1920 idênticos ao enquadramento apresentado. Layout conferido em desktop e mobile. Essa verificação não repete o teste físico do iPhone ou do seletor nativo de compartilhamento.
 
 ## Domínio e arquivos locais
 

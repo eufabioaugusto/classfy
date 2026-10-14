@@ -6,6 +6,8 @@ import { compileStudioRecipe, emptyStudioEditing, withStudioTakes, type StudioKi
 import { StudioRecordingWorkspace } from './StudioRecordingWorkspace';
 import { initializeStudioExitGuard } from './useStudioExitGuard';
 import type { StudioCaptureState } from '@/lib/studio/editor/capture';
+import * as videoProcessing from '@/lib/studio/editor/captureVideo';
+import * as remoteSceneRecovery from '@/lib/studio/editor/remoteSceneRecovery';
 import type { StudioRemoteCaptureController, StudioRemoteView } from '@/lib/studio/editor/remoteCameraCapture';
 
 const io = vi.hoisted(() => ({ inspect: vi.fn(), create: vi.fn(), get: vi.fn(), save: vi.fn(), put: vi.fn(), asset: vi.fn() }));
@@ -25,6 +27,7 @@ class Track extends EventTarget {
   id: string; label: string; readyState = 'live'; onended: null | (() => void) = null; onmute = null;
   enabled = true; muted = false;
   constructor(public kind = 'audio', public deviceId = kind === 'audio' ? 'usb-id' : 'camera-id', name?: string) { super(); this.id = `${kind}-${deviceId}`; this.label = name ?? (kind === 'audio' ? 'USB Microphone' : 'Camera autorizada'); }
+  end() { this.readyState = 'ended'; this.onended?.(); this.dispatchEvent(new Event('ended')); }
   stop = vi.fn(() => { this.readyState = 'ended'; }); getSettings() { return { deviceId: this.deviceId, width: 1920, height: 1080, frameRate: 30 }; }
 }
 class Stream {
@@ -39,6 +42,7 @@ class Recorder {
 }
 class Audio {
   resume = vi.fn(async () => {}); close = vi.fn(async () => {}); createMediaStreamSource() { return { connect: vi.fn() }; }
+  createMediaStreamDestination() { return { stream: new Stream([new Track('audio', 'program-audio', 'Mixagem autorizada')]) }; }
   createAnalyser() { return { fftSize: 2048, getFloatTimeDomainData(samples: Float32Array) { samples.fill(.5); } }; }
 }
 class Recognition {
@@ -67,7 +71,12 @@ function Screen() {
 async function mount(url = '/studio/record', browser = false) {
   await act(async () => root.render(<StrictMode>{browser ? <BrowserRouter><Screen /></BrowserRouter> : <MemoryRouter initialEntries={[url]}><Screen /></MemoryRouter>}</StrictMode>));
 }
-function button(label: string) { return [...host.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === label || b.textContent?.trim() === label); }
+// The setup now keeps the live source open until its own REC action; production retains its labels.
+function button(label: string) {
+  const setup = host.querySelector('.se-recording')?.getAttribute('data-stage') === 'setup';
+  const labels = [label, ...(setup ? label === 'Iniciar gravação' ? ['Gravar'] : ['Abrir câmera', 'Preparar câmera e tela'].includes(label) ? ['Ativar câmera'] : [] : [])];
+  return [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => labels.includes(item.getAttribute('aria-label') ?? '') || labels.includes(item.textContent?.trim() ?? ''));
+}
 async function click(label: string) { const target = button(label); expect(target, label).toBeTruthy(); await act(async () => target!.click()); }
 const confirmation = () => document.querySelector('[role="alertdialog"]');
 async function answer(label: string) {
@@ -101,6 +110,7 @@ const activeVisibility = () => {
 async function record() { await click(initialKind === 'podcast' ? 'Ativar microfone' : 'Abrir câmera'); await click('Iniciar gravação'); await click('Encerrar gravação'); }
 async function pop(index: number, url: string) { window.history.replaceState({ idx: index, key: `entry-${index}` }, '', url); await act(async () => window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))); }
 beforeEach(() => {
+  localStorage.clear();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   projects.clear(); assets.clear(); Recorder.instances = []; owner = 'owner'; initialKind = 'aula'; title = '';
   remoteIO.create.mockReset();
@@ -131,6 +141,147 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('funil de gravação com componente, captura e sessão reais', () => {
+  it('a prévia usa a câmera real na preparação, sem gravador ou rascunho, e REC reutiliza a mesma fonte', async () => {
+    await mount();
+    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject ?? null).toBeNull();
+    expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled();
+    await click('Ativar câmera');
+    const stream = await permissions.mock.results[0].value as Stream;
+    const preview = host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]');
+    expect((preview?.srcObject as MediaStream | null)?.getTracks()).toEqual(stream.getTracks()); expect(stream.getVideoTracks()[0].readyState).toBe('live');
+    const prepared = preview!.srcObject;
+    expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup');
+    expect(button('Gravar')?.disabled).toBe(false); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled();
+    await click('Gravar');
+    expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production');
+    expect(Recorder.instances).toHaveLength(1); expect(Recorder.instances[0].stream).toBe(prepared); expect(permissions).toHaveBeenCalledTimes(1);
+    expect(stream.getTracks().every(track => track.stop.mock.calls.length === 0)).toBe(true);
+    expect(io.create).not.toHaveBeenCalled(); await click('Encerrar gravação'); expect(io.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('Aula e Short mudam o enquadramento da prévia preparada sem reabrir a câmera', async () => {
+    // Canvas output is a browser/GPU boundary; the capture/controller/session remain real.
+    vi.stubGlobal('HTMLCanvasElement', class { captureStream() { return new Stream([]); } });
+    const processor = vi.spyOn(videoProcessing, 'createStudioCaptureVideoProcessor').mockImplementation((_track, _grade, _zoom, _error, output) => {
+      if (!output) return null;
+      const track = new Track('video', `processed-${output.width}-${output.height}`, 'Enquadramento processado');
+      return { stream: new Stream([track]), effects: true, profile: output, prepare: vi.fn(async () => {}), configure: vi.fn(), setVisible: vi.fn(), dispose: vi.fn() } as unknown as videoProcessing.StudioCaptureVideoProcessor;
+    });
+    await mount(); await click('Ativar câmera');
+    const stream = await permissions.mock.results[0].value as Stream, track = stream.getVideoTracks()[0];
+    for (const label of ['Short', 'Aula', 'Short']) {
+      await format(label); expect(formatButton(label)?.getAttribute('aria-pressed')).toBe('true');
+      expect((host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject as MediaStream | null)?.getVideoTracks()[0].readyState).toBe('live');
+      expect(processor).toHaveBeenLastCalledWith(track, expect.anything(), expect.any(Number), expect.any(Function), expect.objectContaining(label === 'Short' ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 }));
+      expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup');
+      expect(permissions).toHaveBeenCalledTimes(1); expect(track.stop).not.toHaveBeenCalled(); expect(button('Gravar')?.disabled).toBe(false);
+    }
+    expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled();
+    const prepared = host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject;
+    await input('Nome da gravação', 'Short nomeado depois da prévia'); await click('Gravar'); await click('Encerrar gravação');
+    expect([...projects.values()][0]).toMatchObject({ kind: 'short', title: 'Short nomeado depois da prévia' });
+    expect(permissions).toHaveBeenCalledTimes(1); expect(Recorder.instances[0].stream).toBe(prepared);
+  });
+
+  it('trocar o conteúdo da cena encerra a fonte anterior e aguarda nova ativação explícita', async () => {
+    const display = vi.fn(async () => new Stream([new Track('video', 'display', 'Janela compartilhada')]));
+    Object.assign(navigator.mediaDevices, { getDisplayMedia: display });
+    await mount(); await click('Ativar câmera');
+    const camera = await permissions.mock.results[0].value as Stream;
+    await click('Só tela');
+    expect(camera.getTracks().every(track => track.stop.mock.calls.length === 1)).toBe(true);
+    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject ?? null).toBeNull();
+    expect(display).not.toHaveBeenCalled(); expect(permissions).toHaveBeenCalledTimes(1); expect(button('Gravar')).toBeUndefined();
+    await click('Compartilhar tela'); expect(display).toHaveBeenCalledTimes(1); expect(button('Gravar')?.disabled).toBe(false);
+    const screen = await display.mock.results[0].value as Stream;
+    await format('Podcast');
+    expect(screen.getTracks().every(track => track.stop.mock.calls.length === 1)).toBe(true);
+    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject ?? null).toBeNull(); expect(button('Ativar microfone')).toBeTruthy();
+    expect(button('Gravar')).toBeUndefined(); expect(permissions).toHaveBeenCalledTimes(2); expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled();
+  });
+
+  it('cancelar a abertura libera uma permissão tardia e mantém a preparação pronta para novo gesto', async () => {
+    const permission = deferred<Stream>(); permissions.mockReturnValueOnce(permission.promise);
+    await mount(); await click('Ativar câmera'); expect(button('Cancelar')).toBeTruthy(); expect(button('Gravar')).toBeUndefined();
+    await click('Cancelar'); expect(button('Ativar câmera')?.disabled).toBe(false);
+    const stale = new Stream([new Track('video'), new Track()]); await act(async () => permission.resolve(stale));
+    expect(stale.getTracks().every(track => track.stop.mock.calls.length === 1)).toBe(true);
+    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject ?? null).toBeNull(); expect(button('Gravar')).toBeUndefined();
+    expect(io.create).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
+    await click('Ativar câmera'); expect(permissions).toHaveBeenCalledTimes(2); expect(button('Gravar')?.disabled).toBe(false);
+  });
+
+  it('cancelar um reenquadramento em andamento não instala frames nem erros atrasados na nova preparação', async () => {
+    const processing = deferred<void>(), output = new Track('video', 'cancelled-output', 'Enquadramento cancelado');
+    vi.stubGlobal('HTMLCanvasElement', class { captureStream() { return new Stream([]); } });
+    vi.spyOn(videoProcessing, 'createStudioCaptureVideoProcessor').mockImplementation((_track, _grade, _zoom, _error, profile) => profile ? {
+      stream: new Stream([output]), effects: true, profile, prepare: () => processing.promise, configure: vi.fn(), setVisible: vi.fn(), dispose: vi.fn(),
+    } as unknown as videoProcessing.StudioCaptureVideoProcessor : null);
+    await mount(); await click('Ativar câmera'); const camera = await permissions.mock.results[0].value as Stream;
+    await format('Short'); expect(button('Cancelar')).toBeTruthy(); expect(button('Gravar')).toBeUndefined();
+    await click('Cancelar'); expect(camera.getTracks().every(track => track.stop.mock.calls.length === 1)).toBe(true);
+    await act(async () => processing.resolve());
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject ?? null).toBeNull();
+    expect(formatButton('Aula')?.getAttribute('aria-pressed')).toBe('true'); expect(formatButton('Short')?.getAttribute('aria-pressed')).toBe('false');
+    expect(button('Ativar câmera')?.disabled).toBe(false); expect(output.stop).toHaveBeenCalledTimes(1);
+    expect(io.create).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
+    await click('Ativar câmera'); expect(permissions).toHaveBeenCalledTimes(2); expect(button('Gravar')?.disabled).toBe(false);
+  });
+
+  it('perda da câmera durante a preparação impede REC até reativar a fonte', async () => {
+    await mount(); await click('Ativar câmera'); const stream = await permissions.mock.results[0].value as Stream;
+    await act(async () => stream.getVideoTracks()[0].end());
+    expect(!button('Gravar') || button('Gravar')!.disabled).toBe(true);
+    expect(Recorder.instances).toHaveLength(0); expect(io.create).not.toHaveBeenCalled(); expect(permissions).toHaveBeenCalledTimes(1);
+  });
+
+  it('recuperar um Short na preparação de Aula grava o próximo take no enquadramento do original recuperado', async () => {
+    const file = new File(['recovered-portrait-master'], 'Short recuperado.mp4', { type: 'video/mp4' });
+    const entry = { key: 'owner:short-recovery', owner: 'owner', takeId: '60000000-0000-4000-8000-000000000001', title: 'Short preservado', createdAt: Date.now(), output: { width: 1080, height: 1920, frameRate: 30 }, outputFile: file,
+      session: { kind: 'short', projectId: null, title: 'Short preservado' },
+    } as unknown as remoteSceneRecovery.StudioRemoteSceneRecovery;
+    vi.stubGlobal('indexedDB', {});
+    vi.spyOn(remoteSceneRecovery, 'createStudioRemoteSceneStore').mockReturnValue({ save: vi.fn(async () => {}), get: vi.fn(async () => entry), list: vi.fn(async () => [entry]) });
+    const recover = vi.spyOn(remoteSceneRecovery, 'recoverStudioRemoteScene').mockResolvedValue(file);
+    vi.stubGlobal('HTMLCanvasElement', class { captureStream() { return new Stream([]); } });
+    const processor = vi.spyOn(videoProcessing, 'createStudioCaptureVideoProcessor').mockImplementation((_track, _grade, _zoom, _error, output) => output ? {
+      stream: new Stream([new Track('video', 'portrait-output', 'Short processado')]), effects: true, profile: output, prepare: vi.fn(async () => {}), configure: vi.fn(), setVisible: vi.fn(), dispose: vi.fn(),
+    } as unknown as videoProcessing.StudioCaptureVideoProcessor : null);
+    await mount(); await click('Ativar câmera'); const original = await permissions.mock.results[0].value as Stream;
+    await click('Adicionar take pronto');
+    expect(recover).toHaveBeenCalledWith('owner', entry.key, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect([...projects.values()][0]).toMatchObject({ kind: 'short', title: entry.title }); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1);
+    expect(original.getTracks().every(track => track.stop.mock.calls.length === 1)).toBe(true); expect(Recorder.instances).toHaveLength(0);
+    expect(io.put.mock.calls[0][3]).toBe(file);
+    await click('Gravar outro take');
+    expect(processor).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.any(Number), expect.any(Function), expect.objectContaining({ width: 1080, height: 1920 }));
+    expect(permissions).toHaveBeenCalledTimes(2); const preview = host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject;
+    await click('Iniciar gravação'); expect(Recorder.instances[0].stream).toBe(preview); await click('Encerrar gravação');
+    expect([...projects.values()][0].takes).toHaveLength(2); expect([...projects.values()][0].kind).toBe('short'); expect(io.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('recuperação de outro formato concluída após trocar owner não reinicia a câmera da nova conta', async () => {
+    const file = new File(['recovered-original'], 'Short preservado.mp4', { type: 'video/mp4' });
+    const entry = { key: 'owner:delayed-short-recovery', owner: 'owner', takeId: '60000000-0000-4000-8000-000000000002', title: 'Short preservado', createdAt: Date.now(), output: { width: 1080, height: 1920, frameRate: 30 }, outputFile: file,
+      session: { kind: 'short', projectId: null, title: 'Short preservado' },
+    } as unknown as remoteSceneRecovery.StudioRemoteSceneRecovery;
+    vi.stubGlobal('indexedDB', {});
+    vi.spyOn(remoteSceneRecovery, 'createStudioRemoteSceneStore').mockReturnValue({ save: vi.fn(async () => {}), get: vi.fn(async () => entry), list: vi.fn(async account => account === 'owner' ? [entry] : []) });
+    vi.spyOn(remoteSceneRecovery, 'recoverStudioRemoteScene').mockResolvedValue(file);
+    const held = deferred<void>(), originalSave = io.save.getMockImplementation()!;
+    io.save.mockImplementationOnce(async (...args) => { await held.promise; return originalSave(...args); });
+    await mount(); await click('Adicionar take pronto'); expect(io.save).toHaveBeenCalledTimes(1);
+    owner = 'other'; await mount(); await click('Ativar câmera');
+    const preview = host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject as unknown as Stream;
+    await act(async () => held.resolve());
+    expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject).toBe(preview);
+    expect(preview.getTracks().every(track => track.stop.mock.calls.length === 0)).toBe(true);
+    expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup'); expect(formatButton('Aula')?.getAttribute('aria-pressed')).toBe('true');
+    expect(button('Gravar')?.disabled).toBe(false); expect(host.querySelector('[role="alert"]')).toBeNull(); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(0);
+    expect(Recorder.instances).toHaveLength(0); expect(permissions).toHaveBeenCalledTimes(1);
+  });
+
   it('trocar formato e layout permite voltar sem pedir permissão, iniciar REC ou criar rascunho', async () => {
     await mount();
     for (const label of ['Short', 'Podcast', 'Live', 'Aula']) {
@@ -442,28 +593,28 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
   it('preparação central orienta permissão, negação é amigável e retry só libera REC com stream confirmado', async () => {
     const pending = deferred<Stream>(); permissions.mockReturnValueOnce(pending.promise);
     await mount(); await click('Abrir câmera');
-    expect(host.querySelector('[data-permission-state="preparing"]')).toBeTruthy(); expect(host.textContent).toContain('Quando o navegador pedir');
+    expect(host.querySelector('[aria-label="Prévia e preparação"] [aria-busy="true"]')).toBeTruthy(); expect(host.textContent).toContain('Autorize o acesso');
     expect(host.querySelector('[role="dialog"]')).toBeNull(); expect(button('Iniciar gravação')).toBeUndefined();
-    expect((host.querySelector('select[aria-label="Câmera"]') as HTMLSelectElement).disabled).toBe(true);
+    expect(host.querySelector('select[aria-label="Câmera"]')).toBeNull();
     await act(async () => pending.reject(new DOMException('Permission denied', 'NotAllowedError')));
-    expect(host.querySelector('[data-permission-state="error"]')).toBeTruthy(); expect(host.querySelector('[role="alert"]')?.textContent).toContain('Permita câmera e microfone');
-    expect(host.textContent).not.toContain('Permission denied'); expect(host.textContent).toContain('ícone ao lado do endereço');
+    expect(host.querySelector('[aria-label="Prévia e preparação"] [aria-busy="true"]')).toBeNull(); expect(host.querySelector('[role="alert"]')?.textContent).toContain('Permita câmera e microfone');
+    expect(host.textContent).not.toContain('Permission denied'); expect(host.textContent).toContain('permissões deste site');
     await click('Abrir câmera'); expect(permissions).toHaveBeenCalledTimes(2);
-    expect(host.querySelector('[data-permission-state]')).toBeNull(); expect(button('Iniciar gravação')?.disabled).toBe(false);
+    expect(host.querySelector('[role="alert"]')).toBeNull(); expect(button('Iniciar gravação')?.disabled).toBe(false);
   });
 
   it('erro de entrada ocupada mostra orientação de dispositivo, sem diagnosticar permissão negada', async () => {
     permissions.mockRejectedValueOnce(new DOMException('Could not start video source', 'NotReadableError'));
     await mount(); await click('Abrir câmera');
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('Feche outro aplicativo');
-    expect(host.textContent).toContain('conexão do dispositivo'); expect(host.textContent).not.toContain('ícone ao lado do endereço');
+    expect(button('Iniciar gravação')).toBeUndefined(); expect(host.textContent).not.toContain('Permita câmera e microfone');
     expect(host.textContent).not.toContain('Could not start video source'); expect(button('Abrir câmera')).toBeTruthy();
   });
 
   it('sair durante troca de entrada pendente cancela sem aguardar permissão e fecha tracks tardios', async () => {
     await mount(); await click('Abrir câmera'); const original = await permissions.mock.results[0].value;
     const pending = deferred<Stream>(); permissions.mockReturnValueOnce(pending.promise);
-    await select('Câmera', 'continuity-id'); expect(button('Iniciar gravação')).toBeUndefined(); expect(host.textContent).toContain('Ajustando entrada');
+    await select('Câmera', 'continuity-id'); expect(button('Iniciar gravação')).toBeUndefined(); expect(host.textContent).toContain('Ajustando');
     await click('Voltar aos projetos'); expect(confirmation()?.textContent).toContain('Cancelar a abertura?'); await answer('Sair');
     expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/projects');
     expect(original.tracks.every((track: Track) => track.readyState === 'ended')).toBe(true);
@@ -563,12 +714,16 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await click('Roteiro'); await input('Roteiro do teleprompter', 'Um roteiro para a aula, sem gravar este texto no vídeo.'); await toggle('Teleprompter');
     await select('Modo de leitura', 'timed'); await input('Velocidade da leitura', '140'); await click('Fechar configurações');
     expect(host.querySelector('.se-recording-grid')?.getAttribute('aria-hidden')).toBe('true');
-    const prompter = host.querySelector('[aria-label="Texto do roteiro"]') as HTMLDivElement;
+    let prompter = host.querySelector('[aria-label="Texto do roteiro"]') as HTMLDivElement;
     expect(prompter.textContent).toContain('Um roteiro para a aula'); expect(preview.style.transform).toBe('scaleX(-1)'); expect(prompter.scrollTop).toBe(0);
     Object.defineProperty(prompter, 'clientHeight', { configurable: true, value: 100 });
     prompter.querySelectorAll<HTMLElement>('[data-word-index]').forEach(element => Object.defineProperty(element, 'offsetTop', { configurable: true, value: Number(element.dataset.wordIndex) * 40 }));
     await click('Iniciar gravação');
     expect(host.querySelector('.se-recording-grid')).toBeNull(); expect(host.querySelector('aside')).toBeNull(); expect(host.querySelector('[aria-label="Teleprompter"]')).toBeTruthy();
+    // The live track is retained; the presentation moves from preparation to the production stage.
+    prompter = host.querySelector('[aria-label="Texto do roteiro"]') as HTMLDivElement;
+    Object.defineProperty(prompter, 'clientHeight', { configurable: true, value: 100 });
+    prompter.querySelectorAll<HTMLElement>('[data-word-index]').forEach(element => Object.defineProperty(element, 'offsetTop', { configurable: true, value: Number(element.dataset.wordIndex) * 40 }));
     expect(Recorder.instances[0].stream).toBe(stream); expect(Recorder.instances[0].stream.tracks).toEqual(tracks);
     const baseline = performance.now();
     for (let n = 1; n <= 5; n++) { const [id, callback] = [...frames][0]; frames.delete(id); await act(async () => callback(baseline + n * 100)); }
