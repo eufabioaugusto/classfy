@@ -4,6 +4,7 @@ import CoreText
 import CoreVideo
 import Foundation
 import ImageIO
+import IOSurface
 import VideoToolbox
 
 struct StudioRecipe: Codable {
@@ -278,6 +279,21 @@ final class StudioRecipeInstruction: NSObject, AVVideoCompositionInstructionProt
 // No UIKit/CoreAnimation overlay can diverge from the file that is exported.
 final class StudioRecipeCompositor: NSObject, AVVideoCompositing {
   static let visualRevisionKey = "classfy.studio.visual-revision" as CFString
+  // AVPlayerItemVideoOutput can wrap the same IOSurface without propagating
+  // custom CVBuffer attachments on iPhone. Bind the receipt to that actual
+  // surface as well; no timestamp/ID registry can authorize another buffer.
+  static func clearVisualReceipt(_ buffer: CVPixelBuffer) {
+    CVBufferRemoveAttachment(buffer, visualRevisionKey)
+    if let surface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue() {
+      IOSurfaceRemoveValue(surface, visualRevisionKey)
+    }
+  }
+  static func stampVisualReceipt(_ buffer: CVPixelBuffer, revision: String) {
+    if let surface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue() {
+      IOSurfaceSetValue(surface, visualRevisionKey, revision as CFString)
+    }
+    CVBufferSetAttachment(buffer, visualRevisionKey, revision as CFString, .shouldPropagate)
+  }
   private let queue = DispatchQueue(label: "classfy.studio.recipe.compositor", qos: .userInteractive)
   private let renderer = StudioEffectRenderer()
   private let lock = NSLock()
@@ -310,6 +326,9 @@ final class StudioRecipeCompositor: NSObject, AVVideoCompositing {
               let buffer = request.renderContext.newPixelBuffer() else {
           request.finish(with: StudioRecipeError.invalid("Não foi possível renderizar este quadro.")); return
         }
+        // A pooled surface must not retain an earlier revision when rendering
+        // fails or this request is cancelled before producing a complete frame.
+        Self.clearVisualReceipt(buffer)
         var frames: [String: CIImage] = [:]
         for layer in instruction.layers where layer.trackId != nil {
           if let source = request.sourceFrame(byTrackID: layer.trackId!) {
@@ -330,8 +349,8 @@ final class StudioRecipeCompositor: NSObject, AVVideoCompositing {
         CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
         // An exact seek at an unchanged timestamp may still return an older
         // cached picture. The preview confirms this actual render receipt.
-        CVBufferSetAttachment(buffer, Self.visualRevisionKey, instruction.visualRevision as CFString, .shouldPropagate)
         guard token == self.currentGeneration() else { request.finishCancelledRequest(); return }
+        Self.stampVisualReceipt(buffer, revision: instruction.visualRevision)
         request.finish(withComposedVideoFrame: buffer)
       }
     }

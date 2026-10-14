@@ -220,6 +220,40 @@ function harness({ available = true, initialProject = project(), playbackChannel
   };
 }
 
+test('observer diagnóstico aceita somente erro atual e sanitiza metadados nativos sem alterar recuperação', async () => {
+  const h = harness(), diagnostics = [], events = [];
+  h.update({ onNativeDiagnostics: value => diagnostics.push(value), onPreviewDiagnostic: value => events.push(value) }); await h.pump();
+  const currentRevision = h.canvas().revision;
+  assert.equal(events.find(value => value.type === 'recipe').frameRateNumerator, 30);
+  const raw = { frameAttempts: 500, frameNoBuffer: 498, frameFirstBufferedReason: 'missingReceipt',
+    frameLastRequestedSeconds: 0, frameLastDisplayedSeconds: null, viewWindow: true, viewLayerReady: false,
+    primeStage: 'first-frame', compositorRequestCount: 4, compositorFinishedCount: 2, compositorSourceURI: 'file:///private/source.mov',
+    appActive: true, buildGeneration: 'diagnostic',
+    frameUri: 'file:///private/original.mov', frameOwnerId: 'private-owner', frameUnknown: { nested: 'private' },
+    frameReason: 'file:///private/source.mov Bearer secret eyJtest.test.test', frameNaN: NaN, irrelevant: 'ignore' };
+  h.error('old error', { revision: 'old-revision', diagnostics: raw });
+  h.error('old token', { token: -1, diagnostics: raw }); await h.pump(); assert.equal(diagnostics.length, 0);
+  h.error('Quadro inicial não confirmado', { code: 'E_STUDIO_FRAME', diagnostics: raw }); await h.pump();
+  assert.equal(diagnostics.length, 1); assert.equal(diagnostics[0].frameNoBuffer, 498); assert.equal(diagnostics[0].viewLayerReady, false);
+  assert.equal(diagnostics[0].primeStage, 'first-frame'); assert.equal(diagnostics[0].frameLastDisplayedSeconds, null);
+  assert.equal(diagnostics[0].compositorRequestCount, 4); assert.equal(diagnostics[0].compositorFinishedCount, 2);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /private|Bearer|eyJ|secret|irrelevant|nested|frameUri|frameOwnerId|frameNaN/);
+  raw.frameNoBuffer = 0; assert.equal(diagnostics[0].frameNoBuffer, 498, 'callback receives a detached flat metadata copy');
+  assert.equal(events.filter(value => value.type === 'error').length, 1); assert.equal(events.at(-1).revision, currentRevision);
+  assert.match(h.text(), /Quadro inicial não confirmado/);
+  h.dispose(); h.error('late error', { diagnostics: raw }); await h.pump(); assert.equal(diagnostics.length, 1);
+});
+
+test('observer que lança erro não impede o player de exibir erro nativo nem receber playback', async () => {
+  const h = harness({ nativeRuntime: true, playbackChannel: true });
+  h.update({ onNativeDiagnostics: () => { throw new Error('Diagnostic observer failure'); },
+    onPreviewDiagnostic: () => { throw new Error('Diagnostic observer failure'); } }); await h.pump();
+  h.error('Erro físico de renderização', { code: 'E_STUDIO_FRAME', diagnostics: { frameNoBuffer: 1 } }); await h.pump();
+  assert.match(h.text(), /Erro físico de renderização/);
+  h.emit({ positionSeconds: 4 }); await h.pump(); assert.equal(h.published.at(-1).position, 4);
+  h.dispose();
+});
+
 test('erro nativo permanece visível durante periodic publish; somente comando confirmado o limpa', async () => {
   const h = harness(); await h.pump();
   h.error('Não foi possível renderizar a edição.'); await h.pump();

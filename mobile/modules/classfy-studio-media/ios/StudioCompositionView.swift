@@ -1,6 +1,28 @@
 import AVFoundation
 import CoreImage
 import Foundation
+import IOSurface
+
+struct StudioCompositionFrameReceipt {
+  let rawValue: Any?
+  let source: String
+  let attachmentPresent: Bool
+  let surfacePresent: Bool
+  var revision: String? { rawValue as? String }
+
+  static func read(_ buffer: CVPixelBuffer) -> Self {
+    let attachment = CVBufferGetAttachment(buffer, StudioRecipeCompositor.visualRevisionKey, nil)?.takeUnretainedValue()
+    let surface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue()
+    // A present but invalid/wrong attachment remains authoritative and must
+    // never be replaced by a surface value that happens to match the request.
+    if let attachment {
+      return Self(rawValue: attachment, source: "attachment", attachmentPresent: true, surfacePresent: surface != nil)
+    }
+    let value = surface.flatMap { IOSurfaceCopyValue($0, StudioRecipeCompositor.visualRevisionKey) }
+    return Self(rawValue: value, source: value == nil ? "missing" : "surface",
+                attachmentPresent: false, surfacePresent: surface != nil)
+  }
+}
 
 struct StudioCompositionReplacementGate {
   struct Lease { let epoch: Int; let generation: Int }
@@ -78,6 +100,15 @@ final class StudioCompositionFrameOutput {
   let output: AVPlayerItemVideoOutput
   private weak var item: AVPlayerItem?
   private var confirmed: (revision: String, seconds: Double, buffer: CVPixelBuffer)?
+  private var diagnosticStartedAt: Date?
+  private var diagnosticRequestedSeconds = 0.0
+  private var diagnosticAttempts = 0
+  private var diagnosticCounters: [String: Int] = [:]
+  private var diagnosticLast: [String: Any] = [:]
+  private var diagnosticFirstBuffered: [String: Any]?
+  private var diagnosticLastBuffered: [String: Any]?
+  private var diagnosticPrime: [String: Any] = [:]
+  private var diagnosticSeekStartedAt: Date?
 
   init(item: AVPlayerItem) {
     self.item = item
@@ -90,20 +121,89 @@ final class StudioCompositionFrameOutput {
     output.requestNotificationOfMediaDataChange(withAdvanceInterval: 0)
   }
   func clear() { confirmed = nil }
+  private func finite(_ seconds: Double) -> Any { seconds.isFinite ? seconds as Any : NSNull() }
+  private var diagnosticElapsed: Double { diagnosticStartedAt.map { max(0, Date().timeIntervalSince($0)) } ?? 0 }
+  func beginConfirmation(at seconds: Double) {
+    diagnosticStartedAt = Date(); diagnosticRequestedSeconds = seconds; diagnosticAttempts = 0
+    diagnosticCounters = [:]; diagnosticLast = [:]; diagnosticFirstBuffered = nil; diagnosticLastBuffered = nil
+    diagnosticPrime = ["primeStage": "waitingForItem", "primeRequestedSeconds": finite(seconds)]
+    diagnosticSeekStartedAt = nil
+  }
+  func itemReady() {
+    diagnosticPrime["primeReadyElapsedSeconds"] = diagnosticElapsed
+    diagnosticPrime["primeStage"] = "seeking"; diagnosticSeekStartedAt = Date()
+  }
+  func seekCompleted(_ finished: Bool) {
+    diagnosticPrime["primeSeekFinished"] = finished
+    diagnosticPrime["primeSeekElapsedSeconds"] = diagnosticSeekStartedAt.map { max(0, Date().timeIntervalSince($0)) } as Any? ?? NSNull()
+    diagnosticPrime["primeStage"] = finished ? "confirmingFrame" : "seekRejected"
+  }
+  func confirmationCompleted() { diagnosticPrime["primeStage"] = "confirmed" }
+  func capturePrimeState(player: AVPlayer, item: AVPlayerItem) {
+    diagnosticPrime["primeElapsedSeconds"] = diagnosticElapsed
+    diagnosticPrime["primeItemStatus"] = item.status.rawValue
+    diagnosticPrime["primeItemIsCurrent"] = player.currentItem === item
+    diagnosticPrime["primePlayerTimeSeconds"] = finite(player.currentTime().seconds)
+    diagnosticPrime["primePlayerRate"] = Double(player.rate)
+  }
+  func diagnostics() -> [String: Any] {
+    var value = diagnosticPrime
+    value["frameAttempts"] = diagnosticAttempts; value["frameElapsedSeconds"] = diagnosticElapsed
+    value["frameRequestedSeconds"] = finite(diagnosticRequestedSeconds)
+    value["frameDurationSeconds"] = finite(item?.videoComposition?.frameDuration.seconds ?? .nan)
+    value["itemDurationSeconds"] = finite(item?.duration.seconds ?? .nan)
+    for reason in ["NoBuffer", "MissingReceipt", "WrongReceipt", "InvalidDisplayed", "OffTolerance", "Confirmed", "CachedConfirmed"] {
+      value["frame\(reason)"] = diagnosticCounters[reason, default: 0]
+    }
+    for (prefix, observation) in [("frameLast", diagnosticLast), ("frameFirstBuffered", diagnosticFirstBuffered ?? [:]), ("frameLastBuffered", diagnosticLastBuffered ?? [:])] {
+      for (key, entry) in observation { value[prefix + key] = entry }
+    }
+    return value
+  }
   func frame(at seconds: Double, revision: String) -> CVPixelBuffer? {
     let target = CMTime(seconds: seconds, preferredTimescale: 120_000)
     // An exact seek may display the preceding frame at the composition's
     // cadence. A fixed 30fps window incorrectly rejects valid 24fps frames.
     let duration = item?.videoComposition?.frameDuration.seconds ?? .nan
     let tolerance = (duration.isFinite && duration > 0 ? duration : 1 / 30.0) + 0.001
+    let hasNew = output.hasNewPixelBuffer(forItemTime: target)
     var displayed = CMTime.invalid
-    if let buffer = output.copyPixelBuffer(forItemTime: target, itemTimeForDisplay: &displayed),
-      let receipt = CVBufferGetAttachment(buffer, StudioRecipeCompositor.visualRevisionKey, nil)?.takeUnretainedValue() as? String,
-      receipt == revision, displayed.seconds.isFinite, abs(displayed.seconds - seconds) <= tolerance {
+    let buffer = output.copyPixelBuffer(forItemTime: target, itemTimeForDisplay: &displayed)
+    let receiptSnapshot = buffer.map { StudioCompositionFrameReceipt.read($0) }
+    let rawReceipt = receiptSnapshot?.rawValue
+    let receipt = receiptSnapshot?.revision
+    let reason: String
+    if buffer == nil { reason = "NoBuffer" }
+    else if receipt == nil { reason = "MissingReceipt" }
+    else if receipt != revision { reason = "WrongReceipt" }
+    else if !displayed.seconds.isFinite { reason = "InvalidDisplayed" }
+    else if !(abs(displayed.seconds - seconds) <= tolerance) { reason = "OffTolerance" }
+    else { reason = "Confirmed" }
+    diagnosticAttempts += 1; diagnosticCounters[reason, default: 0] += 1
+    let observation: [String: Any] = ["Reason": reason, "RequestedSeconds": finite(seconds),
+      "ElapsedSeconds": diagnosticElapsed, "ToleranceSeconds": tolerance, "HasNewPixelBuffer": hasNew,
+      "BufferReceived": buffer != nil, "DisplayedSeconds": finite(displayed.seconds), "DisplayedFlags": Int(displayed.flags.rawValue),
+      "ReceiptPresent": rawReceipt != nil, "ReceiptIsString": receipt != nil, "ReceiptMatches": receipt == revision,
+      "ReceiptSource": receiptSnapshot?.source ?? "missing", "AttachmentPresent": receiptSnapshot?.attachmentPresent ?? false,
+      "SurfacePresent": receiptSnapshot?.surfacePresent ?? false,
+      "ReceiptType": rawReceipt.map { String(describing: type(of: $0)) } as Any? ?? NSNull(),
+      "Width": buffer.map { CVPixelBufferGetWidth($0) } as Any? ?? NSNull(),
+      "Height": buffer.map { CVPixelBufferGetHeight($0) } as Any? ?? NSNull(),
+      "PixelFormat": buffer.map { Int(CVPixelBufferGetPixelFormatType($0)) } as Any? ?? NSNull()]
+    diagnosticLast = observation
+    if buffer != nil && reason != "Confirmed" {
+      if diagnosticFirstBuffered == nil { diagnosticFirstBuffered = observation }
+      diagnosticLastBuffered = observation
+    }
+    // The diagnostics observe the same single copy and acceptance conditions.
+    // No buffer, marker value, source URI or pixel is retained in the report.
+    if let buffer, reason == "Confirmed" {
       confirmed = (revision, seconds, buffer)
       return buffer
     }
-    if let confirmed, confirmed.revision == revision, abs(confirmed.seconds - seconds) < 1 / 120_000 { return confirmed.buffer }
+    if let confirmed, confirmed.revision == revision, abs(confirmed.seconds - seconds) < 1 / 120_000 {
+      diagnosticCounters["CachedConfirmed", default: 0] += 1; return confirmed.buffer
+    }
     return nil
   }
 }
@@ -114,6 +214,8 @@ enum StudioCompositionInitialFrame {
   static func prime(player: AVPlayer, item: AVPlayerItem, seconds: Double,
                     visualRevision: String? = nil, frameOutput: StudioCompositionFrameOutput? = nil,
                     isCurrent: () -> Bool) async throws {
+    frameOutput?.beginConfirmation(at: seconds)
+    defer { frameOutput?.capturePrimeState(player: player, item: item) }
     let deadline = Date().addingTimeInterval(15)
     while item.status == .unknown {
       try Task.checkCancellation()
@@ -126,11 +228,13 @@ enum StudioCompositionInitialFrame {
     guard item.status == .readyToPlay else {
       throw item.error ?? StudioRecipeError.invalid("Não foi possível preparar o primeiro quadro desta edição.")
     }
+    frameOutput?.itemReady()
     let finished = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
       player.seek(to: CMTime(seconds: seconds, preferredTimescale: 120_000), toleranceBefore: .zero, toleranceAfter: .zero) {
         continuation.resume(returning: $0)
       }
     }
+    frameOutput?.seekCompleted(finished)
     try Task.checkCancellation()
     guard isCurrent(), player.currentItem === item else { throw StudioRecipeError.cancelled }
     guard finished else { throw StudioRecipeError.invalid("O primeiro quadro da prévia foi interrompido. Tente abrir o projeto novamente.") }
@@ -144,6 +248,7 @@ enum StudioCompositionInitialFrame {
         try await Task.sleep(nanoseconds: 10_000_000)
       }
     }
+    frameOutput?.confirmationCompleted()
   }
 }
 
@@ -476,12 +581,14 @@ final class StudioCompositionView: ExpoView {
         publish()
       } catch {
         guard generation == buildGeneration, !Task.isCancelled else { return }
-        loading = false; prepared = nil; initializingItem = nil
-        itemObservers.invalidate(); player.replaceCurrentItem(with: nil)
-        cancelInteractive()
-        clearReplacementFrame()
-        pendingSeek?.continuation.resume(throwing: error); pendingSeek = nil
-        fail(error)
+        let diagnostics = failureDiagnostics()
+        fail(error, diagnostics: diagnostics, beforeEmission: {
+          self.loading = false; self.prepared = nil; self.initializingItem = nil
+          self.itemObservers.invalidate(); self.player.replaceCurrentItem(with: nil)
+          self.cancelInteractive()
+          self.clearReplacementFrame()
+          self.pendingSeek?.continuation.resume(throwing: error); self.pendingSeek = nil
+        })
       }
     }
   }
@@ -730,8 +837,41 @@ final class StudioCompositionView: ExpoView {
             "loading": loading || replayPending, "revision": revision, "token": commandToken]
   }
   private func publish() { onPlaybackState(state()); warmInteractiveFrame() }
-  private func fail(_ error: Error, code: String = "E_STUDIO_COMPOSITION") {
-    onError(["message": error.localizedDescription, "code": code, "revision": revision, "token": commandToken]); publish()
+  private func failureDiagnostics() -> [String: Any] {
+    func finite(_ value: Double) -> Any { value.isFinite ? value as Any : NSNull() }
+    var value = frameOutput?.diagnostics() ?? [:]
+    value["buildGeneration"] = buildGeneration
+    value["recipeBuildPending"] = recipeBuildPending; value["loading"] = loading
+    value["initializingItemPresent"] = initializingItem != nil
+    value["playerItemStatus"] = player.currentItem?.status.rawValue as Any? ?? NSNull()
+    value["playerTimeSeconds"] = finite(player.currentTime().seconds); value["playerRate"] = Double(player.rate)
+    value["windowAttached"] = window != nil; value["layerReadyForDisplay"] = playerLayer.isReadyForDisplay
+    value["viewBoundsWidth"] = finite(Double(bounds.width)); value["viewBoundsHeight"] = finite(Double(bounds.height))
+    value["layerBoundsWidth"] = finite(Double(playerLayer.bounds.width)); value["layerBoundsHeight"] = finite(Double(playerLayer.bounds.height))
+    value["appActive"] = UIApplication.shared.applicationState == .active
+    let sessions = captureSessions.allObjects
+    value["captureSessionsObserved"] = sessions.count
+    value["knownRunningCaptureSessions"] = sessions.filter { $0.isRunning }.count
+    return value
+  }
+  private func fail(_ error: Error, code: String = "E_STUDIO_COMPOSITION", diagnostics: [String: Any]? = nil,
+                    beforeEmission: (@MainActor () -> Void)? = nil) {
+    let snapshot = diagnostics ?? failureDiagnostics()
+    #if DEBUG
+    // One bounded, sanitized failure snapshot survives an unmounted editor.
+    // Write before dropping the item; normal playback/polling never writes.
+    let privateData = "(?:[a-z][a-z0-9+.-]*://|/(?:Users|private|var|tmp|Library)/)\\S+|Bearer\\s+\\S+|\\beyJ[\\w-]+\\.[\\w-]+\\.[\\w-]+\\b|\\b[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\\b"
+    let message = String(error.localizedDescription.replacingOccurrences(of: privateData,
+      with: "[dado privado omitido]", options: [.regularExpression, .caseInsensitive]).prefix(500))
+    if let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
+       let data = try? JSONSerialization.data(withJSONObject: ["message": message, "code": code, "diagnostics": snapshot], options: [.sortedKeys]) {
+      try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+      try? data.write(to: cache.appendingPathComponent("classfy-studio-native-preview-error.json"), options: .atomic)
+    }
+    #endif
+    beforeEmission?()
+    onError(["message": error.localizedDescription, "code": code, "revision": revision, "token": commandToken,
+      "diagnostics": snapshot]); publish()
   }
 
   func dispose() {

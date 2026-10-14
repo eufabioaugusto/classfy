@@ -2,6 +2,7 @@ import AVFoundation
 import CoreImage
 import CoreVideo
 import Foundation
+import IOSurface
 
 @main struct StudioCompositionInteractionTests {
   static func require(_ condition: Bool, _ message: String) throws {
@@ -244,28 +245,103 @@ import Foundation
     }
     print("Hold atrasado: worker real descartado após seek/background/nova receita/dispose; mesma operação mantém o quadro.")
   }
+  static func surfaceFrameReceiptCheck(_ frame: CVPixelBuffer, revision: String,
+                                       prepared: StudioPreparedRecipe, expectedPixels: [UInt8]) throws {
+    guard let surface = CVPixelBufferGetIOSurface(frame)?.takeUnretainedValue() else {
+      throw StudioRecipeError.invalid("Teste: quadro real do AVPlayer não contém IOSurface")
+    }
+    var transported: Unmanaged<CVPixelBuffer>?
+    let status = CVPixelBufferCreateWithIOSurface(kCFAllocatorDefault, surface, nil, &transported)
+    guard status == kCVReturnSuccess, let wrapped = transported?.takeRetainedValue() else {
+      throw StudioRecipeError.invalid("Teste: não foi possível reempacotar o IOSurface real")
+    }
+    let receipt = StudioCompositionFrameReceipt.read(wrapped)
+    try require(!receipt.attachmentPresent && receipt.surfacePresent && receipt.source == "surface"
+      && receipt.revision == revision, "wrapper sem CVattachment conserva somente o recibo do IOSurface real")
+    let actual = try pixels(CIImage(cvPixelBuffer: wrapped, options: [.colorSpace: StudioEffectRenderer.outputColorSpace]), prepared)
+    try require(actual == expectedPixels, "fallback IOSurface identifica os mesmos pixels do AVPlayer")
+  }
   @MainActor static func frameCadenceChecks() async throws {
     let engine = StudioRecipeEngine()
-    var value = recipe(), assets = value["assets"] as! [[String: Any]]
-    assets[0]["uri"] = URL(fileURLWithPath: CommandLine.arguments[4]).absoluteString
-    value["assets"] = assets
-    let prepared = try await engine.prepare(recipeJSON: json(value))
-    // Production standard output is 30fps. Exercise the frame receipt helper
-    // against a genuine 24fps source/composition, including a non-frame time.
-    prepared.videoComposition?.frameDuration = CMTime(value: 1, timescale: 24)
-    let item = prepared.playerItem(), output = StudioCompositionFrameOutput(item: item)
-    let player = AVPlayer(playerItem: item)
-    player.isMuted = true
-    defer { player.pause(); player.replaceCurrentItem(with: nil) }
-    try require(item.videoComposition?.frameDuration == CMTime(value: 1, timescale: 24), "fixture usa cadência real24fps")
-    let seconds = 0.04
-    try await StudioCompositionInitialFrame.prime(player: player, item: item, seconds: seconds,
-      visualRevision: prepared.visualRevision, frameOutput: output, isCurrent: { player.currentItem === item })
-    try require(output.frame(at: seconds, revision: prepared.visualRevision!) != nil,
-      "receipt24fps aceita quadro precedente em seek não alinhado0.04")
-    try require(abs(player.currentTime().seconds - seconds) < 1 / 120_000 && player.rate == 0,
-      "confirmação24fps preserva cursor arbitrário e pausa")
-    print("Receipt24fps: fonte24fps/composição24fps confirmam seek0.04 sem alinhar ou mudar cursor.")
+    for fps in [Int32(24), Int32(30), Int32(60)] {
+      var value = recipe(), assets = value["assets"] as! [[String: Any]]
+      // The fixtures contain genuine 24fps and 30fps sources. A 60fps
+      // composition exercises output cadence while retaining the 30fps source.
+      assets[0]["uri"] = URL(fileURLWithPath: CommandLine.arguments[fps == 24 ? 4 : 1]).absoluteString
+      value["assets"] = assets
+      var prepared = try await engine.prepare(recipeJSON: json(value))
+      let cadence = CMTime(value: 1, timescale: fps)
+      prepared.videoComposition?.frameDuration = cadence
+      let item = prepared.playerItem(), output = StudioCompositionFrameOutput(item: item)
+      let player = AVPlayer(playerItem: item)
+      player.isMuted = true
+      defer { player.pause(); player.replaceCurrentItem(with: nil) }
+      try require(item.videoComposition?.frameDuration == cadence, "fixture usa composição real\(fps)fps")
+      try await StudioCompositionInitialFrame.prime(player: player, item: item, seconds: 0,
+        visualRevision: prepared.visualRevision, frameOutput: output, isCurrent: { player.currentItem === item })
+      guard let revision = prepared.visualRevision, let first = output.frame(at: 0, revision: revision) else {
+        throw StudioRecipeError.invalid("Teste: primeiro quadro\(fps)fps não confirmou recibo em zero")
+      }
+      let initialPixels = try pixels(CIImage(cvPixelBuffer: first, options: [.colorSpace: StudioEffectRenderer.outputColorSpace]), prepared)
+      let sample = (750 * 1920 + 900) * 4
+      try require(initialPixels[sample] > 100 && initialPixels[sample] > initialPixels[sample + 2] + 40,
+        "prime\(fps)fps confirma vídeo tratado, sem quadro preto em zero")
+      try surfaceFrameReceiptCheck(first, revision: revision, prepared: prepared, expectedPixels: initialPixels)
+      let nativeTime = player.currentTime()
+      try require(nativeTime.seconds == 0 && player.rate == 0, "prime\(fps)fps mantém cursor zero e pausa")
+      var previousPixels = initialPixels
+      for hidden in [true, false] {
+        var updatedJSON = value, clips = value["clips"] as! [[String: Any]]
+        clips[2]["opacity"] = hidden ? 0 : 0.5; updatedJSON["clips"] = clips
+        guard let updated = try engine.updateVisuals(prepared, recipeJSON: json(updatedJSON)),
+              let nextRevision = updated.visualRevision else {
+          throw StudioRecipeError.invalid("Teste: troca visual\(fps)fps saiu do fast path")
+        }
+        try require(nextRevision != prepared.visualRevision
+          && updated.composition === prepared.composition && updated.videoComposition !== prepared.videoComposition,
+          "mostrar/ocultar no mesmo PTS cria revisão visual nova e conserva composição")
+        updated.videoComposition?.frameDuration = cadence
+        output.prepareForChange(at: 0); item.videoComposition = updated.videoComposition
+        try await StudioCompositionInitialFrame.prime(player: player, item: item, seconds: 0,
+          visualRevision: nextRevision, frameOutput: output, isCurrent: { player.currentItem === item })
+        guard let actual = output.frame(at: 0, revision: nextRevision) else {
+          throw StudioRecipeError.invalid("Teste: troca visual\(fps)fps não confirmou pixels novos em zero")
+        }
+        try require(StudioCompositionFrameReceipt.read(actual).revision == nextRevision,
+          "mostrar/ocultar confirma recibo da revisão nova")
+        let data = try pixels(CIImage(cvPixelBuffer: actual, options: [.colorSpace: StudioEffectRenderer.outputColorSpace]), updated)
+        var changedPixels = 0, outsideDifference = 0
+        for pixel in 0..<(1920 * 1080) {
+          let x = pixel % 1920, y = pixel / 1920, offset = pixel * 4
+          var difference = 0
+          for channel in 0..<4 { difference = max(difference, abs(Int(data[offset + channel]) - Int(previousPixels[offset + channel]))) }
+          if x >= 133 && x <= 520 && y >= 63 && y <= 282 { if difference > 3 { changedPixels += 1 } }
+          else { outsideDifference = max(outsideDifference, difference) }
+        }
+        try require(changedPixels > 100 && outsideDifference <= 3,
+          "troca\(fps)fps altera ROI da imagem e mantém exterior: \(changedPixels)/\(outsideDifference)")
+        if !hidden {
+          var restoredDifference = 0
+          for index in data.indices { restoredDifference = max(restoredDifference, abs(Int(data[index]) - Int(initialPixels[index]))) }
+          try require(restoredDifference <= 3, "A→B→A\(fps)fps restaura pixels sob uma revisão nova")
+        }
+        try require(player.currentItem === item && player.currentTime() == nativeTime && player.rate == 0,
+          "troca\(fps)fps mantém item, PTS zero e pausa")
+        previousPixels = data; prepared = updated
+      }
+      // Use a new item so the non-aligned cadence probe does not depend on a
+      // previously acquired zero-time output sample.
+      let seekItem = prepared.playerItem(), seekOutput = StudioCompositionFrameOutput(item: seekItem)
+      player.replaceCurrentItem(with: seekItem)
+      let seconds = fps == 24 ? 0.04 : fps == 30 ? 0.03 : 0.015
+      try await StudioCompositionInitialFrame.prime(player: player, item: seekItem, seconds: seconds,
+        visualRevision: prepared.visualRevision, frameOutput: seekOutput, isCurrent: { player.currentItem === seekItem })
+      try require(seekOutput.frame(at: seconds, revision: prepared.visualRevision!) != nil,
+        "receipt\(fps)fps aceita quadro precedente em seek não alinhado\(seconds)")
+      try require(abs(player.currentTime().seconds - seconds) < 1 / 120_000 && player.rate == 0,
+        "seek\(fps)fps conserva cursor arbitrário e pausa")
+      print("Receipt\(fps)fps: frame0 real, wrapper IOSurface sem CVattachment, A→B→A no mesmo PTS e seek\(seconds) confirmados.")
+    }
   }
   @MainActor static func replacementChecks() async throws {
     let engine = StudioRecipeEngine(), player = AVPlayer()

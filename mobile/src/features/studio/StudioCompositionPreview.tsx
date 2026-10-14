@@ -15,8 +15,29 @@ type Props = {
   onCanvasPress?: () => void; canvasLabel?: string;
   playbackChannel?: StudioTimelinePlaybackChannelRef;
   canvasTransformChannel?: StudioCanvasTransformChannelRef;
+  onPreviewDiagnostic?: (event: StudioPreviewDiagnosticEvent) => void;
+  onNativeDiagnostics?: (value: Record<string, unknown>) => void;
 };
-type NativeError = { message: string; code?: string; revision: string; token: number };
+export type StudioPreviewDiagnosticEvent = {
+  type: 'gate'; native: boolean; missingTools: boolean; missingTreatments: boolean;
+} | { type: 'recipe'; revision: string; token: number; recipeVersion: number; durationSeconds: number;
+  assetCount: number; clipCount: number; width: number; height: number; frameRateNumerator: number; frameRateDenominator: number;
+} | { type: 'playback'; revision: string; token: number; positionSeconds: number; sourcePositionSeconds: number;
+  playing: boolean; loading: boolean; clipId?: string | null;
+} | { type: 'error'; revision: string; token: number; code?: string; message: string };
+type NativeError = { message: string; code?: string; revision: string; token: number; diagnostics?: unknown };
+function sanitizedNativeDiagnostics(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return;
+  const clean: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value).slice(0, 100)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key) || /uri|url|token|path|image|owner|title|content|credential|secret/i.test(key)
+      || !/^(frame|prime|compositor|view|window|bounds|layer|appActive|captureSessionsObserved|knownRunningCaptureSessions|buildGeneration|itemStatus|playerTime|playerRate|readyElapsed|seekElapsed|elapsed|rate)/.test(key)) continue;
+    if (item === null || typeof item === 'boolean' || typeof item === 'number' && Number.isFinite(item)) clean[key] = item;
+    else if (typeof item === 'string') clean[key] = item.replace(/(?:https?|wss?|file):\/\/\S+|Bearer\s+\S+|\beyJ[\w-]+\.[\w-]+\.[\w-]+\b/gi, '[dado privado omitido]').slice(0, 160);
+  }
+  return clean;
+}
 // Preview and export share geometry/timing, not their pixel budget. Keep this
 // wire recipe valid in installed 1080p30 binaries and avoid rebuilding the
 // player merely because the final output profile changed.
@@ -84,6 +105,9 @@ export const StudioCompositionPreview = forwardRef<StudioPreviewHandle, Props>(f
   const missingTreatments = needsTreatments && !studioRecipeTreatmentsSupported(treatmentRecipe, treatmentsCapabilities) && !studioRecipeTreatmentsSupported(treatmentRecipe, getCachedStudioEnhancementCapabilities());
   const missingTools = !!editing && studioRecipeNeedsEditorTools(props.recipe || compileStudioRecipe(props.project)) && !isStudioEditorToolsAvailable();
   const native = !!NativeCanvas && editing?.output.profile === 'standard' && props.project.kind !== 'podcast' && !missingTools && !missingTreatments;
+  useEffect(() => {
+    try { props.onPreviewDiagnostic?.({ type: 'gate', native, missingTools, missingTreatments }); } catch {}
+  }, [native, missingTools, missingTreatments, props.onPreviewDiagnostic]);
   useLayoutEffect(() => {
     const channel = props.playbackChannel;
     if (!native && channel) runOnUI(() => {
@@ -108,6 +132,7 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
   const errorCode = useRef<string | undefined>(undefined);
   const mounted = useRef(true);
   const live = useRef(props); live.current = props;
+  const diagnose = (event: StudioPreviewDiagnosticEvent) => { try { live.current.onPreviewDiagnostic?.(event); } catch {} };
   const token = useRef(0);
   const transient = useRef(false);
   const position = useRef(0);
@@ -150,6 +175,12 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
   }
   const revision = `${props.project.id}:${revisionSequence.current.value}`;
   const currentRevision = useRef(revision); currentRevision.current = revision;
+  useEffect(() => {
+    const output = studioCompositionPreviewRecipe(compiled).output;
+    diagnose({ type: 'recipe', revision, token: token.current, recipeVersion: compiled.version,
+      durationSeconds: compiled.durationTicks / compiled.timebase, assetCount: compiled.assets.length, clipCount: compiled.clips.length,
+      width: output.width, height: output.height, frameRateNumerator: output.frameRateNumerator, frameRateDenominator: output.frameRateDenominator });
+  }, [revision]);
   const lastSyncedRevision = useRef(revision);
   const channel = props.playbackChannel;
   const previousChannel = useRef(channel);
@@ -239,6 +270,8 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
           if (pendingPlay.current !== request) return;
           pausePlayback(); errorCode.current = 'E_STUDIO_PLAY_UNCONFIRMED';
           setError('A prévia não iniciou. Toque em reproduzir para tentar novamente.');
+          diagnose({ type: 'error', revision: currentRevision.current, token: token.current, code: errorCode.current,
+            message: 'A prévia não iniciou. Toque em reproduzir para tentar novamente.' });
         }, 2000);
         return;
       }
@@ -251,6 +284,8 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
     if (!value.playing && !value.loading) { intendedPaused.current = true; setPaused(true); }
     const state = { position: value.positionSeconds, sourcePosition: value.sourcePositionSeconds, takeId: value.clipId || undefined, playing: value.playing, loading: value.loading };
     playback.current = state;
+    diagnose({ type: 'playback', revision: value.revision, token: value.token,
+      positionSeconds: value.positionSeconds, sourcePositionSeconds: value.sourcePositionSeconds, playing: value.playing, loading: value.loading, clipId: value.clipId });
     if (!fromUI && live.current.playbackChannel) {
       const destination = live.current.playbackChannel;
       runOnUI(() => { 'worklet'; receivePlaybackOnUI(value, controls, destination); })();
@@ -260,12 +295,15 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
   const acceptError = (value: NativeError, expectedIntent?: number) => {
     if (mounted.current && value.revision === currentRevision.current && value.token >= token.current
         && (expectedIntent === undefined || expectedIntent === intentSequence.current)) {
+      const diagnostics = sanitizedNativeDiagnostics(value.diagnostics);
+      if (diagnostics) { try { live.current.onNativeDiagnostics?.(diagnostics); } catch {} }
       if (value.code === 'E_STUDIO_INTERACTION' && transformChannel) runOnUI(() => {
         'worklet'; transformChannel.value = { ...transformChannel.value, available: false,
           active: false, phase: 'idle', finish: 'cancel', sequence: transformChannel.value.sequence + 1 };
       })();
       pendingSeek.current = null; updateUI({ pendingSeek: null });
       pausePlayback(); errorCode.current = value.code; setError(value.message);
+      diagnose({ type: 'error', revision: value.revision, token: value.token, code: value.code, message: value.message });
     }
   };
   // Expo Fabric dispatches the dictionary before React wraps it in nativeEvent.
