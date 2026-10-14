@@ -5,7 +5,7 @@ import { AppNotifications } from "@/components/AppNotifications";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { AuthProvider } from "./contexts/AuthContext";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { SubscriptionCheckoutProvider } from "./components/billing/SubscriptionCheckoutProvider";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { MiniPlayerProvider, useMiniPlayer } from "./contexts/MiniPlayerContext";
@@ -37,6 +37,7 @@ const StudioProjects = lazy(() => import("./pages/StudioProjects"));
 const StudioEditor = lazy(() => import("./pages/StudioEditor"));
 const StudioRecord = lazy(() => import("./pages/StudioRecord"));
 const StudioMonitor = lazy(() => import("./pages/StudioMonitor"));
+const StudioMonitorAutoReceiver = lazy(() => import("./components/studio/editor/StudioMonitorAutoReceiver").then(module => ({ default: module.StudioMonitorAutoReceiver })));
 const StudioUpload = lazy(() => import("./pages/StudioUpload"));
 const StudioUploadCurso = lazy(() => import("./pages/StudioUploadCurso"));
 const StudioContents = lazy(() => import("./pages/StudioContents"));
@@ -86,6 +87,7 @@ function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const { user, role, loading: authLoading } = useAuth();
   const { closeMiniPlayer } = useMiniPlayer();
   const backgroundLocation = isMobile ? (location.state as any)?.backgroundLocation : null;
   const isBroadcastRoute = /^\/live\/[^/]+\/broadcast\/?$/.test(location.pathname);
@@ -212,6 +214,7 @@ function AppContent() {
   return (
     <>
       <OnboardingGate />
+      {!authLoading && user && (role === 'creator' || role === 'admin') && !isMobile && <Suspense fallback={null}><StudioMonitorAutoReceiver /></Suspense>}
       {!isBroadcastRoute && !isStudioWorkspace && <GlobalClassy />}
       <RouteLoadBoundary>
         <Suspense fallback={liveOpening}>

@@ -46,7 +46,7 @@ export const connectStudioCameraMonitorPreview: StudioCameraMonitorPreviewFactor
   } catch (error) { await disconnect(); throw error; }
 };
 
-export function createStudioCameraMonitorViewer(options: { owner: string; client?: StudioCameraMonitorClient; preview?: StudioCameraMonitorPreviewFactory; clientId?: string }) {
+export function createStudioCameraMonitorViewer(options: { owner: string; sessionId?: string; client?: StudioCameraMonitorClient; preview?: StudioCameraMonitorPreviewFactory; clientId?: string }) {
   const client = options.client ?? createStudioCameraMonitorClient(options.owner), factory = options.preview ?? connectStudioCameraMonitorPreview;
   const clientId = options.clientId ?? crypto.randomUUID(), listeners = new Set<(state: StudioCameraMonitorView) => void>();
   let state: StudioCameraMonitorView = { monitor: null, connection: 'waiting', stream: null, error: null, serverOffset: 0 };
@@ -75,6 +75,7 @@ export function createStudioCameraMonitorViewer(options: { owner: string; client
       if (state.monitor || state.stream) await lost('O iPhone encerrou o monitor ou ficou desconectado.');
       return false;
     }
+    if (options.sessionId && options.sessionId !== response.monitor.id) throw new StudioCameraMonitorError('Esta prévia foi encerrada. Ative uma nova pelo iPhone.');
     if (state.monitor && (state.monitor.id !== response.monitor.id || state.monitor.deviceId !== response.monitor.deviceId)) throw new StudioCameraMonitorError('A sessão do monitor mudou. Reconecte para continuar.');
     publish({ monitor: response.monitor, error: null }); scheduleFreshness(response.monitor, token); return true;
   };

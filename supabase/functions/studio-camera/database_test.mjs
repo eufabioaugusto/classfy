@@ -132,8 +132,14 @@ try {
  assert.equal(acquiring.filter(result=>result.status==='fulfilled').length,1);
  assert.match(acquiring.find(result=>result.status==='rejected').reason.stderr,/studio_camera_busy|studio_camera_monitor_conflict|studio_camera_not_ready/);
  assert.equal(Number((await sql(`SELECT (SELECT count(*) FROM studio_camera_monitor_sessions WHERE owner_id='${user}' AND device_id='${monitorDevice}' AND status='active')+(SELECT count(*) FROM studio_camera_sessions WHERE owner_id='${user}' AND device_id='${monitorDevice}' AND status IN ('starting','recording','stopping'));`)).stdout.trim()),1);
+ // Read-only lifecycle metadata is owner + current Premium/creator scoped.
+ await sql('CREATE PUBLICATION supabase_realtime FOR TABLE public.profiles(id);');
+ const realtimeMigration=await readFile(new URL('../../migrations/20261014233000_studio_camera_monitor_realtime.sql',import.meta.url),'utf8');
+ await sql(realtimeMigration);await sql(realtimeMigration);
+ await sql(await readFile(new URL('monitor_realtime_test.sql',import.meta.url),'utf8'));
  console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency, durable pairings, safe camera handoff, protected original recovery priority and acknowledged audio input selection.');
  console.log('Mobile monitor QA passed: private viewer lifecycle, Premium/ownership, protected remote handoff, bounded display state, preview-only expiry/close, preserved local REC, restrictive ACL and concurrent idempotency/allocation.');
+ console.log('Monitor Realtime QA passed: idempotent publication, lifecycle metadata columns only, owner/non-owner RLS, expired/free/unapproved denial, no anonymous read, no writes or private media/RPC privileges.');
 } finally {
  if (started) await command('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']).catch(() => undefined);
  await rm(temporary, { recursive: true, force: true });
