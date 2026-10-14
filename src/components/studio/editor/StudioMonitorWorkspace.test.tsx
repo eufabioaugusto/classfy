@@ -49,6 +49,11 @@ describe('monitor mantém a gravação no iPhone', () => {
     await workspace(); const view = freshView(); view.monitor!.expiresAt = new Date(NOW + 1000).toISOString(); await emit(view); const video = host.querySelector('video') as HTMLVideoElement;
     expect(video.srcObject).toBeTruthy(); await act(async () => vi.advanceTimersByTime(1500)); expect(video.srcObject).toBeNull(); expect(video.hidden).toBe(true); expect(host.textContent).toContain('Conexão perdida'); expect(host.textContent).not.toContain('Gravando no iPhone');
   });
+  it('recusa de tela cheia informa o resultado sem ocultar vídeo conectado', async () => {
+    await workspace(); await emit(freshView()); const video = host.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(host.querySelector('.scm-monitor'), 'requestFullscreen', { configurable: true, value: async () => { throw new Error('denied'); } });
+    await click('Tela cheia'); expect(host.textContent).toContain('O navegador não abriu a tela cheia.'); expect(video.srcObject).toBeTruthy(); expect(video.hidden).toBe(false); expect(host.textContent).toContain('Gravando no iPhone');
+  });
   it('troca de conta descarta imagem anterior e dispose não altera o mobile', async () => {
     await workspace(); await emit(freshView()); const previous = io.controllers[0]; await workspace('other'); expect(previous.unsubscribe).toHaveBeenCalledTimes(1); expect(previous.dispose).toHaveBeenCalledTimes(1); expect(io.create).toHaveBeenLastCalledWith({ owner: 'other' }); expect((host.querySelector('video') as HTMLVideoElement).srcObject).toBeNull();
   });

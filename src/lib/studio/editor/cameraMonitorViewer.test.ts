@@ -10,7 +10,7 @@ class Stream { constructor(readonly tracks: MediaStreamTrack[]) {} getTracks() {
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(accept => { resolve = accept; }); return { resolve, promise }; }
 let state: StudioCameraMonitorView, callbacks: Parameters<StudioCameraMonitorPreviewFactory>[1], disconnect: ReturnType<typeof vi.fn>, preview: ReturnType<typeof vi.fn>, request: ReturnType<typeof vi.fn>, viewer: ReturnType<typeof createStudioCameraMonitorViewer>;
 const camera = { id: 'mobile-video', kind: 'video' } as MediaStreamTrack;
-function setup() { viewer = createStudioCameraMonitorViewer({ owner: 'creator', clientId: VIEWER, client: { request }, preview }); viewer.subscribe(value => { state = value; }); return viewer; }
+function setup(sessionId?: string) { viewer = createStudioCameraMonitorViewer({ owner: 'creator', sessionId, clientId: VIEWER, client: { request }, preview }); viewer.subscribe(value => { state = value; }); return viewer; }
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(NOW); vi.stubGlobal('MediaStream', Stream); disconnect = vi.fn(async () => undefined);
   request = vi.fn(async () => envelope()); preview = vi.fn(async (_response, listener) => { callbacks = listener; listener.connection('connecting'); listener.track(camera); listener.connection('connected'); return { disconnect }; });
@@ -38,6 +38,9 @@ describe('lifecycle do viewer privado sem autoridade de câmera', () => {
   });
   it('sessão selecionada não é trocada silenciosamente durante uma gravação', async () => {
     await setup().start(); request.mockImplementation(async () => envelope({ id: '00000000-0000-4000-8000-000000000004' })); await vi.advanceTimersByTimeAsync(5000); expect(state.stream).toBeNull(); expect(state.error).toContain('sessão'); expect(preview).toHaveBeenCalledTimes(1);
+  });
+  it('overlay automático pinado não exibe um novo toggle recebido antes de montar o viewer', async () => {
+    request.mockImplementation(async () => envelope({ id: '00000000-0000-4000-8000-000000000004' })); await setup(ID).start(); expect(state.stream).toBeNull(); expect(preview).not.toHaveBeenCalled(); expect(state.error).toContain('encerrada');
   });
   it('resposta ou track tardios após dispose não chegam à próxima conta', async () => {
     const pending = deferred<StudioCameraMonitorResponse>(); request.mockImplementation(() => pending.promise); const controller = setup(), running = controller.start(); await Promise.resolve(); await controller.dispose(); pending.resolve(envelope()); await running; expect(preview).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
