@@ -21,6 +21,7 @@ import {
   StickyNote,
   Clock,
   Check,
+  PictureInPicture2,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -35,6 +36,8 @@ import { cn } from "@/lib/utils";
 import Hls from "hls.js";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
 import { releaseMediaElement, standardHlsConfig } from "@/lib/video/hlsConfig";
+import { useWatchFloatingPlayer } from "@/hooks/useWatchFloatingPlayer";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   resolveResumePosition,
   shouldRestartFromBeginning,
@@ -79,6 +82,7 @@ export interface UnifiedVideoPlayerProps {
   mode?: "watch" | "study";
   compact?: boolean;
   onTimeUpdate?: (currentTime: number) => void;
+  onPlaybackStateChange?: (playing: boolean) => void;
   onVideoEnded?: () => void;
   onNoteCreated?: () => void;
   seekToTime?: number | null;
@@ -101,6 +105,7 @@ export function UnifiedVideoPlayer({
   mode = "watch",
   compact = false,
   onTimeUpdate,
+  onPlaybackStateChange,
   onVideoEnded,
   onNoteCreated,
   seekToTime,
@@ -178,6 +183,12 @@ export function UnifiedVideoPlayer({
   const playback = usePlaybackSource(content);
   const pendingResumePositionRef = useRef<number | null>(null);
   const hasUserRequestedPlaybackRef = useRef(false);
+  const isMobile = useIsMobile();
+  const floating = useWatchFloatingPlayer({
+    mediaRef, scope: `${user?.id ?? ''}:${content.id}:${playback.url ?? ''}`,
+    title: content.title, creator: content.creator?.display_name, poster: content.thumbnail_url,
+    audioOnly: !isVideo, enabled: mode === 'watch' && !isMobile && !!playback.url, isPlaying,
+  });
 
   useEffect(() => {
     setIsPlaying(false);
@@ -495,8 +506,10 @@ export function UnifiedVideoPlayer({
       const t = media.currentTime;
       setCurrentTime(t);
       onTimeUpdate?.(t);
-      trackMetrics(t);
-      trackCourseProgress(t);
+      if (!media.paused && !media.seeking) {
+        trackMetrics(t);
+        trackCourseProgress(t);
+      }
 
       // Update buffered range
       if (media.buffered.length > 0) {
@@ -506,10 +519,14 @@ export function UnifiedVideoPlayer({
 
     const onWaiting = () => setIsBuffering(true);
     const onCanPlay = () => setIsBuffering(false);
-    const onPlaying = () => setIsBuffering(false);
+    const onPlay = () => { setIsPlaying(true); onPlaybackStateChange?.(true); };
+    const onPlaying = () => { setIsBuffering(false); setIsPlaying(true); };
+    const onVolume = () => { setVolume(media.volume); setIsMuted(media.muted); };
+    const onRate = () => setPlaybackRate(media.playbackRate);
 
     const onEnded = async () => {
       setIsPlaying(false);
+      onPlaybackStateChange?.(false);
       if (courseProgress) {
         await completeLesson();
       } else {
@@ -519,6 +536,8 @@ export function UnifiedVideoPlayer({
     };
 
     const onPause = () => {
+      setIsPlaying(false);
+      onPlaybackStateChange?.(false);
       if (!media.ended) saveCurrentPosition(media.currentTime);
     };
 
@@ -527,6 +546,9 @@ export function UnifiedVideoPlayer({
     media.addEventListener("waiting", onWaiting);
     media.addEventListener("canplay", onCanPlay);
     media.addEventListener("playing", onPlaying);
+    media.addEventListener("play", onPlay);
+    media.addEventListener("volumechange", onVolume);
+    media.addEventListener("ratechange", onRate);
     media.addEventListener("ended", onEnded);
     media.addEventListener("pause", onPause);
 
@@ -537,10 +559,13 @@ export function UnifiedVideoPlayer({
       media.removeEventListener("waiting", onWaiting);
       media.removeEventListener("canplay", onCanPlay);
       media.removeEventListener("playing", onPlaying);
+      media.removeEventListener("play", onPlay);
+      media.removeEventListener("volumechange", onVolume);
+      media.removeEventListener("ratechange", onRate);
       media.removeEventListener("ended", onEnded);
       media.removeEventListener("pause", onPause);
     };
-  }, [content.id, content.content_id, content.duration_seconds, user, duration, onTimeUpdate, onVideoEnded, trackMetrics, trackCourseProgress, courseProgress, completeLesson, flushProgress]);
+  }, [content.id, content.content_id, content.duration_seconds, user, duration, onTimeUpdate, onVideoEnded, onPlaybackStateChange, trackMetrics, trackCourseProgress, courseProgress, completeLesson, flushProgress]);
 
   const saveCurrentPosition = useCallback(async (time: number) => {
     if (!user || !content.id || !time || time < 1 || duration <= 0) return;
@@ -803,6 +828,7 @@ export function UnifiedVideoPlayer({
       <div
         ref={containerRef}
         data-player-root
+        style={floating.isOpen ? { aspectRatio: '16 / 9' } : undefined}
         className={cn(
           "relative overflow-hidden bg-black rounded-xl",
           compact && "rounded-none",
@@ -845,6 +871,12 @@ export function UnifiedVideoPlayer({
             <audio ref={audioRef} />
           </>
         )}
+
+        {floating.isOpen && <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-[#0c0d0f] px-6 text-center text-white">
+          <PictureInPicture2 className="h-9 w-9 text-primary" aria-hidden="true" />
+          <p className="text-sm font-medium">Reproduzindo no mini player</p>
+          <Button variant="secondary" size="sm" onClick={floating.close}>Trazer de volta</Button>
+        </div>}
 
         {/* Toolbar overlay — topo, aparece com os controles */}
         {toolbarSlot && (
@@ -1214,6 +1246,14 @@ export function UnifiedVideoPlayer({
                   </PlayerControl>
                 )}
 
+                {mode === 'watch' && !isMobile && floating.supported && <PlayerControl
+                  label="Mini player" size="icon" variant="ghost"
+                  disabled={!isSourceAttached || !hasUserRequestedPlaybackRef.current}
+                  onClick={() => { void floating.open(); }}
+                  className="text-white hover:bg-white/20 h-8 w-8">
+                  <PictureInPicture2 className="w-4 h-4" />
+                </PlayerControl>}
+
                 {/* Fullscreen */}
                 {isVideo && (
                   <PlayerControl label={isFullscreen ? "Sair da tela cheia" : "Tela inteira"} shortcut="F"
@@ -1230,6 +1270,9 @@ export function UnifiedVideoPlayer({
           </div>
           </div>
       </div>
+
+      {floating.error && <p role="alert" className="px-2 pt-2 text-xs text-destructive">{floating.error}</p>}
+      {floating.portal}
 
       {/* Quick note uses the same visual language as the study tools. */}
       <Dialog open={noteModalOpen} onOpenChange={(open) => { if (!noteSaving) setNoteModalOpen(open); }}>

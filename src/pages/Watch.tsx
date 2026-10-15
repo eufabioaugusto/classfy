@@ -25,7 +25,7 @@ import { StudyToolbar, ToolPanel } from "@/components/unified/StudyToolbar";
 import { Header } from "@/components/Header";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { toast } from "sonner";
 import { UpgradeModal } from "@/components/UpgradeModal";
@@ -189,6 +189,9 @@ function WatchContent() {
 
   // Track current playback time for mini player
   const currentPlaybackTime = useRef(0);
+  // Mobile owns its existing handoff; only the desktop player reports this state.
+  const currentPlaybackPlaying = useRef<boolean | undefined>(undefined);
+  const handlePlaybackStateChange = useCallback((playing: boolean) => { currentPlaybackPlaying.current = playing; }, []);
 
   // Autoplay next video state
   const [showAutoplayOverlay, setShowAutoplayOverlay] = useState(false);
@@ -281,6 +284,10 @@ function WatchContent() {
             subtitle: currentContent.creator?.display_name,
             thumbnail_url: currentContent.thumbnail_url,
             file_url: currentContent.file_url,
+            content_type: currentContent.content_type,
+            video_provider: currentContent.video_provider,
+            bunny_video_id: currentContent.bunny_video_id,
+            bunny_library_id: currentContent.bunny_library_id,
             media_asset_id: currentContent.media_asset_id,
             duration_seconds: currentContent.duration_seconds,
             creator: currentContent.creator
@@ -288,6 +295,7 @@ function WatchContent() {
               : undefined,
           },
           playbackTime,
+          currentPlaybackPlaying.current,
         );
       }
     };
@@ -1449,6 +1457,7 @@ function WatchContent() {
                     content={{
                       id: currentLesson.id,
                       title: currentLesson.title,
+                      creator: content.creator,
                       file_url: currentLesson.video_url || "",
                       thumbnail_url: content.thumbnail_url,
                       content_type: "aula" as const,
@@ -1468,6 +1477,7 @@ function WatchContent() {
                     }}
                     mode="watch"
                     onTimeUpdate={handleTimeUpdate}
+                    onPlaybackStateChange={handlePlaybackStateChange}
                     onNoteCreated={() =>
                       setNotesRefreshTrigger((prev) => prev + 1)
                     }
@@ -1491,6 +1501,7 @@ function WatchContent() {
                       content={{
                         id: content.id,
                         title: content.title,
+                        creator: content.creator,
                         file_url: content.file_url,
                         thumbnail_url: content.thumbnail_url,
                         content_type: content.content_type,
@@ -1503,6 +1514,7 @@ function WatchContent() {
                       }}
                       mode="watch"
                       onTimeUpdate={handleTimeUpdate}
+                      onPlaybackStateChange={handlePlaybackStateChange}
                       onVideoEnded={handleVideoEnd}
                       onNoteCreated={() =>
                         setNotesRefreshTrigger((prev) => prev + 1)

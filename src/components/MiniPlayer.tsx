@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useMiniPlayerPlayback } from "@/hooks/useMiniPlayerPlayback";
 import { MobileMiniPlayer } from "@/components/watch/MobileMiniPlayer";
+import { useWatchFloatingPlayer } from "@/hooks/useWatchFloatingPlayer";
 
 interface RelatedContent {
   id: string;
@@ -19,6 +20,7 @@ interface RelatedContent {
 
 // Desktop MiniPlayer Component
 function DesktopMiniPlayer() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -55,6 +57,12 @@ function DesktopMiniPlayer() {
   };
 
   const playback = useMiniPlayerPlayback();
+  const floating = useWatchFloatingPlayer({
+    mediaRef: videoRef, scope: `${user?.id ?? ''}:${state.content?.id ?? ''}:${playback.url ?? ''}`,
+    title: state.content?.title ?? '', creator: state.content?.subtitle || state.content?.creator?.display_name,
+    poster: state.content?.thumbnail_url, audioOnly: state.content?.content_type === 'podcast',
+    enabled: state.isVisible, isPlaying: state.isPlaying,
+  });
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -92,6 +100,10 @@ function DesktopMiniPlayer() {
       {/* Video Container */}
       <div className="relative aspect-video bg-black cursor-pointer" onClick={handleGoToWatch}>
         <video ref={videoRef} className="w-full h-full object-cover" poster={playback.poster} playsInline />
+        {floating.isOpen && <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[#0c0d0f] text-xs text-white" onClick={event => event.stopPropagation()}>
+          <PictureInPicture2 className="h-6 w-6 text-primary" />
+          <button type="button" className="rounded-lg bg-white/10 px-3 py-2" onClick={floating.close}>Trazer de volta</button>
+        </div>}
         {playback.error && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/80 px-4 text-center text-xs text-white">
             <p>{playback.error}</p>
@@ -117,6 +129,11 @@ function DesktopMiniPlayer() {
           </button>
 
           {/* Top Right - Close */}
+          {floating.supported && <button type="button" onClick={event => { event.stopPropagation(); void floating.open(); }}
+            className="absolute top-3 right-12 p-1.5 rounded-md bg-black/60 hover:bg-black/80 transition-colors"
+            title="Abrir janela flutuante" aria-label="Abrir janela flutuante">
+            <PictureInPicture2 className="h-4 w-4 text-white" />
+          </button>}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -162,6 +179,8 @@ function DesktopMiniPlayer() {
             />
         </div>
       </div>
+      {floating.error && <p role="alert" className="px-3 pb-2 text-xs text-destructive">{floating.error}</p>}
+      {floating.portal}
 
       {/* Info Bar */}
       <div className="p-3 flex items-center justify-between gap-3">
