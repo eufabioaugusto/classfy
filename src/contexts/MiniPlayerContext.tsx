@@ -16,6 +16,7 @@ export interface MiniPlayerContent {
   bunny_video_id?: string | null;
   bunny_library_id?: string | null;
   media_asset_id?: string | null;
+  content_type?: string;
 }
 
 interface MiniPlayerState {
@@ -30,7 +31,7 @@ interface MiniPlayerState {
 interface MiniPlayerContextType {
   state: MiniPlayerState;
   videoRef: React.RefObject<HTMLVideoElement>;
-  startMiniPlayer: (content: MiniPlayerContent, currentTime?: number) => void;
+  startMiniPlayer: (content: MiniPlayerContent, currentTime?: number, isPlaying?: boolean) => void;
   closeMiniPlayer: () => void;
   togglePlay: () => void;
   setCurrentTime: (time: number) => void;
@@ -66,7 +67,6 @@ export const MiniPlayerProvider = ({ children }: { children: ReactNode }) => {
   // Setup Media Session when mini player content changes
   useEffect(() => {
     if (!state.content || !state.isVisible) {
-      clearSession();
       return;
     }
 
@@ -130,14 +130,14 @@ export const MiniPlayerProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [state.currentTime, state.duration, state.isVisible, setPositionState]);
 
-  const startMiniPlayer = useCallback((content: MiniPlayerContent, currentTime = 0) => {
+  const startMiniPlayer = useCallback((content: MiniPlayerContent, currentTime = 0, isPlaying = true) => {
     setState(prev => ({
       ...prev,
       content,
       currentTime,
       duration: content.duration_seconds || 0,
       isVisible: true,
-      isPlaying: true,
+      isPlaying,
       isExpanded: false,
     }));
   }, []);
@@ -157,12 +157,15 @@ export const MiniPlayerProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const { user } = useAuth();
+  const ownerId = user?.id;
+  const previousOwner = useRef(ownerId);
 
   useEffect(() => {
-    if (!user) {
+    if (!ownerId || previousOwner.current !== ownerId) {
       closeMiniPlayer();
     }
-  }, [user, closeMiniPlayer]);
+    previousOwner.current = ownerId;
+  }, [ownerId, closeMiniPlayer]);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
