@@ -120,7 +120,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     }
   }
 
-  func setActive(_ value: Bool) {
+  func setActive(_ value: Bool, stopReason: StudioCaptureOperation.StopReason = .viewInactive) {
     queue.async {
       guard !self.disposed else { return }
       if value == self.active, self.configured, self.session.isRunning, value { return }
@@ -140,7 +140,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         self.stopAudioMonitor(reason: "inactive")
         self.invalidateFrames()
         if let operation = self.operation {
-          self.stopOwned(operation)
+          self.stopOwned(operation, reason: stopReason)
         } else if self.session.isRunning { self.session.stopRunning() }
         self.emitState()
       }
@@ -176,7 +176,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       self.audioInputSelection.invalidate()
       self.stopAudioMonitor(reason: "inactive")
       self.invalidateFrames()
-      if let operation = self.operation { self.stopOwned(operation) }
+      if let operation = self.operation { self.stopOwned(operation, reason: .disposed) }
       else { self.finishDisposal() }
     }
   }
@@ -539,7 +539,18 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     state["generation"] = generation; state["revision"] = revision
     state["phase"] = operation?.phase.rawValue ?? (active && session.isRunning ? "idle" : "inactive")
     state["operationId"] = operation?.id as Any? ?? NSNull()
-    state["isRecording"] = movie.isRecording || operation != nil
+    state["isRecording"] = movie.isRecording || (operation != nil && operation?.nativeFinished == false)
+    let storageURL = operation?.fileURL ?? FileManager.default.temporaryDirectory.appendingPathComponent("classfy-recording-space")
+    let availableBytes = Self.freeDiskBytes(at: storageURL)
+    if let availableBytes { state["storageAvailableBytes"] = availableBytes }
+    let recordedDuration = movie.recordedDuration
+    if movie.isRecording, let remaining = StudioCaptureStoragePolicy.estimatedRemainingSeconds(availableBytes: availableBytes,
+        recordedBytes: movie.recordedFileSize, recordedSeconds: recordedDuration.seconds) {
+      state["estimatedRemainingRecordingSeconds"] = remaining
+    }
+    if operation != nil, recordedDuration.isNumeric, recordedDuration.seconds.isFinite, recordedDuration.seconds >= 0 {
+      state["recordedDurationSeconds"] = recordedDuration.seconds
+    }
     state["previewProcessed"] = previewProcessed
     state["orientation"] = configuration.orientation; state["mirrored"] = configuration.mirrored
     state["cinematic"] = configuration.cinematic
@@ -561,6 +572,21 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   }
 
   private func emitState() { if let state = try? snapshot() { emit("onState", state) } }
+
+  private static func freeDiskBytes(at url: URL) -> Int64? {
+    let attributes = try? FileManager.default.attributesOfFileSystem(forPath: url.deletingLastPathComponent().path)
+    return (attributes?[.systemFreeSize] as? NSNumber)?.int64Value
+  }
+
+  private static func thermalStateName() -> String {
+    switch ProcessInfo.processInfo.thermalState {
+    case .nominal: return "nominal"
+    case .fair: return "fair"
+    case .serious: return "serious"
+    case .critical: return "critical"
+    @unknown default: return "unknown"
+    }
+  }
 
   func startRecording(_ operationId: String, durableOwner: String? = nil, durableSession: String? = nil, completion: @escaping Completion) {
     queue.async {
@@ -587,21 +613,26 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appendingPathComponent("\(durable ? operationId : UUID().uuidString).mov")
         guard !FileManager.default.fileExists(atPath: file.path) else { throw StudioCaptureError.invalid("Este take já possui um original. Recupere o arquivo antes de gravar novamente.") }
+        let freeDiskBytes = Self.freeDiskBytes(at: file)
+        guard StudioCaptureStoragePolicy.canStart(availableBytes: freeDiskBytes) else {
+          throw StudioCaptureError.unavailable("Libere espaço no iPhone antes de gravar. O Studio precisa de pelo menos 1 GB livre. Seus originais permanecem no aparelho.")
+        }
         let operation = StudioCaptureOperation(id: operationId, fileURL: file, generation: self.generation,
-          sourceKind: self.configuration.cinematic ? "cinematic" : "standard", durableSource: durable, completion: completion)
+          sourceKind: self.configuration.cinematic ? "cinematic" : "standard", durableSource: durable,
+          freeDiskBytes: freeDiskBytes, thermalState: Self.thermalStateName(), completion: completion)
         self.operation = operation; self.recordingRetention = self
         self.emit("onRecordingState", ["phase": "preparing", "operationId": operation.id])
+        self.movie.minFreeDiskSpaceLimit = StudioCaptureStoragePolicy.finalizationReserveBytes
         self.movie.startRecording(to: file, recordingDelegate: self)
         let watchdog = DispatchWorkItem { [weak self, weak operation] in
           guard let self, let operation, self.operation === operation, !operation.settled,
             operation.phase == .preparing || operation.phase == .stopping else { return }
           if self.movie.isRecording {
-            if operation.didStart() { self.movie.stopRecording() }
-            self.emit("onRecordingState", ["phase": operation.phase.rawValue, "operationId": operation.id])
+            self.stopOwned(operation, reason: .startupTimeout)
           } else {
             // Native start failed to acknowledge. Do not free this operation
             // and allow a second REC to take ownership of a delayed callback.
-            self.stopOwned(operation)
+            self.stopOwned(operation, reason: .startupTimeout)
             self.session.stopRunning()
             self.emit("onError", ["code": "E_STUDIO_CAPTURE_START", "message": "A câmera demorou para iniciar. Aguarde a recuperação do take e abra o Studio novamente."])
           }
@@ -624,8 +655,8 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     }
   }
 
-  private func stopOwned(_ operation: StudioCaptureOperation) {
-    guard self.operation === operation, operation.requestStop() else { return }
+  private func stopOwned(_ operation: StudioCaptureOperation, reason: StudioCaptureOperation.StopReason = .userStop) {
+    guard self.operation === operation, operation.requestStop(reason: reason) else { return }
     if movie.isRecording { movie.stopRecording() }
     emit("onRecordingState", ["phase": operation.phase.rawValue, "operationId": operation.id])
   }
@@ -633,18 +664,35 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL,
                   from connections: [AVCaptureConnection]) {
     let startedAtEpochMs = Date().timeIntervalSince1970 * 1000
+    let startedUptime = ProcessInfo.processInfo.systemUptime
     queue.async {
       guard let operation = self.operation, operation.fileURL == fileURL, !operation.settled else { return }
-      let stop = operation.didStart()
+      let stop = operation.didStart(atEpochMs: startedAtEpochMs, uptime: startedUptime)
       self.emit("onRecordingState", ["phase": operation.phase.rawValue, "operationId": operation.id, "startedAtEpochMs": startedAtEpochMs])
-      if stop || !self.active || self.disposed { self.stopOwned(operation) }
+      if stop { self.stopOwned(operation) }
+      else if self.disposed { self.stopOwned(operation, reason: .disposed) }
+      else if !self.active { self.stopOwned(operation, reason: .viewInactive) }
     }
   }
 
   func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo fileURL: URL,
                   from connections: [AVCaptureConnection], error: Error?) {
+    let finishedAtEpochMs = Date().timeIntervalSince1970 * 1000
+    let finishedUptime = ProcessInfo.processInfo.systemUptime
+    let nativeError = error as NSError?
+    let recordedDuration = output.recordedDuration
+    let mediaDurationSeconds = recordedDuration.isNumeric && recordedDuration.seconds.isFinite && recordedDuration.seconds > 0 ? recordedDuration.seconds : nil
+    let thermalState = Self.thermalStateName()
+    let successfullyFinished = nativeError?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool
     queue.async {
-      guard let operation = self.operation, operation.fileURL == fileURL, !operation.settled else { return }
+      guard let operation = self.operation, operation.fileURL == fileURL,
+        operation.didFinish(error: nativeError, successfullyFinished: successfullyFinished,
+          mediaDurationSeconds: mediaDurationSeconds, freeDiskBytes: Self.freeDiskBytes(at: fileURL), thermalState: thermalState,
+          atEpochMs: finishedAtEpochMs, uptime: finishedUptime) else { return }
+      try? operation.persistReceipt()
+      self.emit("onRecordingState", ["phase": "stopping", "operationId": operation.id,
+        "captureReceipt": operation.captureReceipt() ?? [:]])
+      self.emitState()
       let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.int64Value ?? 0
       guard size > 0 else { self.settle(operation, .failure(error ?? StudioCaptureError.unavailable("O take não contém um arquivo de vídeo válido."))); return }
       // Even an unsuccessful capture delegate can leave a usable partial MOV
@@ -666,7 +714,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
           let descriptions = try await track.load(.formatDescriptions)
           let extensions = descriptions.first.flatMap { CMFormatDescriptionGetExtensions($0) as NSDictionary? }
           let display = CGRect(origin: .zero, size: dimensions).applying(transform)
-          let result: [String: Any] = ["uri": encodedURL.absoluteString, "operationId": operation.id,
+          let captureResult: [String: Any] = ["uri": encodedURL.absoluteString, "operationId": operation.id,
             "sourceKind": operation.sourceKind, "duration": duration.seconds,
             "width": Int(abs(display.width).rounded()), "height": Int(abs(display.height).rounded()),
             "frameRate": Double(rate), "fileSize": encodedSize, "generation": operation.generation,
@@ -675,7 +723,12 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
             "transferFunction": extensions?[kCMFormatDescriptionExtension_TransferFunction] as? String ?? "unknown",
             "yCbCrMatrix": extensions?[kCMFormatDescriptionExtension_YCbCrMatrix] as? String ?? "unknown"]
           if encodedURL != fileURL && !operation.durableSource { try? FileManager.default.removeItem(at: fileURL) }
-          self.queue.async { self.settle(operation, .success(result)) }
+          self.queue.async {
+            var result = captureResult
+            if let receipt = operation.captureReceipt(mediaDurationSeconds: duration.seconds) { result["captureReceipt"] = receipt }
+            try? operation.persistReceipt(mediaDurationSeconds: duration.seconds)
+            self.settle(operation, .success(result))
+          }
         } catch { self.queue.async { self.settle(operation, .failure(error)) } }
       }
     }
@@ -685,7 +738,10 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     guard self.operation === operation, !operation.settled else { return }
     self.operation = nil
     var payload: [String: Any] = ["phase": "finished", "operationId": operation.id]
-    if case .success(let value) = result { payload["result"] = value }
+    if case .success(let value) = result {
+      payload["result"] = value
+      payload["captureReceipt"] = value["captureReceipt"] ?? operation.captureReceipt()
+    } else { payload["captureReceipt"] = operation.captureReceipt() }
     if case .failure(let error) = result { payload["error"] = error.localizedDescription; payload["recoveryUri"] = operation.fileURL.absoluteString }
     emit("onRecordingState", payload)
     operation.finish(result)
@@ -846,7 +902,10 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         self.failAudioInputSelection(StudioCaptureAudioInputError.cancelled, restore: false)
         self.audioInputSelection.invalidate()
         self.stopAudioMonitor(reason: "interrupted")
-        if let operation = self.operation { self.stopOwned(operation) }
+        if let operation = self.operation {
+          operation.noteInterruption(reason: reason)
+          self.stopOwned(operation, reason: .captureInterrupted)
+        }
         self.emit("onInterruption", ["reason": reason, "message": "A gravação foi interrompida. Estamos finalizando o take para recuperação."])
       }
     })
@@ -863,7 +922,10 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         self.failAudioInputSelection(StudioCaptureAudioInputError.cancelled, restore: false)
         self.audioInputSelection.invalidate()
         self.stopAudioMonitor(reason: "interrupted")
-        if let operation = self.operation { self.stopOwned(operation) }
+        if let operation = self.operation {
+          operation.noteRuntimeError(error as NSError?)
+          self.stopOwned(operation, reason: .runtimeError)
+        }
         self.emit("onError", ["code": "E_STUDIO_CAPTURE_RUNTIME", "message": error?.localizedDescription ?? "A câmera foi interrompida."])
       }
     })

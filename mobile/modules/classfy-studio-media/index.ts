@@ -80,6 +80,8 @@ export type StudioCameraState = {
   exposureLocked: boolean;
   torchEnabled: boolean;
   isRecording: boolean;
+  recordedDurationSeconds?: number;
+  storageAvailableBytes?: number; estimatedRemainingRecordingSeconds?: number;
   pro?: StudioCameraProState; proConfirmed?: boolean; sourceWidth?: number; sourceHeight?: number; downsampled?: boolean;
   generation?: number; revision?: number; phase?: string;
   supportsImageGrade?: boolean; imageGrade?: StudioGrade; imageGradeConfirmed?: boolean; remoteGradeConfirmed?: boolean;
@@ -352,7 +354,18 @@ export type StudioCaptureAudioEvent = {
 };
 export type StudioNativeCameraEffectAck = { effectRevision: number; previewProcessed: boolean; grade: StudioGrade; generation: number };
 export type StudioNativeCameraConfiguration = { position: 'front' | 'back'; quality: StudioCameraQuality; fps: StudioCameraFPS; orientation: 'portrait' | 'landscapeLeft' | 'landscapeRight'; cinematic?: boolean; mirrored?: boolean };
-export type StudioNativeRecording = { duration?: number; width?: number; height?: number; frameRate?: number; colorPrimaries?: string; transferFunction?: string; yCbCrMatrix?: string; fileSize?: number; uri: string; operationId: string; sourceKind?: 'standard' | 'cinematic'; sourceStage?: 'standard' | 'cinematicRaw' | 'cinematicRendered'; captureSnapshot?: StudioCameraState };
+export type StudioNativeCaptureStopReason = 'user_stop' | 'app_background' | 'view_inactive' | 'disposed' | 'capture_interrupted' | 'runtime_error' | 'startup_timeout' | 'native_finished';
+export type StudioNativeCaptureReceipt = {
+  version: 1; operationId: string; requestedAtEpochMs: number; startedAtEpochMs?: number;
+  stopRequestedAtEpochMs?: number; finishedAtEpochMs: number; wallDurationSeconds?: number;
+  mediaDurationSeconds?: number; stopReason: StudioNativeCaptureStopReason;
+  requestedStopReason?: StudioNativeCaptureStopReason; interrupted: boolean; interruptionReason?: number;
+  nativeError?: { domain: string; code: number; recordingSuccessfullyFinished?: boolean };
+  freeDiskBytesAtStart?: number; freeDiskBytesAtEnd?: number;
+  thermalStateAtStart?: 'nominal' | 'fair' | 'serious' | 'critical' | 'unknown';
+  thermalStateAtEnd?: 'nominal' | 'fair' | 'serious' | 'critical' | 'unknown';
+};
+export type StudioNativeRecording = { duration?: number; width?: number; height?: number; frameRate?: number; colorPrimaries?: string; transferFunction?: string; yCbCrMatrix?: string; fileSize?: number; uri: string; operationId: string; sourceKind?: 'standard' | 'cinematic'; sourceStage?: 'standard' | 'cinematicRaw' | 'cinematicRendered'; captureSnapshot?: StudioCameraState; captureReceipt?: StudioNativeCaptureReceipt };
 export type StudioNativePlayback = { positionSeconds: number; sourcePositionSeconds: number; clipId?: string | null; playing: boolean; loading: boolean; revision: string; token: number };
 function studioNativeModule() { if (!isStudioNativeCameraAvailable()) throw new Error('Atualize o Classfy Dev para usar a câmera nativa.'); return native!; }
 export function getStudioNativeCameraCapabilitiesAsync(tag: number) { return studioNativeModule().getStudioNativeCameraCapabilitiesAsync(tag); }

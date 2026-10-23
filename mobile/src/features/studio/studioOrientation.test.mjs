@@ -177,7 +177,7 @@ test('blur/refocus e background invalidam saída antiga mesmo com resposta nativ
   assert.equal(camera.value().orientationReady, true); assert.equal(h.locks.at(-1), 'landscape');
   h.lockBehavior(async () => {});
   const backgroundExit = camera.value().prepareForExit(); await h.flush();
-  await h.appState('inactive'); await h.appState('active');
+  await h.appState('background'); await h.appState('active');
   h.geometry('portrait'); await h.advance(120);
   assert.equal(await backgroundExit, false); assert.equal(camera.value().orientationReady, false);
   h.geometry('landscape'); await h.advance(120); assert.equal(camera.value().orientationReady, true);
@@ -280,4 +280,16 @@ test('settlement rejeita dimensões inválidas e aborta sem listeners/timers res
   }, { signal: controller.signal });
   await h.flush(); controller.abort(); assert.equal(await pending, 'cancelled');
   await h.advance(5000); assert.equal(listeners, 0); assert.equal(requests, 1); assert.equal(h.counts().timers, 0);
+});
+
+test('inactive transitório não revoga enquadramento nem remonta a captura; background continua protegido', async () => {
+  const h = harness(), camera = h.mount(); await h.advance(120);
+  assert.equal(camera.value().orientationReady,true); const locks=h.locks.length;
+  await h.appState('inactive'); await h.advance(1000);
+  assert.equal(camera.value().orientationReady,true);assert.equal(h.locks.length,locks);
+  await h.appState('active');await h.advance(120);
+  assert.equal(camera.value().orientationReady,true);assert.equal(h.locks.length,locks);
+  await h.appState('background');assert.equal(camera.value().orientationReady,false);
+  await h.appState('active');await h.advance(120);assert.equal(camera.value().orientationReady,true);
+  await camera.unmount();
 });

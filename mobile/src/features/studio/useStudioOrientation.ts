@@ -17,7 +17,7 @@ type FocusSession = {
   retryPromise?: Promise<boolean>;
 };
 
-function foreground() { return AppState.currentState === 'active'; }
+function foreground() { return AppState.currentState === 'active' || AppState.currentState === 'inactive'; }
 async function readInterfaceOrientation(observe?: (value: number) => void): Promise<StudioOrientationMode | undefined> {
   const value = await ScreenOrientation.getOrientationAsync();
   observe?.([0,1,2,3,4].includes(value) ? value : 0);
@@ -78,7 +78,7 @@ export function useStudioOrientation(kind: StudioKind | undefined, enabled = tru
     setState({ scope, ready: false, error: null });
     if (target.foreground && target.baseMode) void confirm(target, target.baseMode, true);
     const subscription = AppState.addEventListener('change', next => {
-      if (!target.active || session.current !== target) return;
+      if (!target.active || session.current !== target || next === 'inactive') return;
       const active = next === 'active';
       if (target.foreground === active) return;
       target.foreground = active; target.epoch++;

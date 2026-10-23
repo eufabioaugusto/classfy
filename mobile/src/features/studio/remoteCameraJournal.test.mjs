@@ -4,11 +4,11 @@ import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',session='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',device='cccccccc-cccc-4ccc-8ccc-cccccccccccc',take='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 function harness(){
-  const disk=new Map();let fail=false;
+  const disk=new Map(),files=new Map(),fileCalls=[];let fail=false;
   const code=ts.transpileModule(readFileSync(new URL('./remoteCameraJournal.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
-  const module={exports:{}},deps={'@react-native-async-storage/async-storage':{getItem:async key=>disk.get(key)||null,setItem:async(key,value)=>{if(fail){fail=false;throw Error('quota');}disk.set(key,value);}},'expo-file-system/legacy':{documentDirectory:'file:///current/Documents/'}};
+  const module={exports:{}},deps={'@react-native-async-storage/async-storage':{getItem:async key=>disk.get(key)||null,setItem:async(key,value)=>{if(fail){fail=false;throw Error('quota');}disk.set(key,value);}},'expo-file-system/legacy':{documentDirectory:'file:///current/Documents/',getInfoAsync:async uri=>{fileCalls.push(uri);const content=files.get(uri);return content===undefined?{exists:false}:{exists:true,isDirectory:false,size:Buffer.byteLength(content)};},readAsStringAsync:async uri=>files.get(uri)}};
   new Function('require','module','exports',code)(name=>deps[name],module,module.exports);
-  const journal=module.exports;return {journal,disk,fail:()=>{fail=true;},read:()=>journal.readRemoteCameraJournal(owner,session,device),write:change=>journal.mutateRemoteCameraJournal(owner,session,device,change)};
+  const journal=module.exports;return {journal,disk,files,fileCalls,fail:()=>{fail=true;},read:()=>journal.readRemoteCameraJournal(owner,session,device),write:change=>journal.mutateRemoteCameraJournal(owner,session,device,change)};
 }
 test('diário é owner/session/device scoped e troca de container rebaseia original sem duplicar entrada',async()=>{
   const h=harness(),uri=`file:///old/Documents/classfy-studio-remote/${owner}/${session}/${take}.mov`;
@@ -47,4 +47,23 @@ test('derivado tratado e clean separados rebaseiam, outro take ou traversal são
   for(const patch of [{uri:`${root}${device}-grade-12345678.mp4`},{sourceUri:`${root}../${take}.mov`},{uri:`${root}${take}-grade-private.mp4`}]){
     const bad=harness();await bad.write(value=>({...value,takes:[{id:take,uri:entry.uri,sourceUri:entry.sourceUri,phase:'local_ready',...patch}]}));await assert.rejects(bad.read());
   }
+});
+
+test('sidecar nativo usa somente path derivado por UUID e elimina campos fora da whitelist',async()=>{
+  const h=harness(),uri=h.journal.remoteMasterUri(owner,session,take)+'.capture.json';
+  const receipt={version:1,operationId:take,requestedAtEpochMs:10000,startedAtEpochMs:10050,finishedAtEpochMs:76203,wallDurationSeconds:66.153,mediaDurationSeconds:66.153,stopReason:'capture_interrupted',interrupted:true};
+  h.files.set(uri,JSON.stringify({...receipt,uri:'file:///private/secret.mov',token:'private'}));
+  assert.deepEqual(await h.journal.readRemoteCameraCaptureReceipt(owner,session,take),receipt);assert.deepEqual(h.fileCalls,[uri]);
+  await assert.rejects(h.journal.readRemoteCameraCaptureReceipt(owner,session,'../escape'));assert.equal(h.fileCalls.length,1);
+});
+test('sidecar oversized, outro take e tempos inválidos não são prova de captura',async()=>{
+  const good={version:1,operationId:take,requestedAtEpochMs:10000,startedAtEpochMs:10050,finishedAtEpochMs:76203,stopReason:'capture_interrupted',interrupted:true};
+  for(const value of [' '.repeat(4097),JSON.stringify({...good,operationId:owner}),JSON.stringify({...good,finishedAtEpochMs:9000}),JSON.stringify({...good,startedAtEpochMs:'10050'}),JSON.stringify({...good,wallDurationSeconds:Infinity}),'{']){
+    const h=harness();h.files.set(h.journal.remoteMasterUri(owner,session,take)+'.capture.json',value);assert.equal(await h.journal.readRemoteCameraCaptureReceipt(owner,session,take),null);
+  }
+});
+
+test('correção regressiva do relógio civil preserva sidecar com duração monotônica válida',async()=>{
+  const h=harness(),receipt={version:1,operationId:take,requestedAtEpochMs:10000,startedAtEpochMs:10050,finishedAtEpochMs:5000,wallDurationSeconds:66.153,mediaDurationSeconds:66.153,stopReason:'capture_interrupted',interrupted:true};
+  h.files.set(h.journal.remoteMasterUri(owner,session,take)+'.capture.json',JSON.stringify(receipt));assert.deepEqual(await h.journal.readRemoteCameraCaptureReceipt(owner,session,take),receipt);
 });

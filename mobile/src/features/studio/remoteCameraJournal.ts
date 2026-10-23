@@ -1,9 +1,10 @@
+import type {StudioNativeCaptureReceipt} from '../../../modules/classfy-studio-media';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
-import type { StudioRemoteMetadata,StudioRemoteConfiguration } from './remoteCameraProtocol';
+import type { StudioRemoteMetadata,StudioRemoteConfiguration,StudioRemoteRecordingEnd } from './remoteCameraProtocol';
 
 export type RemoteTakeJournal = { id: string; uri: string; phase:'reserved'|'recording'|'local_ready'|'uploading'|'uploaded'|'error';
-  localSaved?:boolean;
+  localSaved?:boolean;captureReceipt?:StudioNativeCaptureReceipt;recordingEnd?:StudioRemoteRecordingEnd;
   sourceUri?:string;sourceMetadata?:StudioRemoteMetadata;imageGrade?:StudioRemoteConfiguration['imageGrade'];gradeSignature?:string;
   metadata?:StudioRemoteMetadata; projectId?:string; localTakeId?:string; tusUrl?:string; partUrls?:Record<string,string>; error?:string; startedAtServerMs?:number };
 export type RemoteCameraJournal = {version:1;owner:string;sessionId:string;deviceId:string;projectId?:string;sequence:number;receipts:Record<string,Record<string,unknown>>;takes:RemoteTakeJournal[]};
@@ -54,4 +55,28 @@ export function mutateRemoteCameraJournal(owner:string,id:string,deviceId:string
     return next;
   });
   queue.set(storageKey,write); void write.finally(()=>{if(queue.get(storageKey)===write)queue.delete(storageKey);}).catch(()=>undefined); return write;
+}
+
+/** Read only the native sidecar derived from this owner's immutable raw path. */
+export async function readRemoteCameraCaptureReceipt(owner:string,sessionId:string,takeId:string):Promise<StudioNativeCaptureReceipt|null>{
+  const uri=remoteMasterUri(owner,sessionId,takeId)+'.capture.json';
+  try{
+    const info=await FileSystem.getInfoAsync(uri);
+    if(!info.exists||info.isDirectory||!('size'in info)||!Number.isSafeInteger(info.size)||info.size<=0||info.size>4096)return null;
+    const text=await FileSystem.readAsStringAsync(uri);if(new TextEncoder().encode(text).byteLength>4096)return null;
+    const value=JSON.parse(text) as Record<string,unknown>,reasons=['user_stop','app_background','view_inactive','disposed','capture_interrupted','runtime_error','startup_timeout','native_finished'];
+    const positive=(number:unknown):number is number=>typeof number==='number'&&Number.isFinite(number)&&number>0;
+    const monotonic=typeof value?.wallDurationSeconds==='number'&&Number.isFinite(value.wallDurationSeconds)&&value.wallDurationSeconds>=0&&value.wallDurationSeconds<=86400;
+    if(!value||typeof value!=='object'||Array.isArray(value)||value.version!==1||value.operationId!==takeId||!positive(value.requestedAtEpochMs)||!positive(value.finishedAtEpochMs)||!monotonic&&value.finishedAtEpochMs<value.requestedAtEpochMs||!reasons.includes(String(value.stopReason))||typeof value.interrupted!=='boolean')return null;
+    const receipt:StudioNativeCaptureReceipt={version:1,operationId:takeId,requestedAtEpochMs:value.requestedAtEpochMs,finishedAtEpochMs:value.finishedAtEpochMs,stopReason:value.stopReason as StudioNativeCaptureReceipt['stopReason'],interrupted:value.interrupted};
+    for(const key of ['startedAtEpochMs','stopRequestedAtEpochMs'] as const){const n=value[key];if(n!==undefined){if(!positive(n)||!monotonic&&(n<receipt.requestedAtEpochMs||n>receipt.finishedAtEpochMs))return null;receipt[key]=n;}}
+    for(const key of ['wallDurationSeconds','mediaDurationSeconds'] as const){const n=value[key];if(n!==undefined){if(typeof n!=='number'||!Number.isFinite(n)||n<0||n>86400)return null;receipt[key]=n;}}
+    if(value.requestedStopReason!==undefined){if(!reasons.includes(String(value.requestedStopReason)))return null;receipt.requestedStopReason=value.requestedStopReason as StudioNativeCaptureReceipt['stopReason'];}
+    if(Number.isSafeInteger(value.interruptionReason))receipt.interruptionReason=value.interruptionReason as number;
+    for(const key of ['freeDiskBytesAtStart','freeDiskBytesAtEnd'] as const)if(Number.isSafeInteger(value[key])&&Number(value[key])>=0)receipt[key]=value[key] as number;
+    for(const key of ['thermalStateAtStart','thermalStateAtEnd'] as const)if(['nominal','fair','serious','critical','unknown'].includes(String(value[key])))receipt[key]=value[key] as StudioNativeCaptureReceipt[typeof key];
+    const error=value.nativeError as Record<string,unknown>|undefined;
+    if(error&&typeof error==='object'&&!Array.isArray(error)&&typeof error.domain==='string'&&/^[a-zA-Z0-9_.-]{1,120}$/.test(error.domain)&&Number.isSafeInteger(error.code))receipt.nativeError={domain:error.domain,code:error.code as number,...(typeof error.recordingSuccessfullyFinished==='boolean'?{recordingSuccessfullyFinished:error.recordingSuccessfullyFinished}:{})};
+    return receipt;
+  }catch{return null;}
 }

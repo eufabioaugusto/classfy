@@ -9,10 +9,10 @@ import {configureStudioNativeCameraAsync,getStudioNativeCameraCapabilitiesAsync,
   startStudioRemoteCameraRecordingAsync,stopStudioNativeCameraRecordingAsync,startStudioRemoteCameraPreviewAsync,stopStudioRemoteCameraPreviewAsync,
   setStudioNativeCameraFocusAsync,setStudioNativeCameraEffectAsync,isStudioNativeCameraEffectsAvailable,isStudioCompositionAvailable,
   setStudioNativeAudioInputAsync,isStudioNativeAudioInputSelectionAvailable,
-  type StudioCameraProSettings,type StudioCameraState} from '../../../modules/classfy-studio-media';
+  type StudioCameraProSettings,type StudioCameraState,type StudioNativeCaptureReceipt} from '../../../modules/classfy-studio-media';
 import {createRemoteCameraController,REMOTE_CAMERA_LIVE_CONTROL_TOPIC,REMOTE_CAMERA_LIVE_ACK_TOPIC,remoteCameraLiveId,validRemoteCameraLivePatch,type RemoteCameraNative} from './remoteCameraController';
 import {remoteCameraRequest,remoteCameraDiscoveryRequest,createRemoteUploadFetch,type RemoteCameraScope,assertRemoteCameraScope} from './remoteCameraApi';
-import {readRemoteCameraJournal,readRemoteCameraJournals,mutateRemoteCameraJournal,remoteMasterUri,type RemoteTakeJournal} from './remoteCameraJournal';
+import {readRemoteCameraJournal,readRemoteCameraJournals,readRemoteCameraCaptureReceipt,mutateRemoteCameraJournal,remoteMasterUri,type RemoteTakeJournal} from './remoteCameraJournal';
 import {createStudioProject,getStudioProject,loadStudioProjects,mutateStudioProject} from './store';
 import {persistStudioTake} from './media';
 import {studioGrade,validateStudioGrade,type StudioGrade} from './model';
@@ -27,7 +27,7 @@ function sdk(){return remoteSDK ||= {client:require('livekit-client'),rtc:requir
 export function restoreStudioRemoteAudioPolicy(){remoteSDK?.native.setupIOSAudioManagement();}
 const resolution=(quality:string)=>quality==='2160p'?'4k':quality==='1440p'?'2k':quality;
 export const remoteDeviceState=(state:StudioCameraState,configuration?:StudioRemoteConfiguration):StudioRemoteDeviceState=>({
-  ...(configuration?{configuration}:{}),width:state.width,height:state.height,fps:state.fps||0,recording:state.isRecording,
+  ...(configuration?{configuration}:{}),width:state.width,height:state.height,fps:state.fps||0,recording:state.isRecording,...(Number.isFinite(state.recordedDurationSeconds)?{recordedDurationSeconds:state.recordedDurationSeconds}:{}),
   generation:state.generation,supportsFocus:state.supportsFocus,supportsFocusLock:state.supportsFocusLock,focusLocked:state.focusLocked,
   ...(state.imageGrade?{imageGrade:state.imageGrade}:{}),imageGradeConfirmed:state.imageGradeConfirmed,remoteGradeConfirmed:state.remoteGradeConfirmed,
   ...(state.audioInput?{audioInput:state.audioInput}:{}),supportsAudioInputSelection:state.supportsAudioInputSelection===true&&isStudioNativeAudioInputSelectionAvailable(),
@@ -38,7 +38,7 @@ export const remoteDeviceState=(state:StudioCameraState,configuration?:StudioRem
     qualityProfiles:state.qualities.map(value=>({resolution:resolution(value.quality),fps:value.fps,width:value.width,height:value.height})),supportsExposure:state.supportsExposure},
 });
 export async function remoteCameraDeviceId(owner:string){const key=`classfy:remote-camera:device:${owner}`;let id=await AsyncStorage.getItem(key);if(!id){id=randomUUID();await AsyncStorage.setItem(key,id);}return id;}
-export type RemoteNativeEvent={phase:string;operationId:string;startedAtEpochMs?:number;recoveryUri?:string;error?:string};
+export type RemoteNativeEvent={phase:string;operationId:string;startedAtEpochMs?:number;recoveryUri?:string;error?:string;captureReceipt?:StudioNativeCaptureReceipt};
 export type RemoteCameraLocalOriginal={sessionId:string;id:string;metadata:NonNullable<RemoteTakeJournal['sourceMetadata']>;phase:RemoteTakeJournal['phase'];available:boolean;inProject:boolean;projectTitle?:string;error?:string};
 export async function listRemoteCameraOriginals(owner:string,deviceId:string):Promise<RemoteCameraLocalOriginal[]>{
   await loadStudioProjects(owner);
@@ -58,7 +58,7 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
     statsWork?:Promise<void>;statsAt?:number;stats?:Record<string,number|string>};
   let previewLease:PreviewLease|null=null,previewEpoch=0;
   let previewWork:{epoch:number;promise:Promise<void>}|null=null,disconnectWork:Promise<void>|null=null;
-  const waiting=new Map<string,{resolve:(time:number)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>;recovery?:string}>();
+  const waiting=new Map<string,{resolve:(time:number)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>;recovery?:string;captureReceipt?:StudioNativeCaptureReceipt;ended:(receipt:StudioNativeCaptureReceipt)=>void}>();
   let configuration=session.configuration;
   let configurationConfirmed=false,confirmedGrade:StudioGrade=studioGrade('natural'),confirmedGeneration:number|undefined;
   let configuring=false,focusing=false,nativeReady=false;
@@ -239,12 +239,13 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
     begin(takeId){const target=tag();
       if(selectingAudio||audioSelectionSupported&&(!lastAudio?.confirmed||lastAudio.selecting||!lastAudio.current))throw new Error(lastAudio?.warning||'Confirme o microfone antes de gravar.');
       if(!configurationConfirmed||configuring||focusing||!nativeReady)throw new Error('Reconfirme os ajustes da câmera antes de iniciar o take.');
-      const started=new Promise<number>((resolve,reject)=>{const timer=setTimeout(()=>{waiting.delete(takeId);reject(new Error('A câmera não confirmou o início do take.'));void stopStudioNativeCameraRecordingAsync(target,takeId).catch(()=>undefined);},12000);waiting.set(takeId,{resolve,reject,timer});});
+      let ended!: (receipt:StudioNativeCaptureReceipt)=>void;const endedEvent=new Promise<StudioNativeCaptureReceipt>(resolve=>{ended=resolve;});
+      const started=new Promise<number>((resolve,reject)=>{const timer=setTimeout(()=>{waiting.delete(takeId);reject(new Error('A câmera não confirmou o início do take.'));void stopStudioNativeCameraRecordingAsync(target,takeId).catch(()=>undefined);},12000);waiting.set(takeId,{resolve,reject,timer,ended});});
       void started.catch(()=>undefined);
-      const finished=startStudioRemoteCameraRecordingAsync(target,takeId,owner,session.id).then(value=>({uri:value.uri}),async cause=>{
-        const pending=waiting.get(takeId);if(pending?.recovery)return {uri:pending.recovery};throw cause;
+      const finished=startStudioRemoteCameraRecordingAsync(target,takeId,owner,session.id).then(value=>({uri:value.uri,...(value.captureReceipt||waiting.get(takeId)?.captureReceipt?{captureReceipt:value.captureReceipt||waiting.get(takeId)?.captureReceipt}:{})}),async cause=>{
+        const pending=waiting.get(takeId);if(pending?.recovery)return {uri:pending.recovery,...(pending.captureReceipt?{captureReceipt:pending.captureReceipt}:{})};pending?.reject(cause instanceof Error?cause:new Error('Não foi possível iniciar a gravação no iPhone.'));throw cause;
       }).finally(()=>{const pending=waiting.get(takeId);if(pending){clearTimeout(pending.timer);pending.reject(new Error('O take terminou antes de confirmar o início.'));waiting.delete(takeId);}});
-      return {started,finished};},
+      return {started,finished,ended:endedEvent};},
     async stop(takeId){const target=getTag();if(target)await stopStudioNativeCameraRecordingAsync(target,takeId);},
     async preview(connection){
       check();if(previewWork?.epoch===previewEpoch)return previewWork.promise;
@@ -316,6 +317,7 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
   };
   return {port,onRecordingState(event:RemoteNativeEvent){const value=waiting.get(event.operationId);if(!value)return;
     if(event.recoveryUri)value.recovery=event.recoveryUri;
+    if(event.captureReceipt?.version===1&&event.captureReceipt.operationId===event.operationId){value.captureReceipt=event.captureReceipt;if(Number.isFinite(event.captureReceipt.finishedAtEpochMs))value.ended(event.captureReceipt);}
     if(Number.isFinite(event.startedAtEpochMs)){clearTimeout(value.timer);value.resolve(event.startedAtEpochMs!);}
   }};
 }
@@ -334,7 +336,7 @@ export function createRemoteCameraRuntime(owner:string,deviceId:string,scope:Rem
   });
   const controller=createRemoteCameraController({owner,deviceId,localTakeStorage:true,current:()=>scope.isCurrent?.()!==false&&!scope.signal?.aborted,request,
     discover:controllerId=>remoteCameraDiscoveryRequest(owner,{deviceId,...(controllerId?{controllerId}:{})},scope),
-    journal:id=>readRemoteCameraJournal(owner,id,deviceId),mutate,masterUri:(session,take)=>remoteMasterUri(owner,session,take),inspect,upload,
+    journal:id=>readRemoteCameraJournal(owner,id,deviceId),readCaptureReceipt:(sessionId,takeId)=>readRemoteCameraCaptureReceipt(owner,sessionId,takeId),mutate,masterUri:(session,take)=>remoteMasterUri(owner,session,take),inspect,upload,
     async prepareMaster(session,take,onProgress){check();return prepareRemoteCameraGradedMaster({owner,sessionId:session.id,takeId:take.id,sourceUri:take.sourceUri||take.uri,imageGrade:take.imageGrade||studioGrade('natural'),shouldContinue:()=>scope.isCurrent?.()!==false&&!scope.signal?.aborted,onProgress});},
     async saveLocal(session,take){check();await loadStudioProjects(owner);let journal=await readRemoteCameraJournal(owner,session.id,deviceId);
       let project=journal.projectId?getStudioProject(owner,journal.projectId):undefined;

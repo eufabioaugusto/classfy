@@ -1,4 +1,5 @@
-import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteDiscoveryResponse, StudioRemoteResponse, StudioRemoteSession } from './remoteCameraProtocol';
+import type {StudioNativeCaptureReceipt} from '../../../modules/classfy-studio-media';
+import type { StudioRemoteRecordingEnd, StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteDiscoveryResponse, StudioRemoteResponse, StudioRemoteSession } from './remoteCameraProtocol';
 import type { RemoteCameraJournal, RemoteTakeJournal } from './remoteCameraJournal';
 import {mergeRemoteCameraConfiguration} from './remoteCameraConfiguration.ts';
 import {validateStudioGrade} from './model.ts';
@@ -36,7 +37,7 @@ export type RemoteCameraNative = {
   focus?(point:{x:number;y:number;locked:boolean}):Promise<StudioRemoteDeviceState>;
   selectAudioInput?(inputId:string|null):Promise<StudioRemoteDeviceState>;
   setLiveConfigurationHandler?(handler:((id:string,patch:Partial<StudioRemoteConfiguration>)=>Promise<StudioRemoteDeviceState>)|null):void;
-  begin(takeId:string):{started:Promise<number>;finished:Promise<{uri:string}>};
+  begin(takeId:string):{started:Promise<number>;ended?:Promise<StudioNativeCaptureReceipt>;finished:Promise<{uri:string;captureReceipt?:StudioNativeCaptureReceipt}>};
   stop(takeId:string):Promise<void>;
   preview(connection:NonNullable<StudioRemoteResponse['connection']>):Promise<void>;
   disconnect():Promise<void>;
@@ -47,6 +48,7 @@ export type RemoteCameraDependencies = {
   request(action:string,body:Record<string,unknown>):Promise<StudioRemoteResponse>;
   discover?(controllerId?:string):Promise<StudioRemoteDiscoveryResponse>;
   journal(sessionId:string):Promise<RemoteCameraJournal>;
+  readCaptureReceipt?(sessionId:string,takeId:string):Promise<StudioNativeCaptureReceipt|null>;
   mutate(sessionId:string,change:(latest:RemoteCameraJournal)=>RemoteCameraJournal):Promise<RemoteCameraJournal>;
   masterUri(sessionId:string,takeId:string):string;
   inspect(uri:string):Promise<NonNullable<RemoteTakeJournal['metadata']>>;
@@ -57,7 +59,7 @@ export type RemoteCameraDependencies = {
 export type RemoteCameraSnapshot={phase:'idle'|'joining'|'waiting'|'unpaired'|'preparing'|'ready'|'starting'|'recording'|'saving'|'error'|'closed';session:StudioRemoteSession|null;
   localTakes?:{id:string;metadata:NonNullable<RemoteTakeJournal['sourceMetadata']>;phase:'local_ready'|'preparing'|'uploading'|'uploaded'|'error';localSaved:true;error?:string}[];
   linkedControllerId?:string|null;
-  state:StudioRemoteDeviceState|null;error:string|null;previewConnected:boolean;uploading:boolean;takeCount:number;syncUncertaintyMs:number|null;recordingStartedAtMs?:number;
+  state:StudioRemoteDeviceState|null;error:string|null;previewConnected:boolean;uploading:boolean;takeCount:number;syncUncertaintyMs:number|null;recordingStartedAtMs?:number;recordingEnd?:StudioRemoteRecordingEnd;
   processing?:boolean;processingProgress?:number;processingStage?:string;
   uploadState?:'uploading'|'paused'|'idle'|'complete';uploadProgressBytes?:number;uploadTotalBytes?:number;uploadPendingCount?:number;uploadTakeId?:string|null;uploadError?:string|null;uploadResumedAtServerMs?:number};
 const failure=(cause:unknown)=>(cause instanceof Error?cause.message:'A conexão foi interrompida. Os originais permanecem no iPhone.')
@@ -76,10 +78,10 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
   const liveApplied=new Map<string,Partial<StudioRemoteConfiguration>>();
   let liveConfigurationId:string|undefined;
   const uploadRequests=new Set<string>();
-  type ActiveTake={id:string;finished:Promise<RemoteTakeJournal>;stopping:boolean;acknowledged:boolean};
+  type ActiveTake={id:string;finished:Promise<RemoteTakeJournal>;stopping:boolean;acknowledged:boolean;ended:boolean};
   let active:ActiveTake|null=null;
   let deviceHeartbeatAt:number|null=null,deviceHeartbeatKey:string|null=null;
-  const heartbeatKey=()=>JSON.stringify([state.phase,state.uploadState||'idle',state.uploadTakeId||null,state.uploadError||null,state.processing===true]);
+  const heartbeatKey=()=>JSON.stringify([state.phase,state.recordingEnd?.takeId||null,state.uploadState||'idle',state.uploadTakeId||null,state.uploadError||null,state.processing===true]);
   const heartbeatDue=()=>deviceHeartbeatAt===null||heartbeatKey()!==deviceHeartbeatKey||
     now()-deviceHeartbeatAt>=(active||state.uploading||state.processing?1500:3000);
   const current=()=>!closed&&deps.current();
@@ -88,7 +90,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
     const work=nativeSettingsWork.catch(()=>undefined).then(()=>{check();return run();});
     nativeSettingsWork=work.then(()=>undefined,()=>undefined);return work;
   };
-  const stamped=(actual:StudioRemoteDeviceState):StudioRemoteDeviceState=>({...actual,...(liveConfigurationId?{liveConfigurationId}:{}),...(localFirst?{capabilities:{...actual.capabilities,localTakeStorage:1},localTakes:state.localTakes||[]}:{} )});
+  const stamped=(actual:StudioRemoteDeviceState):StudioRemoteDeviceState=>({...actual,...(state.recordingEnd?{recordingEnd:state.recordingEnd}:{}),...(liveConfigurationId?{liveConfigurationId}:{}),...(localFirst?{capabilities:{...actual.capabilities,localTakeStorage:1},localTakes:state.localTakes||[]}:{} )});
   const publish=(patch:Partial<RemoteCameraSnapshot>)=>{state={...state,...patch};if(current())listeners.forEach(listener=>listener({...state}));};
   const request=async(action:string,body:Record<string,unknown>)=>{
     check();const before=now(), response=await deps.request(action,body),after=now();check();
@@ -116,7 +118,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
   const patchTake=async(sessionId:string,id:string,patch:Partial<RemoteTakeJournal>)=>{const journal=await deps.mutate(sessionId,journal=>({...journal,takes:journal.takes.map(take=>take.id===id?{...take,...patch}:take)}));if(state.session?.id===sessionId)refreshLocal(journal);return journal;};
   const transferState=()=>({uploadState:state.uploadState||'idle',uploadProgressBytes:state.uploadProgressBytes||0,
     uploadTotalBytes:state.uploadTotalBytes||0,uploadTakeId:state.uploadTakeId||null,uploadError:state.uploadError||null,uploading:state.uploading,
-    processing:state.processing===true,processingProgress:state.processingProgress||0,processingStage:state.processingStage||null,
+    ...(state.recordingEnd?{recordingEnd:state.recordingEnd}:{}),processing:state.processing===true,processingProgress:state.processingProgress||0,processingStage:state.processingStage||null,
     ...(state.uploadResumedAtServerMs!==undefined?{uploadResumedAtServerMs:state.uploadResumedAtServerMs}:{}),...(localFirst?{localTakes:state.localTakes||[],capabilities:{...state.state?.capabilities,localTakeStorage:1}}:{})});
   let lastTransferHeartbeat=0;
   async function transferHeartbeat(force=false){if(native||!current()||!state.session||!force&&now()-lastTransferHeartbeat<1500)return;
@@ -183,8 +185,27 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       }
       try {await localReady(session,take.id,take.sourceUri||take.uri);}catch(cause){if(take.sourceMetadata&&current())publish({uploadState:'paused',uploadTakeId:take.id,uploadError:failure(cause),error:failure(cause)});/* The clean source is never replaced or uploaded without its chosen look. */}
     }
+    // A native sidecar survives a JS/process crash before the bridge result.
+    // It supplies timing only; fresh media inspection still proves the source.
+    if(deps.readCaptureReceipt)for(const take of (await deps.journal(session.id)).takes){
+      if(take.recordingEnd)continue;
+      const receipt=take.captureReceipt??await deps.readCaptureReceipt(session.id,take.id);
+      if(!receipt||receipt.version!==1||receipt.operationId!==take.id)continue;
+      await patchTake(session.id,take.id,{captureReceipt:receipt});
+      if(!Number.isFinite(take.startedAtServerMs)||!Number.isFinite(receipt.startedAtEpochMs)||!Number.isFinite(receipt.finishedAtEpochMs))continue;
+      const wall=receipt.wallDurationSeconds??(receipt.finishedAtEpochMs-receipt.startedAtEpochMs!)/1000;
+      if(!Number.isFinite(wall)||wall<0||wall>86400)continue;
+      try{
+        const raw=await deps.inspect(take.sourceUri||take.uri);
+        if(raw.duration>wall+3)continue;
+        const recordingEnd:StudioRemoteRecordingEnd={version:1,takeId:take.id,finishedAtServerMs:take.startedAtServerMs!+wall*1000,durationSeconds:raw.duration,reason:receipt.stopReason,interrupted:receipt.interrupted};
+        await patchTake(session.id,take.id,{sourceMetadata:raw,localSaved:true,recordingEnd});
+      }catch{/* Keep the unresolved take blocked; a sidecar alone is not a video. */}
+    }
     const preserved=(await deps.journal(session.id)).takes.filter(take=>take.metadata||take.sourceMetadata);
-    refreshLocal(await deps.journal(session.id));publish({takeCount:preserved.length,uploadPendingCount:preserved.filter(take=>take.phase!=='uploaded').length});
+    const recoveredJournal=await deps.journal(session.id);
+    const recordingEnd=[...recoveredJournal.takes].reverse().find(take=>take.recordingEnd)?.recordingEnd;
+    refreshLocal(recoveredJournal);publish({...(recordingEnd?{recordingEnd}:{}),takeCount:preserved.length,uploadPendingCount:preserved.filter(take=>take.phase!=='uploaded').length});
   }
   async function uploads(takeId?:string) {
     if(!state.session||!current())return;
@@ -204,7 +225,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
           const requested=new Set(uploadRequests);uploadRequests.clear();
           const batch=await deps.journal(session.id);pendingCount=countPending(batch);
           for(let take of batch.takes) {
-            if(!(take.metadata||localFirst&&take.sourceMetadata)||take.phase==='uploaded'||!requested.has('*')&&!requested.has(take.id))continue;
+            if(!(take.metadata||localFirst&&take.sourceMetadata)||take.phase==='uploaded'||take.recordingEnd?.interrupted&&!requested.has(take.id)||!requested.has('*')&&!requested.has(take.id))continue;
             transferring=take;
             if(localFirst&&!take.metadata){
               check();publish({processing:true,processingProgress:0,processingStage:'rendering',uploadTakeId:take.id});refreshLocal(await deps.journal(session.id));
@@ -243,7 +264,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
     check();const session=state.session!;
     const receipt=(await deps.journal(session.id)).receipts[command.id];
     if(receipt){await ack(command,receipt);
-      if(receipt.ok&&command.type==='start'){if(active&&active.id===receipt.takeId)active.acknowledged=true;if(!localFirst&&(await deps.journal(session.id)).takes.find(take=>take.id===receipt.takeId)?.metadata)void uploads(String(receipt.takeId));}
+      if(receipt.ok&&command.type==='start'){if(active&&active.id===receipt.takeId)active.acknowledged=true;if(!localFirst&&(await deps.journal(session.id)).takes.some(take=>take.id===receipt.takeId&&take.metadata&&!take.recordingEnd?.interrupted))void uploads(String(receipt.takeId));}
       if(receipt.ok&&(command.type==='resume_upload'||!localFirst&&command.type==='stop')&&receipt.uploadState!=='complete')void uploads(String(receipt.takeId));return;}
     if(!native)throw new Error('Aguarde a câmera preparar a imagem.');
     let result:Record<string,unknown>,startedTake:ActiveTake|undefined;
@@ -286,20 +307,53 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
         const imageGrade=beforeTake.imageGrade ?? beforeTake.configuration?.imageGrade ?? session.configuration.imageGrade;
         await deps.mutate(session.id,value=>({...value,takes:[...value.takes,{id:takeId,uri,phase:'reserved',...(imageGrade?{imageGrade:structuredClone(imageGrade) as StudioRemoteConfiguration['imageGrade']}:{})}]}));check();
         const recording=await settings(()=>native!.begin(takeId));
-        let owned:ActiveTake;
-        const finished=recording.finished.then(file=>localReady(session,takeId,file.uri));
-        owned={id:takeId,finished,stopping:false,acknowledged:false};active=owned;startedTake=owned;
-        publish({phase:'starting'});
-        void finished.then(()=>{
-          if(active===owned){active=null;publish({phase:'ready',recordingStartedAtMs:undefined});if(!localFirst&&!owned.stopping&&owned.acknowledged)void uploads(owned.id);}
-        },cause=>{if(active===owned){active=null;publish({phase:'error',error:failure(cause)});}});
+        let owned:ActiveTake,earlyEndWork:Promise<void>=Promise.resolve();
+        void recording.ended?.then(receipt=>{
+          if(receipt.version!==1||receipt.operationId!==takeId||!Number.isFinite(receipt.finishedAtEpochMs))return;
+          owned.ended=true;const unexpected=receipt.interrupted===true||!owned.stopping;
+          earlyEndWork=(async()=>{
+            await patchTake(session.id,takeId,{captureReceipt:receipt});
+            if(!unexpected||active!==owned)return;
+            const duration=receipt.mediaDurationSeconds??receipt.wallDurationSeconds??0;
+            const recordingEnd:StudioRemoteRecordingEnd={version:1,takeId,finishedAtServerMs:receipt.finishedAtEpochMs+offset,durationSeconds:Number.isFinite(duration)&&duration>=0?duration:0,reason:receipt.stopReason,interrupted:true};
+            await patchTake(session.id,takeId,{recordingEnd});
+            if(active===owned){publish({phase:'saving',recordingStartedAtMs:undefined,recordingEnd,state:{...state.state,recording:false},error:'A gravação foi interrompida no iPhone. Salvando o trecho capturado…'});deviceHeartbeatAt=null;if(current())void controller.poll();}
+          })();void earlyEndWork.catch(()=>undefined);
+        }).catch(()=>undefined);
+        const finished=recording.finished.then(async file=>{
+          owned.ended=true;await earlyEndWork;
+          const receipt=file.captureReceipt?.version===1&&file.captureReceipt.operationId===takeId?file.captureReceipt:undefined;
+          const interrupted=receipt?.interrupted===true||!owned.stopping;
+          const finishedAtServerMs=(receipt?.finishedAtEpochMs??now())+offset;
+          if(receipt)await patchTake(session.id,takeId,{captureReceipt:receipt});
+          // The physical writer has ended. Do not keep the phone timer running
+          // while disk inspection and the durable local project finish.
+          if(active===owned)publish({phase:'saving',recordingStartedAtMs:undefined,state:{...state.state,recording:false}});
+          let take:RemoteTakeJournal;
+          try{take=await localReady(session,takeId,file.uri);}
+          catch(cause){
+            const preserved=(await deps.journal(session.id)).takes.find(take=>take.id===takeId)?.sourceMetadata;
+            const recordingEnd:StudioRemoteRecordingEnd={version:1,takeId,finishedAtServerMs,durationSeconds:preserved?.duration??receipt?.mediaDurationSeconds??0,reason:receipt?.stopReason??(owned.stopping?'user_stop':'runtime_error'),interrupted:interrupted||!preserved};
+            await patchTake(session.id,takeId,{recordingEnd});if(active===owned)publish({recordingEnd});throw cause;
+          }
+          const recordingEnd:StudioRemoteRecordingEnd={version:1,takeId,finishedAtServerMs,durationSeconds:take.sourceMetadata!.duration,reason:receipt?.stopReason??(owned.stopping?'user_stop':'native_finished'),interrupted};
+          await patchTake(session.id,takeId,{recordingEnd});
+          if(active===owned)publish({recordingEnd});return {...take,recordingEnd};
+        });
+        owned={id:takeId,finished,stopping:false,acknowledged:false,ended:false};active=owned;startedTake=owned;
+        publish({phase:'starting',recordingEnd:undefined});
+        void finished.then(take=>{
+          if(active===owned){active=null;const interrupted=take.recordingEnd?.interrupted===true;
+            publish({phase:interrupted?'error':'ready',recordingStartedAtMs:undefined,state:{...state.state,recording:false},error:interrupted?'A gravação foi interrompida no iPhone. O trecho capturado foi preservado; confira antes de continuar.':null});deviceHeartbeatAt=null;
+            if(current())void controller.poll();if(!localFirst&&!interrupted&&!owned.stopping&&owned.acknowledged)void uploads(owned.id);}
+        },cause=>{if(active===owned){active=null;publish({phase:'error',recordingStartedAtMs:undefined,state:{...state.state,recording:false},error:failure(cause)});deviceHeartbeatAt=null;if(current())void controller.poll();}});
         const timestamp=await recording.started;check();
         if(!Number.isFinite(timestamp)||!Number.isFinite(bestRtt))throw new Error('A câmera não confirmou o instante de início. O original permanece salvo.');
         const startedAtServerMs=timestamp+offset;
         await deps.mutate(session.id,journal=>({...journal,takes:journal.takes.map(take=>take.id===takeId?{...take,startedAtServerMs,
           ...(take.metadata?{metadata:{...take.metadata,startedAtServerMs}}:{}),phase:take.phase==='reserved'?'recording':take.phase}:take)}));check();
-        const snapshot=await native.snapshot();publish({...(active===owned&&!owned.stopping?{phase:'recording' as const,recordingStartedAtMs:timestamp}:{}),state:snapshot,error:null});
-        result={ok:true,takeId,state:{...snapshot,syncUncertaintyMs:bestRtt/2},startedAtServerMs};
+        const snapshot=await native.snapshot(),actual=owned.ended?{...snapshot,recording:false}:snapshot;publish({...(active===owned&&!owned.stopping&&!owned.ended?{phase:'recording' as const,recordingStartedAtMs:timestamp}:{}),state:actual,...(!owned.ended?{error:null}:{})});
+        result={ok:true,takeId,state:{...actual,syncUncertaintyMs:bestRtt/2},startedAtServerMs};
       }else if(command.type==='stop') {
         const takeId=String(command.payload.takeId||'');
         let take:RemoteTakeJournal|undefined;
@@ -325,7 +379,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
     // progress while the periodic camera heartbeat is waiting for its deadline.
     if(result.state)result.state={...(result.state as StudioRemoteDeviceState),...transferState()};
     check();await ack(command,result);
-    if(startedTake&&result.ok){startedTake.acknowledged=true;if(!localFirst&&(await deps.journal(session.id)).takes.find(take=>take.id===startedTake!.id)?.metadata)void uploads(startedTake.id);}
+    if(startedTake&&result.ok){startedTake.acknowledged=true;if(!localFirst&&(await deps.journal(session.id)).takes.some(take=>take.id===startedTake!.id&&take.metadata&&!take.recordingEnd?.interrupted))void uploads(startedTake.id);}
     if(!localFirst&&command.type==='stop'&&result.ok&&result.metadata)void uploads(String(result.takeId));
     if(command.type==='resume_upload'&&result.ok&&result.uploadState!=='complete')void uploads(String(result.takeId));
   }

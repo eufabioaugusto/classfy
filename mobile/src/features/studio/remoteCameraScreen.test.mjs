@@ -129,3 +129,19 @@ test('desvinculação usa confirmação Classfy; sucesso remove só browser, fal
     assert.equal(h.nodes('native-camera').length,0);
   }finally{h.unmount();}}
 });
+
+test('interrupção transitória inactive preserva a câmera e os comandos; background encerra a conexão',async()=>{
+  const h=harness();try{
+    await h.pump();await h.advance(0);await h.nativeReady();
+    const requestCount=()=>h.calls.filter(call=>['status','heartbeat'].includes(call.action)).length;
+    const connected=h.calls.filter(call=>call.action==='connect').length, before=requestCount();
+    await h.app('inactive');assert.equal(h.nodes('native-camera').length,1);
+    await h.advance(300);assert.equal(requestCount(),before+1);
+    assert.equal(h.calls.filter(call=>call.action==='native-disconnect').length,0);
+    await h.app('active');await h.advance(300);
+    assert.equal(h.calls.filter(call=>call.action==='connect').length,connected);
+    assert.equal(h.nodes('native-camera').length,1);
+    await h.app('background');assert.equal(h.nodes('native-camera').length,0);
+    const stopped=requestCount();await h.advance(3000);assert.equal(requestCount(),stopped);
+  }finally{h.unmount();}
+});

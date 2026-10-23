@@ -19,10 +19,18 @@ export type StudioRemoteMetadata = {
   bytes: number; mime: string; width: number; height: number; fps: number; duration: number;
   startedAtServerMs?: number;
 };
+export type StudioRemoteRecordingEnd = {
+  version: 1; takeId: string; finishedAtServerMs: number; durationSeconds: number;
+  reason: 'user_stop' | 'app_background' | 'view_inactive' | 'disposed' | 'capture_interrupted' | 'runtime_error' | 'startup_timeout' | 'native_finished';
+  interrupted: boolean;
+  /** Server-persisted durable source proof; no device paths. */
+  startedAtServerMs?: number; sourceMetadata?: StudioRemoteMetadata; localTakeStorage?: 1; reconciledAtServerMs?: number;
+};
 export type StudioRemoteDeviceState = {
   configuration?: StudioRemoteConfiguration;
   width?: number; height?: number; fps?: number;
   recording?: boolean; deviceName?: string;
+  recordingEnd?: StudioRemoteRecordingEnd;
   capabilities?: Record<string, unknown>; pro?: Record<string, unknown>;
   audioInput?: StudioRemoteAudioInputState; supportsAudioInputSelection?: boolean;
   error?: string | null;
@@ -43,6 +51,7 @@ export type StudioRemoteCommand = {
 };
 export type StudioRemoteTake = {
   id: string; status: 'reserved' | 'recording' | 'local_ready' | 'uploading' | 'uploaded' | 'failed';
+  recordingEnd?: StudioRemoteRecordingEnd | null;
   metadata: StudioRemoteMetadata | null; createdAt: string; uploadedAt: string | null;
 };
 export type StudioRemoteEnvelope = {

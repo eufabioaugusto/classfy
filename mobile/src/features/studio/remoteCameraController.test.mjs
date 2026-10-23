@@ -7,7 +7,7 @@ const sessionId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',takeId='bbbbbbbb-bbbb-4bb
 function harness(patch={}){
   let current=true,time=10000,commands=[],failAck=false,writeGate,actualRecording=false,hardware=structuredClone(patch.nativeState||{}),liveHandler=null;
   let journal={version:1,owner:'owner',deviceId:'device',sessionId,sequence:0,receipts:{},takes:[],...patch.journal};
-  const started=deferred(),finished=deferred(),calls=[],writes=[];
+  const started=deferred(),finished=deferred(),ended=deferred(),calls=[],writes=[];
   const session={id:sessionId,ownerId:'owner',controllerId:'controller',deviceId:'device',kind:'aula',status:'ready',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
   const clone=value=>structuredClone(value);
   const request=async(action,body)=>{
@@ -19,7 +19,7 @@ function harness(patch={}){
       ...(action==='unpair'?{unpaired:patch.unpaired===true}:{}),
       ...(['join','connect'].includes(action)?{connection:{url:'wss://private.invalid',token:'not-a-real-token',identity:'device'}}:{})};
   };
-  const deps={owner:'owner',deviceId:'device',localTakeStorage:patch.localTakeStorage===true,current:()=>current,now:()=>time,request,journal:async()=>clone(journal),
+  const deps={owner:'owner',deviceId:'device',localTakeStorage:patch.localTakeStorage===true,current:()=>current,now:()=>time,request,...(patch.readCaptureReceipt?{readCaptureReceipt:patch.readCaptureReceipt}:{}),journal:async()=>clone(journal),
     discover:async controllerId=>{calls.push({action:'discover',body:{deviceId:'device',...(controllerId?{controllerId}:{})}});return patch.discover?await patch.discover():{ownerId:'owner',paired:true,controllerId:'controller',session:clone(session),commands:[],takes:[],serverAt:new Date(time+1200).toISOString()};},
     mutate:async(_id,change)=>{if(writeGate){const gate=writeGate;writeGate=undefined;gate.entered.resolve();await gate.promise;}journal=change(clone(journal));writes.push(clone(journal));return clone(journal);},
     ...(patch.prepareMaster?{prepareMaster:async(session,take,progress)=>{calls.push({action:'prepare-master',take:clone(take)});return patch.prepareMaster(session,take,progress);}}:{}),
@@ -35,12 +35,12 @@ function harness(patch={}){
       if(!currentInput)throw Error('Microfone não disponível');hardware={...hardware,audioInput:{...hardware.audioInput,preferredId:inputId,current:currentInput,confirmed:true,selecting:false},configuration:{...session.configuration,audioInputId:inputId}};
       return {width:3840,height:2160,fps:30,recording:false,...structuredClone(hardware)};},
     focus:async point=>{calls.push({action:'focus',point});await patch.focus?.(point);return {width:3840,height:2160,fps:30,recording:actualRecording,focusLocked:point.locked};},
-    begin:id=>{calls.push({action:'native-start',id});actualRecording=true;return{started:started.promise,finished:finished.promise};},
+    begin:id=>{calls.push({action:'native-start',id});actualRecording=true;return{started:started.promise,finished:finished.promise,...(patch.nativeEnded?{ended:ended.promise}:{})};},
     stop:async id=>{calls.push({action:'native-stop',id});actualRecording=false;finished.resolve({uri:`file:///Documents/classfy-studio-remote/owner/${sessionId}/${id}.mov`});},
     preview:async()=>{calls.push({action:'preview'});await patch.preview?.();},disconnect:async()=>{calls.push({action:'disconnect-preview'});await patch.disconnect?.();}};
   const controller=createRemoteCameraController(deps);
   const command=(type,id=type,sequence=1)=>({id,sequence,type,payload:type==='configure'?session.configuration:{takeId},status:'pending'});
-  return{controller,calls,writes,started,finished,native,command,
+  return{controller,calls,writes,started,finished,ended,native,command,
     live:(id,patch)=>liveHandler?liveHandler(id,patch):Promise.reject(Error('Canal desconectado')),hasLiveHandler:()=>!!liveHandler,
     configuration:value=>{session.configuration=value;},session:value=>Object.assign(session,value),journal:()=>clone(journal),queue:values=>{commands=values;},invalidate:()=>{current=false;},failAck:()=>{failAck=true;},
     advance:ms=>{time+=ms;},hardware:value=>{hardware={...hardware,...value};},
@@ -404,12 +404,12 @@ test('recuperação usa somente status, sem nova conexão/Premium/permissão, e 
   fails=false;await h.controller.retryUploads();assert.equal(h.journal().takes[0].localTakeId,'local-take');assert.equal(h.calls.filter(call=>call.action==='upload').length,1);
   await h.controller.dispose();
 });
-test('ACK perdido após take terminar conserva horário e libera envio quando receipt de START é confirmado',async()=>{
+test('ACK perdido e término sem STOP conservam horário e parcial sem liberar envio automático',async()=>{
   const h=harness();await h.ready();h.queue([h.command('start')]);h.failAck();h.started.resolve(10050);await h.controller.poll();
   h.finished.resolve({uri:`file:///Documents/classfy-studio-remote/owner/${sessionId}/${takeId}.mov`});await tick();
   assert.equal(h.calls.filter(call=>call.action==='upload').length,0);await h.controller.poll();await tick();
-  assert.equal(h.calls.filter(call=>call.action==='native-start').length,1);assert.equal(h.calls.filter(call=>call.action==='upload').length,1);
-  assert.equal(h.journal().takes[0].metadata.startedAtServerMs,11250);await h.controller.dispose();
+  assert.equal(h.calls.filter(call=>call.action==='native-start').length,1);assert.equal(h.calls.filter(call=>call.action==='upload').length,0);
+  assert.equal(h.journal().takes[0].recordingEnd.interrupted,true);assert.equal(h.journal().takes[0].metadata.startedAtServerMs,11250);await h.controller.dispose();
 });
 
 test('heartbeat conserva bytes/ID do envio e erro pausado sanitizado, só completa após servidor confirmar',async()=>{
@@ -514,4 +514,59 @@ test('falha preparando imagem confirmaSTOPfísico semenviarclean e Retomar prepa
   const ack=h.calls.find(x=>x.action==='ack'&&x.body.commandId==='stop').body.result;
   assert.equal(ack.ok,true);assert.equal(ack.metadata,undefined);assert.equal(ack.state.uploadState,'paused');assert.equal(h.controller.getSnapshot().phase,'ready');assert.equal(h.calls.filter(x=>x.action==='upload').length,0);
   fail=false;await h.controller.retryUploads();assert.equal(h.journal().takes.length,1);assert.equal(h.journal().takes[0].phase,'uploaded');assert.match(h.calls.find(x=>x.action==='upload').take.uri,/\.mp4$/);await h.controller.dispose();
+});
+
+const interruptedReceipt=(patch={})=>({version:1,operationId:takeId,requestedAtEpochMs:10000,startedAtEpochMs:10050,finishedAtEpochMs:76203.333,mediaDurationSeconds:66.153333,wallDurationSeconds:66.153333,stopReason:'capture_interrupted',interrupted:true,...patch});
+test('fim nativo antecipado congela REC antes da inspeção, persiste parcial e comunica sem STOP ou envio',async()=>{
+  const inspected=deferred(),entered=deferred(),raw={bytes:234567890,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:66.153333};
+  const h=harness({localTakeStorage:true,nativeEnded:true,inspect:async()=>{entered.resolve();return inspected.promise;}});
+  await h.ready();h.started.resolve(10050);h.queue([h.command('start')]);await h.controller.poll();
+  const receipt=interruptedReceipt();h.advance(67000);h.hardware({recording:false});h.ended.resolve(receipt);await tick();await tick();
+  assert.equal(h.controller.getSnapshot().phase,'saving');assert.equal(h.controller.getSnapshot().recordingStartedAtMs,undefined);
+  assert.equal(h.controller.getSnapshot().recordingEnd.durationSeconds,66.153333);assert.deepEqual(h.journal().takes[0].captureReceipt,receipt);
+  h.finished.resolve({uri:'file:///raw.mov',captureReceipt:receipt});await entered.promise;inspected.resolve(raw);await tick();await tick();await tick();
+  assert.equal(h.controller.getSnapshot().phase,'error');assert.match(h.controller.getSnapshot().error,/interrompida/);assert.equal(h.journal().takes[0].sourceMetadata.duration,66.153333);
+  assert.equal(h.journal().takes[0].recordingEnd.interrupted,true);assert.equal(h.journal().takes[0].localSaved,true);
+  h.queue([]);h.advance(100000);await h.controller.poll();
+  const end=h.calls.filter(call=>call.action==='heartbeat'&&call.body.state.recordingEnd).at(-1).body.state;
+  assert.equal(end.recording,false);assert.equal(end.recordingEnd.durationSeconds,66.153333);assert.equal(end.localTakes[0].localSaved,true);
+  assert.equal(h.calls.filter(call=>['native-stop','upload','prepare-master'].includes(call.action)).length,0);await h.controller.dispose();
+});
+test('STOP solicitado persiste recibo normal sem anunciar interrupção nem disparar envio',async()=>{
+  const h=harness({localTakeStorage:true});await h.ready();h.started.resolve(10050);h.queue([h.command('start')]);await h.controller.poll();
+  h.queue([h.command('stop','stop',2)]);await h.controller.poll();await tick();
+  assert.equal(h.controller.getSnapshot().phase,'ready');assert.equal(h.controller.getSnapshot().error,null);assert.equal(h.controller.getSnapshot().recordingEnd.interrupted,false);
+  assert.equal(h.journal().takes[0].recordingEnd.reason,'user_stop');assert.equal(h.calls.filter(call=>call.action==='upload').length,0);await h.controller.dispose();
+});
+test('recibo de fim antecipado volta do journal no heartbeat após reabrir sem novo REC ou envio',async()=>{
+  const raw={bytes:234567890,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:66.153333};
+  const recordingEnd={version:1,takeId,finishedAtServerMs:77403.333,durationSeconds:raw.duration,reason:'capture_interrupted',interrupted:true};
+  const h=harness({localTakeStorage:true,journal:{takes:[{id:takeId,uri:'file:///raw.mov',sourceUri:'file:///raw.mov',sourceMetadata:raw,localSaved:true,localTakeId:'old',phase:'local_ready',recordingEnd}]}});
+  await h.ready();const heartbeat=h.calls.find(call=>call.action==='heartbeat'&&call.body.state.recordingEnd);
+  assert.deepEqual(heartbeat.body.state.recordingEnd,recordingEnd);assert.equal(heartbeat.body.state.recording,false);assert.equal(heartbeat.body.state.localTakes[0].metadata.duration,raw.duration);
+  assert.equal(h.calls.filter(call=>['native-start','native-stop','upload','prepare-master'].includes(call.action)).length,0);await h.controller.dispose();
+});
+
+test('recupera sidecar após perda do bridge com relógio monotônico e inspeção real, sem REC ou envio',async()=>{
+  const raw={bytes:234567890,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:66.153333},receipt=interruptedReceipt({finishedAtEpochMs:999999,wallDurationSeconds:66.153333});
+  const h=harness({localTakeStorage:true,readCaptureReceipt:async(id,take)=>{assert.equal(id,sessionId);assert.equal(take,takeId);return receipt;},inspect:async()=>raw,journal:{takes:[{id:takeId,uri:'file:///raw.mov',sourceUri:'file:///raw.mov',sourceMetadata:raw,startedAtServerMs:11250,phase:'recording'}]}});
+  await h.ready();const restored=h.journal().takes[0];assert.deepEqual(restored.captureReceipt,receipt);assert.equal(restored.recordingEnd.finishedAtServerMs,77403.333);assert.equal(restored.recordingEnd.durationSeconds,raw.duration);
+  assert.equal(restored.localSaved,true);assert.ok(h.calls.some(call=>call.action==='heartbeat'&&call.body.state.recordingEnd?.takeId===takeId));
+  assert.equal(h.calls.filter(call=>['native-start','native-stop','upload'].includes(call.action)).length,0);await h.controller.dispose();
+});
+test('sidecar sem início confiável ou fonte inválida não cria confirmação de término nem libera REC',async()=>{
+  for(const noClock of [true,false]){
+    const raw={bytes:100,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:66};
+    const h=harness({localTakeStorage:true,readCaptureReceipt:async()=>interruptedReceipt(),inspect:async()=>{if(!noClock)throw Error('Raw incompleto');return raw;},journal:{takes:[{id:takeId,uri:'file:///raw.mov',sourceMetadata:raw,...(!noClock?{startedAtServerMs:11250}:{}),phase:'recording'}]}});
+    await h.ready();assert.equal(h.journal().takes[0].recordingEnd,undefined);assert.equal(h.controller.getSnapshot().recordingEnd,undefined);
+    assert.equal(h.calls.filter(call=>call.action==='native-start'||call.action==='upload').length,0);await h.controller.dispose();
+  }
+});
+test('snapshot START atrasado não volta a REC depois do término físico enquanto AVAsset inspeciona',async()=>{
+  const gate=deferred(),entered=deferred();let snapshots=0;
+  const h=harness({localTakeStorage:true,nativeEnded:true,snapshot:async()=>{if(++snapshots===5){entered.resolve();await gate.promise;}}});
+  await h.ready();h.started.resolve(10050);h.queue([h.command('start')]);const start=h.controller.poll();await entered.promise;
+  h.ended.resolve(interruptedReceipt());await tick();await tick();assert.equal(h.controller.getSnapshot().phase,'saving');
+  gate.resolve();await start;assert.notEqual(h.controller.getSnapshot().phase,'recording');assert.equal(h.controller.getSnapshot().recordingStartedAtMs,undefined);
+  h.finished.resolve({uri:'file:///raw.mov',captureReceipt:interruptedReceipt()});await tick();await tick();await h.controller.dispose();
 });

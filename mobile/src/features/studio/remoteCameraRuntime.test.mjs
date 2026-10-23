@@ -480,3 +480,23 @@ test('troca de conta durante ajuste RTC descarta confirmação e reconectar pré
   const calls=h.calls.length;h.invalidate();h.data({v:1,id:liveId(10),patch:{pro:{iso:300}}});await tick();assert.equal(h.calls.length,calls);
   await linked.camera.dispose();assert.equal(h.rooms.at(-1).listeners.size,0);
 });
+
+test('bridge conserva recibo nativo e anuncia fim físico antes de resolver o arquivo',async()=>{
+  const h=nativeHarness();await h.port.port.configure(h.session.configuration);const recording=h.port.port.begin('take');
+  const receipt={version:1,operationId:'take',requestedAtEpochMs:10000,startedAtEpochMs:10050,finishedAtEpochMs:76203.333,mediaDurationSeconds:66.153333,stopReason:'capture_interrupted',interrupted:true};
+  h.port.onRecordingState({phase:'stopping',operationId:'take',startedAtEpochMs:10050,captureReceipt:receipt});
+  assert.equal(await recording.started,10050);assert.deepEqual(await recording.ended,receipt);
+  h.recording.resolve({uri:'file:///raw.mov',captureReceipt:receipt});assert.deepEqual(await recording.finished,{uri:'file:///raw.mov',captureReceipt:receipt});
+});
+test('bridge conserva recibo do evento ao recuperar URI após rejeição nativa',async()=>{
+  const h=nativeHarness();await h.port.port.configure(h.session.configuration);const recording=h.port.port.begin('take');
+  const receipt={version:1,operationId:'take',requestedAtEpochMs:10000,startedAtEpochMs:10050,finishedAtEpochMs:76203.333,mediaDurationSeconds:66.153333,stopReason:'runtime_error',interrupted:true};
+  h.port.onRecordingState({phase:'finished',operationId:'take',startedAtEpochMs:10050,recoveryUri:'file:///preserved.mov',captureReceipt:receipt});await recording.started;
+  h.recording.reject(Error('Writer interrompido'));assert.deepEqual(await recording.finished,{uri:'file:///preserved.mov',captureReceipt:receipt});
+});
+
+test('falha nativa antes do primeiro quadro conserva instrução de liberar espaço no START',async()=>{
+  const h=nativeHarness();await h.port.port.configure(h.session.configuration);const recording=h.port.port.begin('take');
+  const checks=Promise.all([assert.rejects(recording.started,/Libere espaço no iPhone/),assert.rejects(recording.finished,/Libere espaço no iPhone/)]);
+  h.recording.reject(Error('Libere espaço no iPhone antes de gravar. Mantenha pelo menos 1 GB disponível.'));await checks;
+});

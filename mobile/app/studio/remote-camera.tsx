@@ -30,7 +30,7 @@ export default function StudioRemoteCameraScreen(){
   const {user}=useAuth(),router=useRouter(),navigation=useNavigation(),focused=useIsFocused(),params=useLocalSearchParams<{code?:string}>();
   const [permission,requestCamera]=useCameraPermissions(),[microphone,requestMicrophone]=useMicrophonePermissions();
   const [code,setCode]=useState(typeof params.code==='string'?params.code:''),[scanning,setScanning]=useState(false),[state,setState]=useState(initial),[failure,setFailure]=useState('');
-  const [foreground,setForeground]=useState(AppState.currentState==='active'),[joining,setJoining]=useState(false),[connected,setConnected]=useState(false),[leaving,setLeaving]=useState(false),[lastSession,setLastSession]=useState<string|null>(null);
+  const [foreground,setForeground]=useState(AppState.currentState!=='background'),[joining,setJoining]=useState(false),[connected,setConnected]=useState(false),[leaving,setLeaving]=useState(false),[lastSession,setLastSession]=useState<string|null>(null);
   const [lastControllerId,setLastControllerId]=useState<string|null>(null),[pairingLoaded,setPairingLoaded]=useState(false),[hasSavedPairing,setHasSavedPairing]=useState(false),[automaticAllowed,setAutomaticAllowed]=useState(true),[confirmUnpair,setConfirmUnpair]=useState(false);
   const [unpairing,setUnpairing]=useState(false);
   const [localMenu,setLocalMenu]=useState(false),[localTakes,setLocalTakes]=useState<RemoteCameraLocalOriginal[]>([]),[sharing,setSharing]=useState<string|null>(null),[localError,setLocalError]=useState('');
@@ -69,6 +69,9 @@ export default function StudioRemoteCameraScreen(){
     return()=>{ended=true;void deactivateKeepAwake(tag).catch(()=>undefined);};
   },[focused,foreground,user?.id,connected,state.uploading]);
   useEffect(()=>{lifecycle.current.mounted=true;const listener=AppState.addEventListener('change',value=>{
+    // iOS inactive is transient (Control Center/alerts), not an exit from capture.
+    // Unmounting here stops MovieFileOutput and silently shortens the original.
+    if(value==='inactive')return;
     const active=value==='active';if(!active){lifecycle.current.epoch++;lifecycle.current.foreground=false;setScanning(false);setConnected(false);void dispose();setFailure('Conexão pausada. O take é preservado no iPhone; retome quando voltar.');}
     setForeground(active);
   });return()=>{lifecycle.current.mounted=false;lifecycle.current.epoch++;listener.remove();unsubscribe.current?.();void dispose();};},[]);

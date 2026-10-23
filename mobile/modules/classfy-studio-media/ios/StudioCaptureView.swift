@@ -214,7 +214,7 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
       frameLock.lock(); queuedFrame = nil; frameLock.unlock()
       finishPendingEffect(.failure(StudioCaptureError.unavailable("Abra a câmera para visualizar o tratamento.")))
     }
-    capture.setActive(active)
+    capture.setActive(active, stopReason: inBackground ? .appBackground : .viewInactive)
   }
 
   func setEffectRecipeJSON(_ json: String) throws -> [String: Any] {
