@@ -60,8 +60,8 @@ function nativeHarness(options={}){
     stopStudioRemoteCameraPreviewAsync:async tag=>{calls.push({kind:'stop-native-preview',tag});},
   };
   const sdk={Track:{Source:{Camera:'camera'}},RoomEvent:{DataReceived:'dataReceived'},LogLevel:{silent:'silent'},setLogLevel(){},
-    LocalVideoTrack:class{constructor(media,_constraints,provided){calls.push({kind:'user-track',media,provided});}},
-    Room:class{state='disconnected';listeners=new Map();localParticipant={publishTrack:async(_track,value)=>{calls.push({kind:'publish',options:value});await options.publish?.();},publishData:async(bytes,options)=>{calls.push({kind:'data-ack',value:JSON.parse(new TextDecoder().decode(bytes)),options});}};
+    LocalVideoTrack:class{constructor(media,_constraints,provided){this.mediaStreamTrack=media;calls.push({kind:'user-track',media,provided});}async getSenderStats(){calls.push({kind:'sender-stats'});return options.senderStats?options.senderStats():[];}},
+    Room:class{state='disconnected';listeners=new Map();remoteParticipants=new Map();localParticipant={videoTrackPublications:new Map(),publishTrack:async(_track,value)=>{calls.push({kind:'publish',options:value});await options.publish?.();this.localParticipant.videoTrackPublications.set('private-publication',{});},publishData:async(bytes,options)=>{calls.push({kind:'data-ack',value:JSON.parse(new TextDecoder().decode(bytes)),options});}};
       constructor(options){rooms.push(this);calls.push({kind:'room',options});}
       on(event,listener){this.listeners.set(event,listener);return this;}off(event,listener){if(this.listeners.get(event)===listener)this.listeners.delete(event);return this;}
       emit(bytes,identity='studio-controller-session-controller',topic=controller.REMOTE_CAMERA_LIVE_CONTROL_TOPIC,participantIdentity){this.listeners.get('dataReceived')?.(bytes,identity===null?undefined:{identity},0,topic,undefined,participantIdentity);}
@@ -74,7 +74,7 @@ function nativeHarness(options={}){
     './remoteCameraController':controller,'./remoteCameraUpload':upload,'./remoteCameraApi':{assertRemoteCameraScope:()=>{if(!current)throw Error('stale');}},
     './model':model,'./remoteCameraGrade':{prepareRemoteCameraGradedMaster:async()=>{throw Error('unused');}},
     './remoteCameraJournal':{},'./store':{},'./media':{},'./uploadTransport':transfer,
-    'livekit-client':sdk,'@livekit/react-native-webrtc':{MediaStream:class{constructor(descriptor){calls.push({kind:'stream',descriptor});}getVideoTracks(){return [{id:'native-track'}];}release(){calls.push({kind:'release-stream'});}}},
+    'livekit-client':sdk,'@livekit/react-native-webrtc':{MediaStream:class{constructor(descriptor){calls.push({kind:'stream',descriptor});}getVideoTracks(){return [{id:'native-track',readyState:'live',enabled:true,muted:false}];}release(){calls.push({kind:'release-stream'});}}},
     '@livekit/react-native':{registerGlobals:options=>calls.push({kind:'register',options}),setupIOSAudioManagement:()=>calls.push({kind:'restore-audio-policy'})},
   });
   const session={id:'session',controllerId:'controller',deviceId:'device',kind:'short',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
@@ -165,6 +165,25 @@ test('room conectada sem publish confirmado continua desconectada no snapshot',a
   const opening=h.port.port.preview({url:'wss://private.invalid',token:'test',identity:'device'});await entered.promise;
   assert.equal(h.rooms[0].state,'connected');assert.equal((await h.port.port.snapshot()).previewConnection,'disconnected');
   gate.resolve();await opening;assert.equal((await h.port.port.snapshot()).previewConnection,'connected');await h.port.port.disconnect();
+});
+test('diagnóstico da prévia inclui somente contagens e RTP permitido, sem IDs ou dados de rede',async()=>{
+  const h=nativeHarness({senderStats:()=>[{type:'video',framesSent:90,bytesSent:600000,packetsSent:250,frameWidth:1920,frameHeight:1080,framesPerSecond:30,
+    streamId:'private-stream',rid:'private-rid',address:'private-ip',token:'private-token',untrusted:{url:'private-url'}}]});
+  await h.port.port.preview({url:'wss://private.invalid',token:'test',identity:'device'});h.state.previewProcessed=true;h.state.remoteGradeConfirmed=true;
+  h.rooms[0].remoteParticipants.set('studio-controller-session-controller',{});
+  await h.port.port.snapshot();await tick();const diagnostic=(await h.port.port.snapshot()).previewDiagnostics;
+  assert.equal(diagnostic.stage,'published');assert.equal(diagnostic.videoPublications,1);assert.equal(diagnostic.remoteParticipants,1);assert.equal(diagnostic.expectedControllerPresent,true);
+  assert.equal(diagnostic.trackReadyState,'live');assert.equal(diagnostic.trackEnabled,true);assert.equal(diagnostic.remoteGradeConfirmed,true);
+  assert.equal(diagnostic.statsStatus,'available');assert.equal(diagnostic.framesSent,90);assert.equal(diagnostic.bytesSent,600000);assert.equal(diagnostic.frameWidth,1920);
+  assert.equal(JSON.stringify(diagnostic).includes('private-'),false);assert.equal('streamId'in diagnostic,false);assert.equal(h.calls.filter(call=>call.kind==='sender-stats').length,1);await h.port.port.disconnect();
+});
+test('getSenderStats pendurado expira em 1500ms sem bloquear snapshot e resultado tardio é descartado',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});const pending=deferred(),h=nativeHarness({senderStats:()=>pending.promise});
+  await h.port.port.preview({url:'wss://private.invalid',token:'test',identity:'device'});
+  const first=await h.port.port.snapshot();assert.equal(first.previewDiagnostics.statsStatus,'sampling');await tick();
+  t.mock.timers.tick(1500);await tick();const timed=(await h.port.port.snapshot()).previewDiagnostics;assert.equal(timed.statsStatus,'timeout');
+  pending.resolve([{type:'video',framesSent:999,bytesSent:9999}]);await tick();const late=(await h.port.port.snapshot()).previewDiagnostics;
+  assert.equal(late.statsStatus,'timeout');assert.equal(late.framesSent,undefined);assert.equal(h.calls.filter(call=>call.kind==='sender-stats').length,1);await h.port.port.disconnect();
 });
 test('room desconectada é substituída em vez de confirmar sucesso sem vídeo',async()=>{
   const h=nativeHarness(),connection={url:'wss://private.invalid',token:'test',identity:'device'};await h.port.port.preview(connection);

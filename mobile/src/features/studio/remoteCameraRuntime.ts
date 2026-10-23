@@ -41,7 +41,8 @@ export async function remoteCameraDeviceId(owner:string){const key=`classfy:remo
 export type RemoteNativeEvent={phase:string;operationId:string;startedAtEpochMs?:number;recoveryUri?:string;error?:string};
 export function createRemoteNativePort(owner:string,session:StudioRemoteSession,getTag:()=>number|null,scope:RemoteCameraScope,getAudio?:()=>Record<string,unknown>) {
   type PreviewLease={epoch:number;room:Room|null;stream:MediaStream|null;track:LocalVideoTrack|null;tag:number|null;
-    nativeStarted:boolean;ready:boolean;removeListener:(()=>void)|null;cleanup:Promise<void>|null};
+    nativeStarted:boolean;ready:boolean;removeListener:(()=>void)|null;cleanup:Promise<void>|null;
+    statsWork?:Promise<void>;statsAt?:number;stats?:Record<string,number|string>};
   let previewLease:PreviewLease|null=null,previewEpoch=0;
   let previewWork:{epoch:number;promise:Promise<void>}|null=null,disconnectWork:Promise<void>|null=null;
   const waiting=new Map<string,{resolve:(time:number)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>;recovery?:string}>();
@@ -70,6 +71,43 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
     confirmedGrade=ack.grade;
   }
   const check=()=>assertRemoteCameraScope(scope);
+  // Never serialize an SDK report: it contains track, transport and network
+  // identifiers. Sample only public sender counters, off the control queue.
+  const samplePreview=(owned:PreviewLease)=>{
+    const track=owned.track;
+    if(!owned.ready||owned.statsWork||!track||typeof track.getSenderStats!=='function'||Date.now()-(owned.statsAt??0)<1000)return;
+    let timer:ReturnType<typeof setTimeout>;
+    const timeout=new Promise<{status:'timeout'}>(resolve=>{timer=setTimeout(()=>resolve({status:'timeout'}),1500);});
+    const sample=Promise.resolve().then(()=>track.getSenderStats()).then(values=>{
+      const reports=Array.isArray(values)?values.filter(value=>value?.type==='video'):[];
+      const safe:Record<string,number|string>={statsStatus:reports.length?'available':'empty',senderReports:reports.length};
+      for(const key of ['framesSent','packetsSent','bytesSent','frameWidth','frameHeight','framesPerSecond'] as const){
+        const numbers=reports.map(value=>value[key]).filter((value):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=Number.MAX_SAFE_INTEGER);
+        if(numbers.length)safe[key]=['framesSent','packetsSent','bytesSent'].includes(key)?numbers.reduce((sum,value)=>sum+value,0):Math.max(...numbers);
+      }
+      return {status:'sample' as const,safe};
+    },()=>({status:'error' as const}));
+    let work!:Promise<void>;
+    work=Promise.race([sample,timeout]).then(result=>{
+      if(previewLease!==owned||previewEpoch!==owned.epoch||!owned.ready)return;
+      owned.statsAt=Date.now();owned.stats=result.status==='sample'?result.safe:{statsStatus:result.status};
+    }).finally(()=>{clearTimeout(timer);if(owned.statsWork===work)owned.statsWork=undefined;});
+    owned.statsWork=work;
+  };
+  const previewDiagnostics=(state:StudioCameraState)=>{
+    const owned=previewLease,room=owned?.room,media=owned?.track?.mediaStreamTrack;
+    if(owned)samplePreview(owned);
+    const roomState=room?.state;
+    return {stage:owned?.ready?'published':owned?'opening':'idle',
+      roomState:['connected','connecting','reconnecting','disconnected'].includes(String(roomState))?roomState:'disconnected',
+      videoPublications:room?.localParticipant.videoTrackPublications?.size??0,remoteParticipants:room?.remoteParticipants?.size??0,
+      expectedControllerPresent:room?.remoteParticipants?.has(`studio-controller-${session.id}-${session.controllerId}`)===true,
+      trackReadyState:['live','ended'].includes(media?.readyState??'')?media!.readyState:'unavailable',
+      ...(typeof media?.enabled==='boolean'?{trackEnabled:media.enabled}:{}),...(typeof media?.muted==='boolean'?{trackMuted:media.muted}:{}),
+      nativePreviewProcessed:state.previewProcessed===true,remoteGradeConfirmed:state.remoteGradeConfirmed===true,
+      statsStatus:owned?.statsWork&&!owned.stats?'sampling':'unavailable',...owned?.stats,
+      ...(owned?.statsAt?{statsAgeMs:Math.max(0,Date.now()-owned.statsAt)}:{})};
+  };
   // Only the lease that created a native preview may release its resources.
   // A new preview waits for this cleanup, including a pending native start.
   const releasePreview=(owned:PreviewLease):Promise<void>=>{
@@ -167,7 +205,7 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
         configuration={...next,imageGrade:confirmedGrade,...(next.pro?{pro:confirmedPro({...physical,...(zoom!==undefined?{zoom}:{})},confirmed)}:{})};if(point!==undefined)rememberFocus(confirmed);
         confirmedGeneration=confirmed.generation;configurationConfirmed=true;configuring=false;return gradeState(confirmed);
       }catch(cause){configurationConfirmed=false;nativeReady=false;throw cause;}finally{configuring=false;}},
-    async snapshot(){const state=await getStudioNativeCameraCapabilitiesAsync(tag());check();return {...gradeState(state),previewConnection:previewLease?.ready?previewLease.room?.state||'disconnected':'disconnected',...(getAudio?{audioMonitor:getAudio()}:{} )};},
+    async snapshot(){const state=await getStudioNativeCameraCapabilitiesAsync(tag());check();return {...gradeState(state),previewConnection:previewLease?.ready?previewLease.room?.state||'disconnected':'disconnected',previewDiagnostics:previewDiagnostics(state),...(getAudio?{audioMonitor:getAudio()}:{} )};},
     async selectAudioInput(inputId){const target=tag();
       if(!isStudioNativeAudioInputSelectionAvailable())throw new Error('Atualize o app Classfy para escolher o microfone do iPhone.');
       if(inputId!==null&&(typeof inputId!=='string'||!inputId.trim()||inputId.length>256))throw new Error('Escolha uma entrada de áudio disponível no iPhone.');
