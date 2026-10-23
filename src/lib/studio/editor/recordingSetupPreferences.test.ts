@@ -21,6 +21,16 @@ describe('escolhas de preparação por conta', () => {
     saveStudioRecordingSelection('creator', { kind: 'aula', mode: 'scenes', remoteScenes: false });
     expect(readStudioRecordingSelection('creator', true, false)?.mode).toBe('camera');
   });
+  it('projeto existente lê somente sua escolha explícita, sem herdar outro projeto ou a preferência global', () => {
+    const remote = { kind: 'aula' as const, mode: 'remote' as const, remoteScenes: false };
+    saveStudioRecordingSelection('creator', remote);
+    expect(readStudioRecordingSelection('creator', true, true, 'project')).toBeNull();
+    saveStudioRecordingSelection('creator', remote, 'project');
+    expect(readStudioRecordingSelection('creator', true, true, 'project')).toEqual(remote);
+    expect(readStudioRecordingSelection('creator', true, true, 'other-project')).toBeNull();
+    expect(readStudioRecordingSelection('other-owner', true, true, 'project')).toBeNull();
+    expect(readStudioRecordingSelection('creator', false, true, 'project')?.mode).toBe('camera');
+  });
 
   it('rejeita dados inválidos e normaliza podcast para áudio', () => {
     for (const raw of ['{', 'null', '{"kind":"live","mode":"camera","remoteScenes":false}', '{"kind":"aula","mode":"camera","remoteScenes":"true"}']) {

@@ -133,13 +133,16 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
   }, [owner, projectId]);
 
   useEffect(() => {
-    if (projectId || selectionTouched.current || captureSnapshot.current.stream || captureSnapshot.current.phase === 'preparing') return;
-    const saved = readStudioRecordingSelection(owner, canUseScenes, studioScenesSupport().supported);
-    if (!saved) return;
-    const nextKind = initialKind ?? saved.kind;
+    if (selectionTouched.current || captureSnapshot.current.stream || captureSnapshot.current.phase === 'preparing') return;
+    if (projectId && (project?.id !== projectId || project.ownerId !== owner)) return;
+    const saved = readStudioRecordingSelection(owner, canUseScenes, studioScenesSupport().supported, projectId);
+    if (!saved || projectId && saved.kind !== project?.kind) return;
+    const nextKind = projectId ? project!.kind : initialKind ?? saved.kind;
     setKind(nextKind); setMode(nextKind === 'podcast' ? 'camera' : saved.mode); setRemoteScenes(nextKind !== 'podcast' && saved.remoteScenes);
     setCaptureRevision(value => value + 1);
-  }, [owner, canUseScenes, projectId, initialKind]);
+    // Restoring a choice only prepares the UI. Opening its camera/RTC preview
+    // still requires the explicit activation button, and never starts REC.
+  }, [owner, canUseScenes, projectId, initialKind, project]);
 
   const isRemote = mode === 'remote' && kind !== 'podcast', hasScenes = kind !== 'podcast' && (mode === 'scenes' || isRemote && remoteScenes);
   const captureMode: StudioCaptureMode = kind === 'podcast' ? 'audio' : mode === 'remote' ? 'camera' : mode;
@@ -199,7 +202,8 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
       try {
         const saved = await entry.session.append(file, { operationId: entry.operationId, remoteTakeId: entry.remoteTakeId, isCurrent: active });
         if (!active()) return false;
-        entry.saved = true; projectSnapshot.current = saved; setProject(saved); setSelectedTake(saved.takes.at(-1)?.id); setNotice(entry.notice);
+        entry.saved = true; selectionTouched.current = true; projectSnapshot.current = saved; setProject(saved); setSelectedTake(saved.takes.at(-1)?.id); setNotice(entry.notice);
+        saveStudioRecordingSelection(owner, { kind: saved.kind, mode, remoteScenes }, saved.id);
         if (capture.current === ownedCapture) { remoteCapture.current?.discardRemoteRecovery(); ownedCapture?.cancel(); } candidate.current = null;
         const params = new URLSearchParams(latest.current.location.search); params.set('project', saved.id); params.set('kind', saved.kind);
         navigate({ pathname: '/studio/record', search: `?${params}` }, { replace: true }); return true;
@@ -306,6 +310,8 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     if (next === mode && nextRemoteScenes === remoteScenes) return;
     selectionTouched.current = true; capture.current?.cancel(); setPreviewRequested(false); setToolsOpen(false); setFocusTarget(null);
     setError(null); setMode(next); setRemoteScenes(nextRemoteScenes);
+    const savedProject = projectSnapshot.current;
+    if (savedProject?.ownerId === owner) saveStudioRecordingSelection(owner, { kind: savedProject.kind, mode: next, remoteScenes: nextRemoteScenes }, savedProject.id);
   };
   const chooseSetupFormat = async (next: StudioKind | 'live') => {
     if (!mounted.current || loading || project || hasRisk() || captureSnapshot.current.videoControls?.busy || exitIntent.current) return;
@@ -337,6 +343,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
   };
   const reconnectRemote = () => {
     const owned = remoteCapture.current, token = epoch.current; if (!owned || confirmationOperation.current || exitIntent.current || saveBusy.current) return;
+    setError(null);
     const current = owned.getEnvelope();
     if (!current?.session.deviceId && Date.parse(remoteState?.pairing?.expiresAt ?? '') < Date.now()) { owned.cancel(); void owned.prepare().catch(cause => reportCapture(cause, token, capture.current!)); }
     else void owned.reconnect().catch(cause => { if (live(token)) setError(cause instanceof Error ? cause.message : 'Não foi possível reconectar o iPhone.'); });

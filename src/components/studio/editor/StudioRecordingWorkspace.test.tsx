@@ -9,6 +9,7 @@ import type { StudioCaptureState } from '@/lib/studio/editor/capture';
 import * as videoProcessing from '@/lib/studio/editor/captureVideo';
 import * as remoteSceneRecovery from '@/lib/studio/editor/remoteSceneRecovery';
 import type { StudioRemoteCaptureController, StudioRemoteView } from '@/lib/studio/editor/remoteCameraCapture';
+import { readStudioRecordingSelection, saveStudioRecordingSelection } from '@/lib/studio/editor/recordingSetupPreferences';
 
 const io = vi.hoisted(() => ({ inspect: vi.fn(), create: vi.fn(), get: vi.fn(), save: vi.fn(), put: vi.fn(), asset: vi.fn() }));
 const remoteIO = vi.hoisted(() => ({ create: vi.fn() }));
@@ -143,6 +144,40 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('funil de gravação com componente, captura e sessão reais', () => {
+  it('reload do mesmo projeto restaura iPhone no preparo, mas conecta somente por clique e nunca inicia REC', async () => {
+    const project = fixture(); projects.set(key(owner, project.id), project);
+    saveStudioRecordingSelection(owner, { kind: 'aula', mode: 'remote', remoteScenes: false }, project.id);
+    const prepare = vi.fn(), start = vi.fn();
+    remoteIO.create.mockImplementation(() => {
+      const listeners = new Set<(state: StudioCaptureState) => void>();
+      const idle: StudioCaptureState = { phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, levels: [], camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true };
+      prepare.mockImplementation(async () => listeners.forEach(listener => listener({ ...idle, phase: 'ready', stream: new Stream([new Track('video')]) as unknown as MediaStream })));
+      return { subscribe(listener) { listeners.add(listener); listener(idle); return () => listeners.delete(listener); }, subscribeRemote() { return () => undefined; }, prepare, start, cancel() {}, dispose() { listeners.clear(); }, getMicrophoneTrack() { return null; } } as unknown as StudioRemoteCaptureController;
+    });
+    await act(async () => root.render(<StrictMode><MemoryRouter><StudioRecordingWorkspace owner={owner} projectId={project.id} canUseScenes /></MemoryRouter></StrictMode>));
+    expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup'); expect(button('Conectar meu iPhone')).toBeTruthy();
+    expect(prepare).not.toHaveBeenCalled(); expect(start).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
+    await click('Conectar meu iPhone'); expect(prepare).toHaveBeenCalledTimes(1); expect(start).not.toHaveBeenCalled();
+    await enterProduction(); expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production'); expect(button('Iniciar gravação')).toBeTruthy();
+    expect(start).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled();
+  });
+  it('projeto não herda iPhone da preferência global, de outro projeto ou de outra conta', async () => {
+    const project = fixture(); projects.set(key(owner, project.id), project);
+    const remote = { kind: 'aula' as const, mode: 'remote' as const, remoteScenes: false };
+    saveStudioRecordingSelection(owner, remote); saveStudioRecordingSelection(owner, remote, 'other-project'); saveStudioRecordingSelection('other-owner', remote, project.id);
+    await act(async () => root.render(<MemoryRouter><StudioRecordingWorkspace owner={owner} projectId={project.id} canUseScenes /></MemoryRouter>));
+    expect(button('Ativar câmera')).toBeTruthy(); expect(button('Conectar meu iPhone')).toBeUndefined(); expect(remoteIO.create).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled();
+    await click('Meu iPhone · Premium');
+    expect(readStudioRecordingSelection(owner, true, true, project.id)).toEqual(remote); expect(permissions).not.toHaveBeenCalled();
+  });
+  it('restaurar origem remota aguarda Premium da mesma conta e continua exigindo ativação explícita', async () => {
+    const project = fixture(); projects.set(key(owner, project.id), project);
+    saveStudioRecordingSelection(owner, { kind: 'aula', mode: 'remote', remoteScenes: false }, project.id);
+    await act(async () => root.render(<MemoryRouter><StudioRecordingWorkspace owner={owner} projectId={project.id} premiumLoading /></MemoryRouter>));
+    expect(remoteIO.create).not.toHaveBeenCalled();
+    await act(async () => root.render(<MemoryRouter><StudioRecordingWorkspace owner={owner} projectId={project.id} canUseScenes /></MemoryRouter>));
+    expect(button('Conectar meu iPhone')).toBeTruthy(); expect(host.querySelector('.src-pairing')).toBeNull(); expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
+  });
   it('a prévia usa a câmera real na preparação, sem gravador ou rascunho, e REC reutiliza a mesma fonte', async () => {
     await mount();
     expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject ?? null).toBeNull();
@@ -165,6 +200,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(Recorder.instances).toHaveLength(1); expect(Recorder.instances[0].stream).toBe(prepared); expect(permissions).toHaveBeenCalledTimes(1);
     expect(stream.getTracks().every(track => track.stop.mock.calls.length === 0)).toBe(true);
     expect(io.create).not.toHaveBeenCalled(); await click('Encerrar gravação'); expect(io.create).toHaveBeenCalledTimes(1);
+    expect(readStudioRecordingSelection(owner, true, true, [...projects.values()][0].id)).toEqual({ kind: 'aula', mode: 'camera', remoteScenes: false });
   });
 
   it('Aula e Short mudam o enquadramento da prévia preparada sem reabrir a câmera', async () => {

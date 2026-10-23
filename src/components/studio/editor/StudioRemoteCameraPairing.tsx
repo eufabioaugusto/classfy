@@ -27,7 +27,7 @@ export function StudioRemoteCameraPairing({ state, onReconnect, onCancel, onUnpa
     </div>}
     {(!code || connected) && <div className="src-pairing-progress"><Loader2 size={16} className="se-spin" />{state.connection === 'reconnecting' ? 'Reconectando a prévia…' : connected ? 'Conectando câmera…' : 'Preparando sua conexão privada…'}</div>}
     {state.error && <p className="src-error" role="alert">{state.error}</p>}
-    {(state.connection === 'disconnected' || !!code && !remaining && !connected || state.error) && <button type="button" className="src-secondary" disabled={disabled} onClick={onReconnect}><RefreshCw size={15} />{!connected && !!code && !remaining ? 'Gerar novo código' : 'Reconectar prévia'}</button>}
+    {(['connecting', 'reconnecting', 'disconnected'].includes(state.connection) || !!code && !remaining && !connected || state.error) && <button type="button" className="src-secondary" disabled={disabled} onClick={onReconnect}><RefreshCw size={15} />{!connected && !!code && !remaining ? 'Gerar novo código' : 'Reconectar prévia'}</button>}
     {(onCancel || connected && onUnpair) && <div className="src-pairing-actions">{onCancel && <button type="button" className="src-secondary" disabled={disabled} onClick={onCancel}>Cancelar conexão</button>}{connected && onUnpair && <button type="button" className="src-secondary" disabled={disabled} onClick={onUnpair}>Desvincular iPhone</button>}</div>}
     <small className="src-private"><ShieldCheck size={13} />Prévia leve no computador. Original preservado no iPhone.</small>
   </section>;
