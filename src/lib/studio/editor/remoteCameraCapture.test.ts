@@ -48,6 +48,17 @@ beforeEach(() => { controllers = []; localStorage.clear(); vi.useFakeTimers(); v
 afterEach(() => { controllers.forEach(controller => controller.dispose()); vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('câmera remota preserva o original nativo e a autoridade do iPhone', () => {
+  it('catálogo do projeto aparece na construção antes de Conectar, sem ler outra conta/projeto ou abrir rede', () => {
+    const h = fixture(), raw = { bytes: original.size, mime: 'video/mp4', width: 3840, height: 2160, fps: 30, duration: 16 };
+    const rows = ['saved-one', 'saved-two'].map(id => ({ id, sessionId: 'saved-session', metadata: raw, sourceMetadata: raw, phase: 'local_ready', localSaved: true }));
+    localStorage.setItem('classfy:studio:remote-library:v1:owner:project:aula', JSON.stringify(rows));
+    localStorage.setItem('classfy:studio:remote-library:v1:owner:new:aula', JSON.stringify([{ ...rows[0], id: 'other-project' }]));
+    localStorage.setItem('classfy:studio:remote-library:v1:other-owner:project:aula', JSON.stringify([{ ...rows[0], id: 'other-owner' }]));
+    const restored = createStudioRemoteCapture({ owner: 'owner', projectId: 'project', kind: 'aula', client: h.client, preview: h.preview }); controllers.push(restored);
+    let capture!: StudioCaptureState, remote!: StudioRemoteView; restored.subscribe(next => capture = next); restored.subscribeRemote(next => remote = next);
+    expect(remote.localTakes?.map(take => take.id)).toEqual(['saved-one', 'saved-two']); expect(remote.connection).toBe('idle'); expect(capture).toMatchObject({ phase: 'idle', stream: null, file: null });
+    expect(restored.getEnvelope()).toBeNull(); expect(h.request).not.toHaveBeenCalled(); expect(h.preview).not.toHaveBeenCalled(); expect(h.download).not.toHaveBeenCalled();
+  });
   it('STOP local confirma o arquivo durável e permite vários takes sem envio, download ou recriar preview', async () => {
     const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1;
     await h.controller.prepare(); const first = await h.controller.remoteStart(); const saved = await h.controller.finishLocalTake!();

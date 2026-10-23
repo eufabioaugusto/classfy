@@ -145,6 +145,28 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('funil de gravação com componente, captura e sessão reais', () => {
+  it('envio opcional no setup permite entrar e gravar; STOP local confirma salvamento sem texto de transferência', async () => {
+    const stopped = deferred<void>(), legacyStop = vi.fn(), send = vi.fn(), start = vi.fn();
+    remoteIO.create.mockImplementation(() => {
+      const listeners = new Set<(state: StudioCaptureState) => void>(), remoteListeners = new Set<(state: StudioRemoteView) => void>();
+      let state: StudioCaptureState = { phase: 'idle', stream: null, file: null, error: null, elapsed: 0, input: null, camera: null, devices: { cameras: [], microphones: [] }, levels: [], microphoneEnabled: true };
+      const session = { id: 'session', deviceId: 'phone', configuration: { resolution: '4k', fps: 30, cameraFacing: 'back' }, deviceState: { capabilities: { localTakeStorage: 1 }, width: 3840, height: 2160, fps: 30 } } as unknown as StudioRemoteView['session'];
+      const remote: StudioRemoteView = { pairing: null, connection: 'connected', session, localFirst: true, transfer: 'uploading', transferTakeId: 'previous-take', transferBytes: 47, transferTotalBytes: 100, pendingTakeId: null, localTakes: [], error: null };
+      const publish = (patch: Partial<StudioCaptureState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener(state)); };
+      start.mockImplementation(() => publish({ phase: 'recording' }));
+      return { subscribe(listener) { listeners.add(listener); listener(state); return () => listeners.delete(listener); }, subscribeRemote(listener) { remoteListeners.add(listener); listener(remote); return () => remoteListeners.delete(listener); },
+        async prepare() { publish({ phase: 'ready', stream: new Stream([new Track('video')]) as unknown as MediaStream, width: 3840, height: 2160, frameRate: 30 }); }, start, stop: legacyStop, receiveRemoteTake: send,
+        async finishLocalTake() { publish({ phase: 'stopping', pendingRecovery: true }); await stopped.promise; publish({ phase: 'ready', pendingRecovery: false }); return { id: 'current-take', metadata: null, localSaved: true, phase: 'local_ready' }; },
+        getEnvelope: () => ({ session, takes: [], commands: [], serverAt: '' }), getMicrophoneTrack: () => null, cancel() {}, dispose() { listeners.clear(); remoteListeners.clear(); } } as unknown as StudioRemoteCaptureController;
+    });
+    await act(async () => root.render(<MemoryRouter><StudioRecordingWorkspace owner={owner} canUseScenes /></MemoryRouter>));
+    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup');
+    await click('Ir para gravação'); expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production');
+    await click('Iniciar gravação'); expect(start).toHaveBeenCalledOnce(); await click('Encerrar gravação');
+    const feedback = host.querySelector('.se-recording-recovery')!; expect(feedback.textContent).toContain('Salvando no iPhone.'); expect(feedback.textContent).toContain('Confirmando o salvamento no iPhone…'); expect(feedback.textContent).not.toMatch(/Recebendo seu original|Preparando transferência/);
+    expect(legacyStop).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled();
+    await act(async () => stopped.resolve()); expect(host.querySelector('.se-recording-recovery')).toBeNull(); expect(button('Iniciar gravação')?.disabled).toBe(false);
+  });
   it('importa original recebido com iPhone offline e catálogo vazio sem ativar câmera e preserva take de31s', async () => {
     const previousFile = new File(['original-already-saved'], 'Take anterior.mp4', { type: 'video/mp4' });
     io.inspect.mockResolvedValueOnce({ kind: 'video', duration: 31, hasAudio: true, width: 1920, height: 1080, frameRate: 30, mimeType: previousFile.type, warnings: [] });
