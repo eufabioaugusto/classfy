@@ -147,6 +147,13 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
   const isRemote = mode === 'remote' && kind !== 'podcast', hasScenes = kind !== 'podcast' && (mode === 'scenes' || isRemote && remoteScenes);
   const captureMode: StudioCaptureMode = kind === 'podcast' ? 'audio' : mode === 'remote' ? 'camera' : mode;
   useEffect(() => {
+    // A restored take needs a real recovery action, not an endless pairing card
+    // behind disabled setup controls. This opens recovery without starting REC.
+    if (stage === 'setup' && isRemote && previewRequested && captureState.pendingRecovery && captureSnapshot.current.pendingRecovery) {
+      setToolsOpen(false); setStage('production');
+    }
+  }, [stage, isRemote, previewRequested, captureState.pendingRecovery]);
+  useEffect(() => {
     const selectedKind = latest.current.kind;
     const base = isRemote ? createStudioRemoteCapture({ owner, kind: selectedKind === 'short' ? 'short' : 'aula', title: latest.current.title, projectId: projectSnapshot.current?.id, getContext: () => ({ title: latest.current.title, projectId: projectSnapshot.current?.id }) }) : null;
     remoteCapture.current = base;
@@ -496,6 +503,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     if (!await ask({ title: 'Descartar trecho?', description: 'Este trecho ainda não foi salvo e será descartado. Os takes já salvos continuam no projeto.', confirmLabel: 'Descartar trecho', tone: 'danger', icon: 'discard' })) return;
     if (!live(token) || capture.current !== owned || session.current !== ownedSession || candidate.current !== entry || (entry?.file ?? captureSnapshot.current.file) !== file || (captureSnapshot.current.pendingRecovery === true) !== recoveryPending || saveBusy.current || deviceWork.current || screenWork.current || entry?.saved || entry?.work) return;
     candidate.current = null; remoteCapture.current?.discardRemoteRecovery(); owned?.cancel(); setError(null); setNotice(null);
+    if (isRemote) { setPreviewRequested(false); setStage('setup'); }
   };
   const downloadOriginal = () => {
     const file = candidate.current?.file ?? captureSnapshot.current.file; if (!file) return;

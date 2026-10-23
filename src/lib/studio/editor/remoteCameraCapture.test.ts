@@ -403,6 +403,33 @@ describe('câmera remota preserva o original nativo e a autoridade do iPhone', (
     expect(state).toMatchObject({ phase: 'error', pendingRecovery: true, file: null }); const master = await restored.remoteStop(); expect(master.take.id).toBe(started.takeId); expect(master.metadata.width).toBe(3840);
     expect(h.data.commands.filter(command => command.type === 'start')).toHaveLength(1); expect(h.data.commands.filter(command => command.type === 'stop')).toHaveLength(1);
   });
+  it('intenção persistida de take enviado conecta a prévia read-only e mantém REC bloqueado até resolver a recuperação', async () => {
+    const h = fixture(), id = 'uploaded-pending-browser-save';
+    h.data.takes.push({ id, status: 'uploaded', metadata: { bytes: original.size, mime: 'video/mp4', width: 3840, height: 2160, fps: 30, duration: 2 }, createdAt: new Date(NOW).toISOString(), uploadedAt: new Date(NOW).toISOString() });
+    localStorage.setItem('classfy:studio:remote-camera:v1:owner:new:aula', JSON.stringify({ sessionId: h.data.session.id, controllerId: h.data.session.controllerId, takeId: id }));
+    const restored = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview, inspect: h.inspect }); controllers.push(restored);
+    let state!: StudioCaptureState; restored.subscribe(value => state = value); await restored.prepare();
+    expect(state).toMatchObject({ phase: 'error', pendingRecovery: true, file: null }); expect(state.stream!.getVideoTracks()[0]).toBe(track);
+    expect(h.preview).toHaveBeenCalledTimes(1); expect(h.request.mock.calls.some(([body]) => body.action === 'connect')).toBe(true);
+    await restored.reconnect(); expect(h.preview).toHaveBeenCalledTimes(2); expect(state.pendingRecovery).toBe(true);
+    await expect(restored.remoteStart()).rejects.toThrow('Aguarde o iPhone');
+    expect(h.request.mock.calls.some(([body]) => ['create', 'command', 'close', 'unpair'].includes(String(body.action)))).toBe(false);
+    expect(h.data.takes[0]).toMatchObject({ id, status: 'uploaded' }); expect(localStorage.getItem('classfy:studio:remote-camera:v1:owner:new:aula')).toContain(id);
+    restored.discardRemoteRecovery(); restored.cancel(); await vi.advanceTimersByTimeAsync(0);
+    expect(localStorage.getItem('classfy:studio:remote-camera:v1:owner:new:aula')).toBeNull();
+    expect(h.request.mock.calls.filter(([body]) => body.action === 'close')).toHaveLength(1);
+    expect(h.request.mock.calls.some(([body]) => body.action === 'command' || body.action === 'unpair')).toBe(false);
+    expect(h.data.takes[0]).toMatchObject({ id, status: 'uploaded' });
+  });
+  it('descartar recuperação antiga não envia STOP nem fecha outro take ativo no iPhone', async () => {
+    const h = fixture(), id = 'old-uploaded-take';
+    h.data.takes.push({ id, status: 'uploaded', metadata: null, createdAt: new Date(NOW).toISOString(), uploadedAt: new Date(NOW).toISOString() });
+    const restored = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview, inspect: h.inspect, persist: false, resumeSessionId: h.data.session.id, controllerId: h.data.session.controllerId }); controllers.push(restored);
+    await restored.prepare(); h.data.session.activeTakeId = 'another-active-take'; h.data.session.status = 'recording'; await restored.reconnect();
+    restored.discardRemoteRecovery(); restored.cancel(); await vi.advanceTimersByTimeAsync(0);
+    expect(h.request.mock.calls.some(([body]) => ['close', 'command', 'unpair'].includes(String(body.action)))).toBe(false);
+    expect(h.data.session.activeTakeId).toBe('another-active-take'); expect(h.data.takes[0].status).toBe('uploaded');
+  });
   it('configuração física não confirmada bloqueia REC e permite recuperar Auto antes de iniciar', async () => {
     const h = fixture(); await h.controller.prepare(); h.data.session.deviceState!.configurationConfirmed = false; await h.controller.reconnect();
     expect(h.state()).toMatchObject({ phase: 'error', pendingRecovery: false }); await expect(h.controller.remoteStart()).rejects.toThrow('Confirme os ajustes'); expect(h.data.commands.filter(command => command.type === 'start')).toHaveLength(0);

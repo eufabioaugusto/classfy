@@ -7,6 +7,12 @@ import { assertStudioRemoteScope, createStudioRemoteClient, StudioRemoteCameraEr
 
 export type StudioRemoteStart = { takeId: string; startedAtServerMs: number; result: Record<string, unknown> };
 export type StudioRemoteMaster = { file: File; take: StudioRemoteTake; session: StudioRemoteSession; metadata: StudioMediaMetadata };
+export type StudioRemotePreviewDiagnostic = {
+  stage: 'recovery-pending' | 'requesting-grant' | 'connecting' | 'room-connected' | 'media-received' | 'media-timeout' | 'subscription-failed' | 'disconnected';
+  message: string | null;
+  roomState?: string; participantCount?: number; expectedParticipantPresent?: boolean;
+  expectedVideoCount?: number; subscribedVideoCount?: number; mutedVideoCount?: number; reasonCode?: number;
+};
 export type StudioRemoteView = {
   pairing: { code: string; expiresAt: string } | null;
   connection: 'idle' | 'pairing' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
@@ -14,9 +20,10 @@ export type StudioRemoteView = {
   transfer: 'idle' | 'waiting' | 'uploading' | 'downloading' | 'validating' | 'complete' | 'retry';
   transferBytes?: number; transferTotalBytes?: number;
   pendingTakeId: string | null; error: string | null;
+  previewDiagnostic?: StudioRemotePreviewDiagnostic | null;
 };
 export type StudioRemotePreview = { disconnect(): Promise<void>; reconnect?(): Promise<void>; configure?(id: string, patch: Partial<StudioRemoteConfiguration>): Promise<StudioRemoteDeviceState> };
-export type StudioRemotePreviewFactory = (response: StudioRemoteResponse, callbacks: { track(track: MediaStreamTrack | null): void; connection(value: StudioRemoteView['connection']): void }, signal: AbortSignal) => Promise<StudioRemotePreview>;
+export type StudioRemotePreviewFactory = (response: StudioRemoteResponse, callbacks: { track(track: MediaStreamTrack | null): void; connection(value: StudioRemoteView['connection']): void; diagnostic?(value: StudioRemotePreviewDiagnostic): void }, signal: AbortSignal) => Promise<StudioRemotePreview>;
 /** Older apps keep their existing audio route; new apps must confirm the chosen input. */
 export function studioRemoteAudioReady(device: StudioRemoteDeviceState | null | undefined): boolean {
   if (device?.capabilities?.audioInputSelection !== true) return true;
@@ -64,6 +71,31 @@ export const connectStudioRemotePreview: StudioRemotePreviewFactory = async (res
   if (!connection || !deviceId) throw new StudioRemoteCameraError('Aguarde a conexão do iPhone.');
   const room = new Room({ adaptiveStream: false, dynacast: true }); let closed = false;
   const identity = `studio-device-${response.session.id}-${deviceId}`;
+  let firstMediaTimer: ReturnType<typeof setTimeout> | undefined, receivedMedia = false;
+  const report = (stage: StudioRemotePreviewDiagnostic['stage'], message: string | null = null, reason?: unknown) => {
+    if (closed || signal.aborted) return;
+    const participant = room.remoteParticipants.get(identity);
+    const videos = [...participant?.trackPublications.values() ?? []].filter(publication => publication.kind === Track.Kind.Video);
+    const detail: StudioRemotePreviewDiagnostic = { stage, message,
+      roomState: ['connected', 'connecting', 'reconnecting', 'signalReconnecting', 'disconnected'].includes(room.state) ? room.state : 'unknown',
+      participantCount: room.remoteParticipants.size, expectedParticipantPresent: !!participant,
+      expectedVideoCount: videos.length, subscribedVideoCount: videos.filter(publication => publication.isSubscribed).length,
+      mutedVideoCount: videos.filter(publication => publication.isMuted).length,
+      ...(typeof reason === 'number' && Number.isFinite(reason) ? { reasonCode: reason } : {}) };
+    // Never log the SDK event, token, URL, SID, participant identity or session.
+    if (message) console.warn('[Classfy Studio] Prévia da câmera', detail);
+    else console.info('[Classfy Studio] Prévia da câmera', detail);
+    callbacks.diagnostic?.(detail);
+  };
+  const watchFirstMedia = () => {
+    clearTimeout(firstMediaTimer);
+    firstMediaTimer = setTimeout(() => {
+      if (receivedMedia || closed || signal.aborted) return;
+      const participant = room.remoteParticipants.get(identity);
+      const hasVideo = !!participant && [...participant.trackPublications.values()].some(publication => publication.kind === Track.Kind.Video);
+      report('media-timeout', !participant ? 'A conexão abriu, mas o iPhone ainda não apareceu nesta prévia. Reconecte a câmera.' : !hasVideo ? 'O iPhone está conectado, mas ainda não publicou a câmera. Reconecte a prévia no app.' : 'A câmera foi publicada, mas a imagem ainda não chegou ao navegador. Reconecte a prévia.');
+    }, 20_000);
+  };
   const settings = new Map<string, { resolve(state: StudioRemoteDeviceState): void; reject(cause: Error): void; timer: ReturnType<typeof setTimeout> }>();
   const rejectSettings = () => { for (const pending of settings.values()) { clearTimeout(pending.timer); pending.reject(new DOMException('Conexão cancelada.', 'AbortError')); } settings.clear(); };
   const data = (payload: Uint8Array, participant: RemoteParticipant | undefined, _kind: unknown, topic?: string) => {
@@ -84,16 +116,21 @@ export const connectStudioRemotePreview: StudioRemotePreviewFactory = async (res
       // Camera direction needs the freshest frame. LiveKit guards unsupported
       // receivers; this optional hint must never prevent the preview from opening.
       try { track.setPlayoutDelay(0); } catch { /* Keep preview usable if the browser rejects the hint. */ }
+      receivedMedia = true; clearTimeout(firstMediaTimer); report('media-received');
       callbacks.track(track.mediaStreamTrack);
     }
   };
   room.on(RoomEvent.TrackSubscribed, subscribed);
   room.on(RoomEvent.TrackPublished, published);
+  room.on(RoomEvent.TrackSubscriptionFailed, (_trackSid, participant, reason) => {
+    if (participant.identity !== identity) return;
+    report('subscription-failed', reason === 1 ? 'O navegador não conseguiu receber o formato de vídeo da câmera. Reconecte a prévia.' : reason === 2 ? 'A câmera publicada não está mais disponível nesta conexão. Reconecte a prévia.' : 'A conexão não conseguiu receber a câmera do iPhone. Reconecte a prévia.', reason);
+  });
   room.on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => { if (!closed && participant.identity === identity && track.kind === Track.Kind.Video) callbacks.track(null); });
   room.on(RoomEvent.Reconnecting, () => { if (!closed) callbacks.connection('reconnecting'); });
-  room.on(RoomEvent.Reconnected, () => { if (!closed) callbacks.connection('connected'); });
-  room.on(RoomEvent.Disconnected, () => { if (!closed) { rejectSettings(); callbacks.track(null); callbacks.connection('disconnected'); } });
-  const disconnect = async () => { if (closed) return; closed = true; signal.removeEventListener('abort', abort); room.removeAllListeners(); rejectSettings(); callbacks.track(null); await room.disconnect(); };
+  room.on(RoomEvent.Reconnected, () => { if (!closed) { callbacks.connection('connected'); if (!receivedMedia) watchFirstMedia(); } });
+  room.on(RoomEvent.Disconnected, reason => { if (!closed) { clearTimeout(firstMediaTimer); report('disconnected', reason === 2 ? 'Esta prévia foi aberta em outra aba. Reconecte para continuar aqui.' : 'A conexão de vídeo foi interrompida. Reconectando a prévia…', reason); rejectSettings(); callbacks.track(null); callbacks.connection('disconnected'); } });
+  const disconnect = async () => { if (closed) return; closed = true; clearTimeout(firstMediaTimer); signal.removeEventListener('abort', abort); room.removeAllListeners(); rejectSettings(); callbacks.track(null); await room.disconnect(); };
   const abort = () => { void disconnect(); }; signal.addEventListener('abort', abort, { once: true });
   const configure = (id: string, patch: Partial<StudioRemoteConfiguration>) => new Promise<StudioRemoteDeviceState>((resolve, reject) => {
     if (closed || signal.aborted || !room.remoteParticipants.has(identity)) { reject(new StudioRemoteCameraError('A câmera direta está desconectada.')); return; }
@@ -105,7 +142,7 @@ export const connectStudioRemotePreview: StudioRemotePreviewFactory = async (res
     settings.set(id, { resolve, reject, timer });
     void room.localParticipant.publishData(payload, { reliable: true, topic: 'classfy-studio-camera-control-v1', destinationIdentities: [identity] }).catch(cause => { const pending = settings.get(id); if (pending) { settings.delete(id); clearTimeout(pending.timer); pending.reject(cause); } });
   });
-  try { callbacks.connection('connecting'); await room.connect(connection.url, connection.token, { autoSubscribe: false }); if (signal.aborted || closed) throw new DOMException('Conexão cancelada.', 'AbortError'); room.remoteParticipants.forEach(participant => participant.trackPublications.forEach(publication => published(publication, participant))); callbacks.connection('connected'); return { disconnect, configure }; }
+  try { callbacks.connection('connecting'); report('connecting'); await room.connect(connection.url, connection.token, { autoSubscribe: false }); if (signal.aborted || closed) throw new DOMException('Conexão cancelada.', 'AbortError'); room.remoteParticipants.forEach(participant => participant.trackPublications.forEach(publication => published(publication, participant))); report('room-connected'); if (!receivedMedia) watchFirstMedia(); callbacks.connection('connected'); return { disconnect, configure }; }
   catch (error) { await disconnect(); throw error; }
 };
 
@@ -155,8 +192,8 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   let remote: StudioRemoteView = { pairing: null, connection: 'idle', session: null, transfer: 'idle', pendingTakeId: null, error: null };
   const snapshot = () => ({ ...state, devices: { cameras: [], microphones: [] }, levels: [], ...(state.videoControls ? { videoControls: structuredClone(state.videoControls) } : {}), ...(state.outputVideo ? { outputVideo: structuredClone(state.outputVideo) } : {}) });
   const configurationPending = () => configuring || !!configurationIntent || !!envelope?.commands.some(command => command.type === 'configure' && command.status === 'pending');
-  const view = () => structuredClone(liveReceipt && remote.session ? { ...remote, session: { ...remote.session, deviceState: { ...remote.session.deviceState,
-    pro: liveReceipt.state.pro, configuration: liveReceipt.state.configuration, imageGrade: liveReceipt.state.imageGrade } } } : remote);
+  const view = () => structuredClone({ ...(liveReceipt && remote.session ? { ...remote, session: { ...remote.session, deviceState: { ...remote.session.deviceState,
+    pro: liveReceipt.state.pro, configuration: liveReceipt.state.configuration, imageGrade: liveReceipt.state.imageGrade } } } : remote), error: remote.error ?? remote.previewDiagnostic?.message ?? null });
   const publish = (patch: Partial<StudioCaptureState>) => { if (disposed) return; state = { ...state, ...patch }; listeners.forEach(listener => listener(snapshot())); };
   const publishRemote = (patch: Partial<StudioRemoteView>) => { if (disposed) return; remote = { ...remote, ...patch }; remoteListeners.forEach(listener => listener(view())); };
   const scope = (token = generation) => ({ signal: lifecycle.signal, isCurrent: () => !disposed && token === generation });
@@ -212,10 +249,12 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     const rtt = receivedAt - sentAt; if (rtt < bestRTT) { bestRTT = rtt; serverOffset = Date.parse(response.serverAt) - (sentAt + receivedAt) / 2; } return response;
   };
   const connect = async (token: number, signal: AbortSignal) => {
-    // Recovering owned bytes does not need a new Premium preview token, and a
-    // closed session can still finish its private original transfer.
-    if (!envelope?.session.deviceId || preview || state.pendingRecovery || envelope.session.status === 'closed') return; if (connecting) return connecting;
+    // Receiving an original and watching the camera are independent. A pending
+    // recovery must block REC, never silently prevent this read-only preview.
+    // A closed session can still transfer its original without a preview grant.
+    if (!envelope?.session.deviceId || preview || envelope.session.status === 'closed') return; if (connecting) return connecting;
     const work = (async () => {
+      publishRemote({ previewDiagnostic: { stage: 'requesting-grant', message: null } });
       const response = await request({ action: 'connect', sessionId: envelope!.session.id, role: 'controller' }, token, signal);
       const parentSignal = lifecycle.signal, abort = new AbortController();
       const lease: PreviewLease = { abort, transport: null, releaseLifecycle: () => parentSignal.removeEventListener('abort', cancelLease) };
@@ -224,6 +263,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       const current = () => !disposed && token === generation && previewLease === lease && !abort.signal.aborted;
       try {
         const opening = (options.preview ?? connectStudioRemotePreview)(response, {
+          diagnostic(value) { if (current()) publishRemote({ previewDiagnostic: value }); },
           track(track) {
             if (!current()) return; cameraTrack = track;
             publish({ stream: track ? new MediaStream([track]) : null, cameraPreviewStream: track ? new MediaStream([track]) : null });
@@ -294,7 +334,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   };
   const remoteStart = () => {
     if (startWork) return startWork; if (state.phase === 'recording' && lastStart) return Promise.resolve(lastStart);
-    if (!envelope || remote.connection !== 'connected' || !cameraTrack || !['ready', 'preparing', 'error'].includes(state.phase) || remote.pendingTakeId) return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone ficar pronto antes de gravar.'));
+    if (!envelope || remote.connection !== 'connected' || !cameraTrack || !['ready', 'preparing', 'error'].includes(state.phase) || remote.pendingTakeId || state.pendingRecovery && !pendingStart) return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone ficar pronto antes de gravar.'));
     if (configurationPending()) return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone confirmar o ajuste antes de gravar.', 'configuration_pending'));
     if (envelope.session.deviceState?.configurationConfirmed === false || envelope.session.deviceState?.imageGradeConfirmed === false) return Promise.reject(new StudioRemoteCameraError('Confirme os ajustes no iPhone antes de gravar.'));
     if (!studioRemoteAudioReady(envelope.session.deviceState)) return Promise.reject(new StudioRemoteCameraError(envelope.session.deviceState?.audioInput?.warning?.trim() || 'Confirme o microfone antes de gravar.', 'audio_input_unconfirmed'));
@@ -435,15 +475,21 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   };
   const cancel = () => {
     const previous = envelope, hadMaster = !!cachedMaster, takeId = remote.pendingTakeId ?? pendingStart?.takeId ?? previous?.session.activeTakeId; bestRTT = Infinity;
+    const device = previous?.session.deviceState, activeTakeId = previous?.session.activeTakeId;
+    const anotherTakeIsActive = !!activeTakeId && activeTakeId !== takeId;
+    const completedIdleTake = previous?.takes.some(take => take.id === takeId && take.status === 'uploaded') &&
+      !activeTakeId && !['starting', 'recording', 'stopping'].includes(previous.session.status) &&
+      device?.recording !== true && device?.processing !== true && device?.uploading !== true && device?.uploadState !== 'uploading' &&
+      !previous.commands.some(command => command.status === 'pending' && ['start', 'stop', 'resume_upload'].includes(command.type));
     persistIntent(); if (previous && (hadMaster || !takeId)) forgetIntent(); configuring = false;
     queuedConfiguration = null; queuedConfigurationId = null; configurationIntent = null; liveReceipt = null; liveDesired = null; liveJobs.clear(); const waiting = configurationWaiters; configurationWaiters = []; waiting.forEach(waiter => waiter.reject(new DOMException('Conexão cancelada.', 'AbortError')));
     const stopId = pendingStop?.id ?? crypto.randomUUID(); generation++; lifecycle.abort(); lifecycle = new AbortController(); if (pollTimer) clearTimeout(pollTimer); pollTimer = null; pollAbort?.abort(); pollAbort = null; polling = null; connecting = null;
     void releasePreview().catch(() => undefined); preview = null; cameraTrack = null; envelope = null; pendingStart = null; pendingStop = null; pendingResume = null; lastStart = null; cachedMaster = null; prepareWork = null; reconnectWork = null; startWork = null; stopWork = null;
     // A lost browser must not delete/close the original while the phone is still
     // recording or transferring. Queue STOP and leave its private recovery open.
-    if (previous && takeId && !hadMaster) void client.request({ action: 'command', sessionId: previous.session.id, clientId, commandId: stopId, type: 'stop', payload: { takeId } }).catch(() => undefined);
-    else if (previous) void client.request({ action: 'close', sessionId: previous.session.id, clientId, role: 'controller' }).catch(() => undefined);
-    publishRemote({ pairing: null, session: null, connection: 'idle', transfer: 'idle', transferBytes: undefined, transferTotalBytes: undefined, pendingTakeId: null, error: null }); publish({ phase: 'idle', stream: null, cameraPreviewStream: null, file: null, input: null, camera: null, pendingRecovery: false, error: null });
+    if (previous && takeId && !hadMaster && !completedIdleTake && !anotherTakeIsActive) void client.request({ action: 'command', sessionId: previous.session.id, clientId, commandId: stopId, type: 'stop', payload: { takeId } }).catch(() => undefined);
+    else if (previous && !anotherTakeIsActive) void client.request({ action: 'close', sessionId: previous.session.id, clientId, role: 'controller' }).catch(() => undefined);
+    publishRemote({ pairing: null, session: null, connection: 'idle', transfer: 'idle', transferBytes: undefined, transferTotalBytes: undefined, pendingTakeId: null, previewDiagnostic: null, error: null }); publish({ phase: 'idle', stream: null, cameraPreviewStream: null, file: null, input: null, camera: null, pendingRecovery: false, error: null });
   };
   const controller: StudioRemoteCaptureController = {
     prepare() {
@@ -460,7 +506,8 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
             const takeId = resume.takeId || response.session.activeTakeId || response.takes.find(value => value.status !== 'failed')?.id;
             if (!takeId) throw new StudioRemoteCameraError('Nenhum original pendente foi confirmado nesta conexão.');
             pendingStart = resume.startId ? { id: resume.startId, takeId } : null; pendingStop = resume.stopId ? { id: resume.stopId, takeId } : null; pendingResume = resume.resumeId ? { id: resume.resumeId, takeId } : null;
-            publishRemote({ pendingTakeId: takeId, transfer: 'retry', connection: 'disconnected', error: null }); publish({ phase: 'error', pendingRecovery: true, error: 'Seu original do iPhone ainda está disponível. Receba o take para continuar.' }); persistIntent(); await poll(token); return;
+            console.info('[Classfy Studio] Recuperação pendente', { sessionOpen: response.session.status !== 'closed', originalUploaded: response.takes.some(take => take.id === takeId && take.status === 'uploaded') });
+            publishRemote({ pendingTakeId: takeId, transfer: 'retry', connection: 'disconnected', previewDiagnostic: { stage: 'recovery-pending', message: null }, error: null }); publish({ phase: 'error', pendingRecovery: true, error: 'Seu original do iPhone ainda está disponível. Salve ou descarte o trecho para continuar.' }); persistIntent(); await poll(token); return;
           }
           const context = options.getContext?.(); const response = await request({ action: 'create', projectId: context?.projectId ?? options.projectId, kind: options.kind, title: context?.title ?? options.title, controllerId: clientId }, token);
           if (!response.session.deviceId && !response.pairing?.code) throw new StudioRemoteCameraError('O código de conexão não foi criado.');

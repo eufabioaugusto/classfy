@@ -16,7 +16,7 @@ export function StudioRemoteCameraPairing({ state, onReconnect, onCancel, onUnpa
   const remaining = Math.max(0, Math.ceil((Date.parse(state.pairing?.expiresAt ?? '') - now) / 1000));
   const connected = !!state.session?.deviceId;
   const copy = async () => { if (!code) return; try { await navigator.clipboard.writeText(code); setCopied(true); } catch { setCopied(false); } };
-  return <section className="src-pairing" aria-label="Conectar meu iPhone">
+  return <section className="src-pairing" aria-label="Conectar meu iPhone" data-preview-stage={state.previewDiagnostic?.stage}>
     <span className="src-eyebrow"><Crown size={12} /> STUDIO PREMIUM</span>
     <div className="src-pairing-symbol"><Smartphone size={30} /><Camera size={19} /></div>
     <h2>{connected ? 'Aguardando meu iPhone.' : 'Seu iPhone. Sua câmera Pro.'}</h2>
