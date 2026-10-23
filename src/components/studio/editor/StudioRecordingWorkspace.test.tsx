@@ -144,6 +144,36 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('funil de gravação com componente, captura e sessão reais', () => {
+  it.each(['save', 'discard'] as const)('take pendente restaurado na preparação oferece %s sem REC e sai do bloqueio de conexão', async action => {
+    const start = vi.fn(), discardRecovery = vi.fn(), file = new File(['uploaded-original'], 'iPhone.mp4', { type: 'video/mp4' });
+    remoteIO.create.mockImplementation(() => {
+      const listeners = new Set<(state: StudioCaptureState) => void>(), remoteListeners = new Set<(state: StudioRemoteView) => void>();
+      let state: StudioCaptureState = { phase: 'idle', stream: null, file: null, error: null, elapsed: 0, input: null, camera: null, devices: { cameras: [], microphones: [] }, levels: [], microphoneEnabled: true };
+      const publish = (patch: Partial<StudioCaptureState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener(state)); };
+      return {
+        subscribe(listener) { listeners.add(listener); listener(state); return () => listeners.delete(listener); },
+        subscribeRemote(listener) { remoteListeners.add(listener); return () => remoteListeners.delete(listener); },
+        async prepare() {
+          remoteListeners.forEach(listener => listener({ pairing: null, session: null, connection: 'connected', transfer: 'retry', pendingTakeId: '50000000-0000-4000-8000-000000000001', error: null }));
+          publish({ phase: 'error', pendingRecovery: true, error: 'Seu original está disponível. Salve ou descarte para continuar.' });
+        },
+        async stop() { return file; }, start, discardRemoteRecovery: discardRecovery,
+        cancel() { publish({ phase: 'idle', pendingRecovery: false, stream: null, file: null, error: null }); },
+        dispose() { listeners.clear(); remoteListeners.clear(); }, getMicrophoneTrack() { return null; },
+      } as unknown as StudioRemoteCaptureController;
+    });
+    await act(async () => root.render(<MemoryRouter><StudioRecordingWorkspace owner={owner} canUseScenes /></MemoryRouter>));
+    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone');
+    expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production'); expect(host.querySelector('.se-recording-recovery')).toBeTruthy();
+    expect(button('Retomar transferência')?.disabled).toBe(false); expect(button('Descartar trecho')?.disabled).toBe(false); expect(start).not.toHaveBeenCalled();
+    if (action === 'save') { await click('Retomar transferência'); expect(io.put.mock.calls[0][3]).toBe(file); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); }
+    else {
+      await click('Descartar trecho'); expect(discardRecovery).not.toHaveBeenCalled(); await answer('Descartar trecho');
+      expect(discardRecovery).toHaveBeenCalledTimes(1); expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('setup');
+      expect(button('Conectar meu iPhone')?.disabled).toBe(false); expect(io.put).not.toHaveBeenCalled(); expect(io.save).not.toHaveBeenCalled();
+    }
+    expect(start).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
+  });
   it('reload do mesmo projeto restaura iPhone no preparo, mas conecta somente por clique e nunca inicia REC', async () => {
     const project = fixture(); projects.set(key(owner, project.id), project);
     saveStudioRecordingSelection(owner, { kind: 'aula', mode: 'remote', remoteScenes: false }, project.id);

@@ -16,10 +16,10 @@ vi.mock('livekit-client', async importOriginal => {
 import { RemoteVideoTrack, RoomEvent, Track } from 'livekit-client';
 import { connectStudioRemotePreview } from './remoteCameraCapture';
 const response = () => ({ session: { id: 'fixture-session', deviceId: 'fixture-device' }, connection: { url: 'wss://fixture.livekit.cloud', token: 'fixture-token', identity: 'fixture-controller' } }) as unknown as StudioRemoteResponse;
-const phone = { identity: 'studio-device-fixture-session-fixture-device' };
+const phone = { identity: 'studio-device-fixture-session-fixture-device', trackPublications: new Map<string, ReturnType<typeof publication>>() };
 const media = { id: 'fixture-camera', kind: 'video', enabled: true } as MediaStreamTrack;
-const publication = (kind: Track.Kind) => ({ kind, setSubscribed: vi.fn() });
-beforeEach(() => { transport.rooms = []; vi.useFakeTimers(); });
+const publication = (kind: Track.Kind) => ({ kind, isSubscribed: false, isMuted: false, setSubscribed: vi.fn() });
+beforeEach(() => { transport.rooms = []; phone.trackPublications.clear(); vi.useFakeTimers(); vi.spyOn(console, 'info').mockImplementation(() => undefined); vi.spyOn(console, 'warn').mockImplementation(() => undefined); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.clearAllTimers(); vi.useRealTimers(); });
 describe('prévia remota pede reprodução imediata somente da câmera pareada', () => {
   it('assina somente o vídeo do iPhone esperado e aplica zero delay pela API real do SDK', async () => {
@@ -51,6 +51,45 @@ describe('prévia remota pede reprodução imediata somente da câmera pareada',
   });
 });
 
+describe('diagnóstico da mídia remota sem credenciais ou identificadores', () => {
+  it.each(['absent', 'without-video', 'with-video'] as const)('após 20 segundos distingue iPhone %s sem declarar que recebeu vídeo', async situation => {
+    const callbacks = { track: vi.fn(), connection: vi.fn(), diagnostic: vi.fn() }, signal = new AbortController();
+    const preview = await connectStudioRemotePreview(response(), callbacks, signal.signal), room = transport.rooms[0];
+    if (situation !== 'absent') room.participants.set(phone.identity, phone);
+    if (situation === 'with-video') phone.trackPublications.set('fixture-track-secret', publication(Track.Kind.Video));
+    await vi.advanceTimersByTimeAsync(19_999); expect(callbacks.diagnostic).not.toHaveBeenCalledWith(expect.objectContaining({ stage: 'media-timeout' }));
+    await vi.advanceTimersByTimeAsync(1);
+    const detail = callbacks.diagnostic.mock.calls.at(-1)![0];
+    expect(detail).toMatchObject({ stage: 'media-timeout', participantCount: situation === 'absent' ? 0 : 1, expectedParticipantPresent: situation !== 'absent', expectedVideoCount: situation === 'with-video' ? 1 : 0, subscribedVideoCount: 0 });
+    expect(detail.message).toContain(situation === 'absent' ? 'iPhone ainda não apareceu' : situation === 'without-video' ? 'ainda não publicou' : 'imagem ainda não chegou');
+    expect(callbacks.track).not.toHaveBeenCalled();
+    for (const secret of ['fixture-session', 'fixture-device', 'fixture-controller', 'fixture-token', 'fixture-track-secret', 'wss://']) expect(JSON.stringify(detail)).not.toContain(secret);
+    expect(console.warn).toHaveBeenCalledWith('[Classfy Studio] Prévia da câmera', detail);
+    await preview.disconnect(); expect(vi.getTimerCount()).toBe(0);
+  });
+  it('receber a mídia cancela o aviso; falha de assinatura e queda mostram somente os códigos do SDK', async () => {
+    const callbacks = { track: vi.fn(), connection: vi.fn(), diagnostic: vi.fn() }, signal = new AbortController();
+    const preview = await connectStudioRemotePreview(response(), callbacks, signal.signal), room = transport.rooms[0];
+    room.participants.set(phone.identity, phone);
+    room.listeners.get(RoomEvent.TrackSubscriptionFailed)!('private-track-sid', phone, 1);
+    expect(callbacks.diagnostic).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'subscription-failed', reasonCode: 1, message: expect.stringContaining('formato de vídeo') }));
+    room.listeners.get(RoomEvent.TrackSubscribed)!({ kind: Track.Kind.Video, mediaStreamTrack: media, setPlayoutDelay() {} }, {}, phone);
+    expect(callbacks.diagnostic).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'media-received', message: null }));
+    await vi.advanceTimersByTimeAsync(20_001); expect(callbacks.diagnostic).not.toHaveBeenCalledWith(expect.objectContaining({ stage: 'media-timeout' }));
+    room.listeners.get(RoomEvent.Disconnected)!(2);
+    expect(callbacks.diagnostic).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'disconnected', reasonCode: 2, message: expect.stringContaining('outra aba') }));
+    expect(JSON.stringify(callbacks.diagnostic.mock.calls)).not.toContain('private-track-sid');
+    await preview.disconnect(); expect(vi.getTimerCount()).toBe(0);
+  });
+  it('cancelamento remove o watchdog e callbacks tardios não publicam diagnósticos', async () => {
+    const callbacks = { track: vi.fn(), connection: vi.fn(), diagnostic: vi.fn() }, signal = new AbortController();
+    const preview = await connectStudioRemotePreview(response(), callbacks, signal.signal), room = transport.rooms[0];
+    const failed = room.listeners.get(RoomEvent.TrackSubscriptionFailed)!; signal.abort(); await preview.disconnect(); callbacks.diagnostic.mockClear();
+    failed('private-track-sid', phone, 2); await vi.advanceTimersByTimeAsync(20_001);
+    expect(callbacks.diagnostic).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 const CONTROL_TOPIC = 'classfy-studio-camera-control-v1', ACK_TOPIC = 'classfy-studio-camera-control-ack-v1';
 const ADJUSTMENT_ID = '00000000-0000-4000-8000-000000000001', SECOND_ID = '00000000-0000-4000-8000-000000000002', UNKNOWN_ID = '00000000-0000-4000-8000-000000000003';
 const packet = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
@@ -58,6 +97,7 @@ const receipt = (id = ADJUSTMENT_ID, pro: unknown = { iso: 50, autoExposure: fal
 async function connected() {
   const callbacks = { track: vi.fn(), connection: vi.fn() }, signal = new AbortController(), preview = await connectStudioRemotePreview(response(), callbacks, signal.signal), room = transport.rooms[0];
   room.participants.set(phone.identity, phone);
+  room.listeners.get(RoomEvent.TrackSubscribed)!({ kind: Track.Kind.Video, mediaStreamTrack: media, setPlayoutDelay() {} }, {}, phone);
   return { preview, room, callbacks, signal, data: room.listeners.get(RoomEvent.DataReceived)! };
 }
 
