@@ -164,7 +164,15 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
     const journal=await deps.journal(session.id);
     for(const take of journal.takes) {
       if(localFirst&&take.sourceMetadata){
-        try{await deps.inspect(take.sourceUri||take.uri);if(!take.localSaved)await patchTake(session.id,take.id,{localSaved:true});}
+        try{await deps.inspect(take.sourceUri||take.uri);
+          if(!take.localSaved||take.phase==='uploading'&&!uploadWork){
+            // A restarted JS process owns no upload worker. Restore only that
+            // stale phase, preserving every resumable receipt and source.
+            const restored=await deps.mutate(session.id,value=>({...value,takes:value.takes.map(latest=>latest.id!==take.id?latest:{...latest,localSaved:true,
+              ...(!uploadWork&&latest.phase==='uploading'?{phase:'local_ready' as const}:{})})}));
+            if(state.session?.id===session.id)refreshLocal(restored);
+          }
+        }
         catch(cause){await patchTake(session.id,take.id,{localSaved:false,error:failure(cause)});continue;}
         if(!take.localTakeId&&current())try{await patchTake(session.id,take.id,await deps.saveLocal(session,take));}catch(cause){publish({error:`Original preservado. ${failure(cause)}`});}
         continue;

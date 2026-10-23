@@ -44,6 +44,7 @@ function harness(patch={}){
     live:(id,patch)=>liveHandler?liveHandler(id,patch):Promise.reject(Error('Canal desconectado')),hasLiveHandler:()=>!!liveHandler,
     configuration:value=>{session.configuration=value;},session:value=>Object.assign(session,value),journal:()=>clone(journal),queue:values=>{commands=values;},invalidate:()=>{current=false;},failAck:()=>{failAck=true;},
     advance:ms=>{time+=ms;},hardware:value=>{hardware={...hardware,...value};},
+    mutateJournal:change=>{journal=change(clone(journal));},
     blockWrite:()=>{const gate=deferred();gate.entered=deferred();writeGate=gate;return gate;},
     ready:async()=>{await controller.join('opaque-code');await controller.cameraReady(native);},
   };
@@ -78,6 +79,36 @@ test('local-first reabrir e repetir ACK STOP conserva cursor antigo sem retomar 
   await h.ready();h.queue([h.command('stop','oldstop',1)]);await h.controller.poll();await tick();
   assert.equal(h.calls.filter(call=>call.action==='upload'||call.action==='prepare-master').length,0);assert.equal(h.journal().takes[0].partUrls[107],'https://private.invalid/resume');
   assert.equal(h.controller.getSnapshot().localTakes[0].metadata.duration,777);assert.equal(JSON.stringify(h.controller.getSnapshot().localTakes).includes('file:'),false);await h.controller.dispose();
+});
+test('reload local-first remove uploading órfão após verificar fonte e preserva bytes, partes e recibos',async()=>{
+  const raw={bytes:2747050311,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:777},uri='file:///raw.mov';
+  const receipt={ok:true,takeId,uploadState:'uploading',uploadResumedAtServerMs:1234},parts={107:'https://private.invalid/resume'};
+  const original={id:takeId,uri,sourceUri:uri,sourceMetadata:raw,metadata:raw,localSaved:true,localTakeId:'existing',phase:'uploading',partUrls:parts,tusUrl:'https://private.invalid/tus'};
+  const h=harness({localTakeStorage:true,journal:{receipts:{oldresume:receipt},takes:[original]}});await h.ready();await tick();
+  assert.deepEqual(h.journal().takes[0],{...original,phase:'local_ready'});assert.deepEqual(h.journal().receipts,{oldresume:receipt});
+  assert.equal(h.calls.filter(call=>call.action==='upload'||call.action==='prepare-master'||call.action==='ack').length,0);
+  const state=h.calls.filter(call=>call.action==='heartbeat').at(-1).body.state;
+  assert.equal(state.uploading,false);assert.equal(state.processing,false);assert.equal(state.uploadState,'idle');assert.equal(state.recording,false);assert.equal(state.localTakes[0].phase,'local_ready');
+  h.started.resolve(10050);h.queue([{...h.command('start','next',1),payload:{takeId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}}]);await h.controller.poll();
+  assert.equal(h.calls.filter(call=>call.action==='native-start').length,1);await h.controller.dispose();
+});
+test('recover durante worker ativo mantém uploading até a conclusão real',async()=>{
+  const gate=deferred(),entered=deferred(),raw={bytes:32,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4};
+  let h;h=harness({localTakeStorage:true,journal:{takes:[{id:takeId,uri:'file:///raw.mov',sourceUri:'file:///raw.mov',sourceMetadata:raw,metadata:raw,localSaved:true,localTakeId:'saved',phase:'local_ready'}]},
+    upload:async()=>{h.mutateJournal(value=>({...value,takes:value.takes.map(take=>({...take,phase:'uploading'}))}));entered.resolve();await gate.promise;}});
+  await h.ready();h.queue([h.command('resume_upload','send',1)]);await h.controller.poll();await entered.promise;
+  h.queue([h.command('resume_upload','send-again',2)]);await h.controller.poll();assert.equal(h.journal().takes[0].phase,'uploading');assert.equal(h.controller.getSnapshot().localTakes[0].phase,'uploading');
+  gate.resolve();await tick();await tick();assert.equal(h.journal().takes[0].phase,'uploaded');await h.controller.dispose();
+});
+test('conclusão do worker durante inspect de recuperação não é rebaixada para local_ready',async()=>{
+  const uploadGate=deferred(),uploadEntered=deferred(),inspectGate=deferred(),inspectEntered=deferred(),raw={bytes:32,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4};let waitInspection=false,h;
+  h=harness({localTakeStorage:true,journal:{takes:[{id:takeId,uri:'file:///raw.mov',sourceUri:'file:///raw.mov',sourceMetadata:raw,metadata:raw,localSaved:true,localTakeId:'saved',phase:'local_ready'}]},
+    inspect:async()=>{if(waitInspection){inspectEntered.resolve();await inspectGate.promise;}return raw;},
+    upload:async()=>{h.mutateJournal(value=>({...value,takes:value.takes.map(take=>({...take,phase:'uploading'}))}));uploadEntered.resolve();await uploadGate.promise;}});
+  await h.ready();h.queue([h.command('resume_upload','send',1)]);await h.controller.poll();await uploadEntered.promise;
+  waitInspection=true;h.queue([h.command('resume_upload','send-again',2)]);const recovery=h.controller.poll();await inspectEntered.promise;
+  uploadGate.resolve();await tick();await tick();assert.equal(h.journal().takes[0].phase,'uploaded');inspectGate.resolve();await recovery;
+  assert.equal(h.journal().takes[0].phase,'uploaded');assert.equal(h.calls.filter(call=>call.action==='upload').length,1);await h.controller.dispose();
 });
 test('catálogo wire fica abaixo de 4 KiB e mantém take mais recente; arquivo ausente não vira localSaved',async()=>{
   const raw={bytes:2747050311,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:777};
