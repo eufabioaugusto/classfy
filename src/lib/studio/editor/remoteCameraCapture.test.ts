@@ -48,6 +48,56 @@ beforeEach(() => { controllers = []; localStorage.clear(); vi.useFakeTimers(); v
 afterEach(() => { controllers.forEach(controller => controller.dispose()); vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('câmera remota preserva o original nativo e a autoridade do iPhone', () => {
+  it('término físico aos 66s encerra contador de 161s e preserva parcial sem STOP ou envio automático', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart();
+    await vi.advanceTimersByTimeAsync(161_690);
+    const raw = { bytes: 234567890, mime: 'video/quicktime', width: 3840, height: 2160, fps: 30, duration: 66.153333 };
+    h.data.session.status = 'ready'; h.data.session.activeTakeId = null; h.data.takes[0].status = 'local_ready';
+    h.data.session.deviceState = { ...h.data.session.deviceState, recording: false, localTakes: [{ id: first.takeId, metadata: raw, localSaved: true, phase: 'local_ready' }], recordingEnd: { version: 1, takeId: first.takeId, finishedAtServerMs: first.startedAtServerMs + 66_153.333, durationSeconds: raw.duration, reason: 'capture_interrupted', interrupted: true } };
+    await h.controller.reconnect();
+    expect(h.state()).toMatchObject({ phase: 'error', elapsed: raw.duration, pendingRecovery: true }); expect(h.state().error).toContain('interrompida'); expect(h.state().error).toContain('1:06');
+    await vi.advanceTimersByTimeAsync(5000); expect(h.state().elapsed).toBe(raw.duration); expect(h.download).not.toHaveBeenCalled(); expect(h.data.commands.map(command => command.type)).toEqual(['start']);
+    const saved = await h.controller.finishLocalTake!(); expect(saved).toMatchObject({ id: first.takeId, localSaved: true }); expect(h.state().pendingRecovery).toBe(false); expect(h.state().error).toContain('interrompida');
+    const next = await h.controller.remoteStart(); await h.controller.reconnect(); expect(next.takeId).not.toBe(first.takeId); expect(h.state()).toMatchObject({ phase: 'recording', pendingRecovery: false }); expect(h.remote().recordingEnd).toBeNull();
+  });
+  it('fim sem fonte durável para contador mas conserva recuperação e bloqueio de REC', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await vi.advanceTimersByTimeAsync(70_000);
+    h.data.session.deviceState = { ...h.data.session.deviceState, recording: false, recordingEnd: { version: 1, takeId: first.takeId, finishedAtServerMs: first.startedAtServerMs + 66_000, durationSeconds: 66, reason: 'runtime_error', interrupted: true } };
+    await h.controller.reconnect(); expect(h.state()).toMatchObject({ phase: 'error', elapsed: 66, pendingRecovery: true }); await expect(h.controller.remoteStart()).rejects.toThrow();
+    expect(h.remote().localTakes!.find(take => take.id === first.takeId)?.localSaved).toBe(false); expect(h.download).not.toHaveBeenCalled(); expect(h.data.commands.map(command => command.type)).toEqual(['start']);
+  });
+  it('STOP normal não vira interrupção quando o recibo físico chega durante sua confirmação', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await vi.advanceTimersByTimeAsync(2000);
+    const request = h.request.getMockImplementation()!; h.request.mockImplementation(async body => {
+      const response = await request(body);
+      if (body.action === 'command' && body.type === 'stop') { h.data.session.deviceState!.recordingEnd = { version: 1, takeId: first.takeId, finishedAtServerMs: Date.now(), durationSeconds: 2, reason: 'user_stop', interrupted: false }; return structuredClone(h.data); }
+      return response;
+    });
+    await h.controller.finishLocalTake!(); expect(h.state()).toMatchObject({ phase: 'ready', pendingRecovery: false, error: null }); expect(h.remote().recordingEnd).toBeNull();
+  });
+  it('STOP encerrado pelo servidor recupera só original durável do mesmo take sem ocultar interrupção', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await vi.advanceTimersByTimeAsync(70_000);
+    const request = h.request.getMockImplementation()!; h.request.mockImplementation(async body => {
+      const response = await request(body);
+      if (body.action === 'command' && body.type === 'stop') {
+        const stop = h.data.commands.find(command => command.id === body.commandId)!; stop.status = 'failed'; stop.result = { error: 'studio_camera_native_recording_ended' };
+        h.data.session.deviceState!.recordingEnd = { version: 1, takeId: first.takeId, finishedAtServerMs: first.startedAtServerMs + 66_000, durationSeconds: 2, reason: 'capture_interrupted', interrupted: true };
+        return structuredClone(h.data);
+      } return response;
+    });
+    const saved = await h.controller.finishLocalTake!(); expect(saved.localSaved).toBe(true); expect(h.state().pendingRecovery).toBe(false); expect(h.state().error).toContain('interrompida'); expect(h.download).not.toHaveBeenCalled();
+  });
+  it('F5 conserva aviso e fonte parcial persistidos no servidor sem depender do catálogo do heartbeat', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await vi.advanceTimersByTimeAsync(70_000);
+    const raw = { bytes: 234567890, mime: 'video/quicktime', width: 3840, height: 2160, fps: 30, duration: 66 };
+    h.data.session.status = 'ready'; h.data.session.activeTakeId = null; h.data.session.deviceState!.recording = false;
+    h.data.takes[0] = { ...h.data.takes[0], status: 'local_ready', recordingEnd: { version: 1, takeId: first.takeId, finishedAtServerMs: first.startedAtServerMs + 66_000, durationSeconds: 66, reason: 'capture_interrupted', interrupted: true, sourceMetadata: raw, localTakeStorage: 1 } };
+    localStorage.setItem('classfy:studio:remote-camera:v1:owner:new:aula', JSON.stringify({ sessionId: h.data.session.id, controllerId: h.data.session.controllerId, takeId: first.takeId }));
+    const restored = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview, inspect: h.inspect }); controllers.push(restored); let state!: StudioCaptureState, remote!: StudioRemoteView; restored.subscribe(next => state = next); restored.subscribeRemote(next => remote = next);
+    await restored.prepare(); expect(state).toMatchObject({ phase: 'ready', pendingRecovery: false, elapsed: 66 }); expect(state.error).toContain('interrompida'); expect(remote.localTakes).toEqual(expect.arrayContaining([expect.objectContaining({ id: first.takeId, localSaved: true, sourceMetadata: raw })]));
+    expect(h.download).not.toHaveBeenCalled(); expect(h.data.commands.map(command => command.type)).toEqual(['start']);
+  });
+
   it('catálogo do projeto aparece na construção antes de Conectar, sem ler outra conta/projeto ou abrir rede', () => {
     const h = fixture(), raw = { bytes: original.size, mime: 'video/mp4', width: 3840, height: 2160, fps: 30, duration: 16 };
     const rows = ['saved-one', 'saved-two'].map(id => ({ id, sessionId: 'saved-session', metadata: raw, sourceMetadata: raw, phase: 'local_ready', localSaved: true }));
