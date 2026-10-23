@@ -25,6 +25,10 @@ export type StudioRemoteMetadata = {
   bytes: number; mime: string; width: number; height: number; fps: number; duration: number;
   startedAtServerMs?: number;
 };
+export type StudioRemoteLocalTake = {
+  id: string; metadata: StudioRemoteMetadata; localSaved: true;
+  phase: 'local_ready' | 'preparing' | 'uploading' | 'uploaded' | 'error'; error?: string;
+};
 export type StudioRemoteDeviceState = {
   configuration?: StudioRemoteConfiguration;
   width?: number; height?: number; fps?: number;
@@ -32,6 +36,8 @@ export type StudioRemoteDeviceState = {
   capabilities?: Record<string, unknown>; pro?: Record<string, unknown>;
   audioInput?: StudioRemoteAudioInput;
   audioMonitor?: StudioRemoteAudioMonitor;
+  /** Durable originals, without device paths or public media URLs. */
+  localTakes?: StudioRemoteLocalTake[];
   error?: string | null;
   [key: string]: unknown;
 };

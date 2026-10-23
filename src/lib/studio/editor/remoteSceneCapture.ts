@@ -3,7 +3,7 @@ import type { StudioRemoteConfiguration } from '../../../../shared/studio/remote
 import { studioCaptureMime, type StudioCaptureController, type StudioCaptureState, type StudioCaptureVideoPatch } from './capture';
 import { studioCaptureGrade } from './captureVideo';
 import { inspectStudioMedia } from './media';
-import { remoteStudioProfile, studioRemoteAudioReady, type StudioRemoteCaptureController, type StudioRemoteStart, type StudioRemoteView } from './remoteCameraCapture';
+import { remoteStudioProfile, studioRemoteAudioReady, studioRemoteLocalStorage, type StudioRemoteCaptureController, type StudioRemoteStart, type StudioRemoteView } from './remoteCameraCapture';
 import { createStudioRemoteSceneStore, recoverStudioRemoteScene, studioRemoteScreenFileName, STUDIO_REMOTE_SCREEN_DATABASE, type StudioRemoteSceneRecovery, type StudioRemoteSceneStore } from './remoteSceneRecovery';
 import { studioRemoteSceneOffset, type StudioRemoteSceneEvent } from './remoteSceneRender';
 import { createStudioSceneCapture, type StudioSceneCaptureController } from './sceneCapture';
@@ -33,7 +33,7 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
   let closed = false, generation = 0, prepareWork: Promise<void> | null = null, startWork: Promise<StudioRemoteStart> | null = null, stopWork: Promise<File> | null = null, cancellationWork: Promise<void> | null = null;
   let preparation: AbortController | null = null, entry: StudioRemoteSceneRecovery | null = null, buffer: StudioSceneRecordingBuffer | null = null, raw: MediaRecorder | null = null;
   let rawResult: Promise<File> | null = null, rawStarted = 0, journal = Promise.resolve(), failure: Error | null = null, recording = false;
-  let narrationWarning: string | null = null;
+  let narrationWarning: string | null = null, nativeLocalFinished = false;
   let grade = studioGrade(), zoom = 1, profile: StudioSceneOutputProfile = { width: aspectRatio === '9:16' ? 1080 : 1920, height: aspectRatio === '9:16' ? 1920 : 1080, frameRate: 30 };
   const snapshot = () => ({ ...state, devices: structuredClone(state.devices), levels: state.levels.map(value => ({ ...value })), scenes: state.scenes ? structuredClone(state.scenes) : undefined, videoControls: state.videoControls ? structuredClone(state.videoControls) : state.videoControls, outputVideo: state.outputVideo ? structuredClone(state.outputVideo) : state.outputVideo });
   const publish = (patch: Partial<StudioCaptureState>) => { if (closed) return; state = { ...state, ...patch }; for (const listener of listeners) listener(snapshot()); };
@@ -205,7 +205,10 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
         // Flush raw screen+mixed audio before local.stop closes borrowed sources.
         const screenStop = rawResult ? finishRaw() : Promise.resolve(null);
         // Dispatch native STOP even if a browser recorder cannot flush its final chunk.
-        const stopNative = remote.remoteStop().then(async master => {
+        const localFirst = studioRemoteLocalStorage(remote.getEnvelope()?.session.deviceState);
+        const waitingForSend = localFirst && !nativeLocalFinished;
+        const stopNative = (waitingForSend ? remote.finishLocalTake!().then(() => { nativeLocalFinished = true; return null; }) : localFirst && stoppedEntry.takeId ? remote.receiveRemoteTake!(stoppedEntry.takeId) : remote.remoteStop()).then(async master => {
+          if (!master) return null;
           stoppedEntry.cameraFile = master.file; stoppedEntry.cameraMetadata = master.metadata; stoppedEntry.take = master.take; stoppedEntry.session = master.session;
           if (entry === stoppedEntry) await save(); else await store.save(stoppedEntry); return master;
         }); void stopNative.catch(() => undefined);
@@ -213,6 +216,7 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
         if (localState?.phase === 'recording') await local!.stop().catch(() => undefined); else local?.cancel();
         await stopNative;
         await journal; if (failure) throw failure; assert(expected);
+        if (waitingForSend) throw new Error('Fontes salvas: câmera no iPhone e tela neste navegador. Escolha Enviar e montar take para preparar a composição.');
         const file = await (dependencies.recover ?? recoverStudioRemoteScene)(owner, entry!.key, { store, remote, inspect: dependencies.inspect }); assert(expected);
         entry = await store.get(owner, entry!.key) ?? { ...entry!, status: 'complete', outputFile: file }; await save(); assert(expected);
         publish({ phase: 'recorded', stream: null, cameraPreviewStream: null, file, pendingRecovery: false, error: narrationWarning }); return file;
@@ -277,7 +281,7 @@ export function createStudioRemoteSceneCapture({ remote, owner, aspectRatio = '1
         local?.cancel();
         if (entry) { entry.status = completed ? 'complete' : 'recoverable'; await save().catch(() => undefined); }
         unsubscribeLocal?.(); unsubscribeLocal = null; local?.dispose(); local = null; localState = null;
-        entry = null; buffer = null; raw = null; rawResult = null; failure = null; narrationWarning = null; grade = studioGrade(); zoom = 1;
+        entry = null; buffer = null; raw = null; rawResult = null; failure = null; narrationWarning = null; nativeLocalFinished = false; grade = studioGrade(); zoom = 1;
         publish({ pendingRecovery: false });
       })(); cancellationWork = work; void work.finally(() => { if (cancellationWork === work) cancellationWork = null; });
       publish({ phase: 'idle', stream: null, file: null, pendingRecovery: !!entry && !completed });

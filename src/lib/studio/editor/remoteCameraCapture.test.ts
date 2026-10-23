@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioRemoteCommand, StudioRemoteDeviceState, StudioRemoteResponse, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
 import type { StudioCaptureState } from './capture';
-import { createStudioRemoteCapture, remoteStudioProfile, studioRemoteControllerId, validateStudioRemoteMaster, type StudioRemoteCaptureController, type StudioRemotePreviewFactory, type StudioRemoteView } from './remoteCameraCapture';
+import { createStudioRemoteCapture, remoteStudioProfile, studioRemoteControllerId, studioRemoteLocalTakes, validateStudioRemoteMaster, type StudioRemoteCaptureController, type StudioRemotePreviewFactory, type StudioRemoteView } from './remoteCameraCapture';
 import { StudioRemoteCameraError, type StudioRemoteClient } from './remoteCameraClient';
 
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {} }));
@@ -27,9 +27,13 @@ function fixture(paired = true, transferTimeoutMs = 500) {
       const payload = body.payload as Record<string, unknown>, command = { id: String(body.commandId), sequence: ++data.session.sequence, type: body.type as StudioRemoteCommand['type'], payload, status: autoAck ? 'applied' as const : 'pending' as const, createdAt: new Date(Date.now()).toISOString(), acknowledgedAt: autoAck ? new Date(Date.now()).toISOString() : null, result: body.type === 'start' ? { takeId: payload.takeId, startedAtServerMs: Date.now() } : body.type === 'resume_upload' ? { takeId: payload.takeId, uploadState: 'uploading', uploadResumedAtServerMs: Date.now() } : {} };
       data.commands.push(command);
       if (body.type === 'start') { data.session.activeTakeId = String(payload.takeId); data.session.status = autoAck ? 'recording' : 'starting'; data.takes.push({ id: String(payload.takeId), status: 'recording', metadata: null, createdAt: new Date(NOW).toISOString(), uploadedAt: null }); }
-      if (body.type === 'stop' && autoAck) { data.session.status = 'ready'; const take = data.takes.find(item => item.id === payload.takeId); if (take) { take.status = upload ? 'uploaded' : 'uploading'; take.metadata = { bytes: original.size, mime: 'video/mp4', width: 3840, height: 2160, fps: 30, duration: 2 }; } }
+      if (body.type === 'stop' && autoAck) { data.session.status = 'ready'; const take = data.takes.find(item => item.id === payload.takeId); if (take) {
+        const local = data.session.deviceState?.capabilities?.localTakeStorage === 1, raw = { bytes: original.size, mime: 'video/mp4', width: 3840, height: 2160, fps: 30, duration: 2 };
+        take.status = local ? 'local_ready' : upload ? 'uploaded' : 'uploading'; take.metadata = local ? null : raw;
+        if (local) { data.session.activeTakeId = null; data.session.deviceState = { ...data.session.deviceState, recording: false, localTakes: [...data.session.deviceState?.localTakes ?? [], { id: take.id, metadata: raw, phase: 'local_ready', localSaved: true }] }; }
+      } }
       if (body.type === 'configure' && autoAck) { Object.assign(data.session.configuration, payload); data.session.deviceState = { ...data.session.deviceState, configuration: { ...data.session.configuration } }; }
-      if (body.type === 'resume_upload' && autoAck && !staleResume) { data.session.deviceState = { ...data.session.deviceState, uploadTakeId: payload.takeId, uploadState: 'uploading', uploadError: null, uploadResumedAtServerMs: Date.now() }; const take = data.takes.find(item => item.id === payload.takeId); if (take) take.status = upload ? 'uploaded' : 'uploading'; }
+      if (body.type === 'resume_upload' && autoAck && !staleResume) { data.session.deviceState = { ...data.session.deviceState, uploadTakeId: payload.takeId, uploadState: 'uploading', uploadError: null, uploadResumedAtServerMs: Date.now() }; const take = data.takes.find(item => item.id === payload.takeId); if (take) { take.status = upload ? 'uploaded' : 'uploading'; if (upload && !take.metadata) take.metadata = data.session.deviceState?.localTakes?.find(item => item.id === take.id)?.metadata ?? null; } }
     }
     return structuredClone(data);
   });
@@ -44,6 +48,98 @@ beforeEach(() => { controllers = []; localStorage.clear(); vi.useFakeTimers(); v
 afterEach(() => { controllers.forEach(controller => controller.dispose()); vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('câmera remota preserva o original nativo e a autoridade do iPhone', () => {
+  it('STOP local confirma o arquivo durável e permite vários takes sem envio, download ou recriar preview', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1;
+    await h.controller.prepare(); const first = await h.controller.remoteStart(); const saved = await h.controller.finishLocalTake!();
+    expect(saved).toMatchObject({ id: first.takeId, localSaved: true, phase: 'local_ready', metadata: { width: 3840, height: 2160 } });
+    expect(h.state()).toMatchObject({ phase: 'ready', pendingRecovery: false, file: null }); expect(h.state().stream!.getVideoTracks()[0]).toBe(track);
+    const second = await h.controller.remoteStart(); expect(second.takeId).not.toBe(first.takeId); await h.controller.finishLocalTake!();
+    expect(h.remote().localTakes?.filter(take => take.localSaved)).toHaveLength(2); expect(h.preview).toHaveBeenCalledTimes(1);
+    expect(h.request.mock.calls.some(([body]) => body.type === 'resume_upload' || body.action === 'download')).toBe(false); expect(h.download).not.toHaveBeenCalled(); expect(h.inspect).not.toHaveBeenCalled();
+  });
+  it('capability ou STOP aplicado sem recibo local não libera REC nem inventa original salvo', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); await h.controller.remoteStart();
+    const request = h.request.getMockImplementation()!;
+    h.request.mockImplementation(async body => { const result = await request(body); delete result.session.deviceState!.localTakes; delete h.data.session.deviceState!.localTakes; return result; });
+    const stopping = h.controller.finishLocalTake!().catch(cause => cause); await vi.advanceTimersByTimeAsync(1500);
+    expect(await stopping).toMatchObject({ code: 'ack_timeout' }); expect(h.state()).toMatchObject({ phase: 'error', pendingRecovery: true, file: null });
+    await expect(h.controller.remoteStart()).rejects.toThrow('Aguarde'); expect(h.data.takes).toHaveLength(1); expect(h.download).not.toHaveBeenCalled();
+  });
+  it('envio explícito do take anterior termina enquanto novo REC continua sem perder seu STOP', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare();
+    const first = await h.controller.remoteStart(); await h.controller.finishLocalTake!(); h.uploading();
+    const receive = h.controller.receiveRemoteTake!(first.takeId); await vi.advanceTimersByTimeAsync(0);
+    expect(h.data.commands.filter(command => command.type === 'resume_upload')).toHaveLength(1);
+    const second = await h.controller.remoteStart(); expect(h.state().phase).toBe('recording'); expect(h.remote()).toMatchObject({ transfer: 'uploading', transferTakeId: first.takeId });
+    const target = h.data.takes.find(take => take.id === first.takeId)!; target.status = 'uploaded'; target.metadata = h.data.session.deviceState!.localTakes![0].metadata;
+    await vi.advanceTimersByTimeAsync(1200); const master = await receive;
+    expect(master.take.id).toBe(first.takeId); expect(h.state()).toMatchObject({ phase: 'recording', file: null, pendingRecovery: false });
+    expect(h.remote().pendingTakeId).toBe(second.takeId); expect(h.data.session.activeTakeId).toBe(second.takeId); expect(h.remote().transferTakeId).toBe(first.takeId);
+    await h.controller.finishLocalTake!(); expect(h.data.commands.filter(command => command.type === 'stop').map(command => command.payload.takeId)).toEqual([first.takeId, second.takeId]);
+  });
+  it('iniciar envio durante REC não interrompe a câmera nem transforma transferência em recuperação', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await h.controller.finishLocalTake!();
+    const second = await h.controller.remoteStart(); await expect(h.controller.receiveRemoteTake!(first.takeId)).rejects.toThrow('Finalize este take');
+    expect(h.state()).toMatchObject({ phase: 'recording', file: null, pendingRecovery: false }); expect(h.remote().pendingTakeId).toBe(second.takeId);
+    expect(h.data.commands.some(command => command.type === 'resume_upload')).toBe(false); expect(h.download).not.toHaveBeenCalled();
+  });
+  it('F5 em take salvo localmente restaura lista e preview sem recuperar bytes ou iniciar REC', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await h.controller.finishLocalTake!();
+    localStorage.setItem('classfy:studio:remote-camera:v1:owner:new:aula', JSON.stringify({ sessionId: h.data.session.id, controllerId: h.data.session.controllerId, takeId: first.takeId }));
+    const restored = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview, inspect: h.inspect }); controllers.push(restored); let state!: StudioCaptureState, remote!: StudioRemoteView; restored.subscribe(next => state = next); restored.subscribeRemote(next => remote = next);
+    const starts = h.data.commands.filter(command => command.type === 'start').length; await restored.prepare();
+    expect(state).toMatchObject({ phase: 'ready', pendingRecovery: false, file: null }); expect(remote.pendingTakeId).toBeNull(); expect(remote.localTakes).toEqual(expect.arrayContaining([expect.objectContaining({ id: first.takeId, localSaved: true })]));
+    expect(h.data.commands.filter(command => command.type === 'start')).toHaveLength(starts); expect(h.download).not.toHaveBeenCalled();
+    expect(localStorage.getItem('classfy:studio:remote-camera:v1:owner:new:aula')).toContain(first.takeId);
+  });
+  it('cancelar a prévia preserva a sessão local e não pede STOP ou fecha originais concluídos', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await h.controller.finishLocalTake!();
+    const before = h.data.commands.length; h.controller.cancel();
+    expect(h.data.commands).toHaveLength(before); expect(h.request.mock.calls.some(([body]) => body.action === 'close')).toBe(false);
+    expect(h.remote().localTakes).toEqual(expect.arrayContaining([expect.objectContaining({ id: first.takeId, localSaved: true })])); expect(h.state().phase).toBe('idle');
+  });
+  it('sessão local encerrada abre somente novo monitor e conserva catálogo antigo para AirDrop, inclusive após F5', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await h.controller.finishLocalTake!();
+    const oldId = h.data.session.id; h.data.session.status = 'closed'; const old = structuredClone(h.data); let created = false;
+    const request = h.request.getMockImplementation()!;
+    h.request.mockImplementation(async body => {
+      if (body.action === 'status' && body.sessionId === oldId && created) return structuredClone(old);
+      if (body.action === 'create') { created = true; h.data.session = { ...h.data.session, id: 'new-monitor', status: 'ready', deviceState: { ...h.data.session.deviceState, localTakes: [] } }; h.data.takes = []; h.data.commands = []; }
+      return request(body);
+    });
+    localStorage.setItem('classfy:studio:remote-camera:v1:owner:new:aula', JSON.stringify({ sessionId: oldId, controllerId: h.data.session.controllerId, takeId: first.takeId }));
+    const restored = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview, inspect: h.inspect }); controllers.push(restored); let state!: StudioCaptureState, remote!: StudioRemoteView; restored.subscribe(next => state = next); restored.subscribeRemote(next => remote = next);
+    await restored.prepare(); expect(state).toMatchObject({ phase: 'ready', pendingRecovery: false }); expect(restored.getEnvelope()!.session.id).toBe('new-monitor');
+    expect(remote.localTakes).toEqual(expect.arrayContaining([expect.objectContaining({ id: first.takeId, sessionId: oldId, localSaved: true })]));
+    expect(h.data.commands.some(command => command.type === 'start' || command.type === 'resume_upload')).toBe(false); expect(h.download).not.toHaveBeenCalled();
+    expect(localStorage.getItem('classfy:studio:remote-library:v1:owner:new:aula')).toContain(first.takeId);
+    const next = await restored.remoteStart();
+    expect(JSON.parse(localStorage.getItem('classfy:studio:remote-camera:v1:owner:new:aula')!)).toMatchObject({ sessionId: 'new-monitor', takeId: next.takeId });
+    const creates = h.request.mock.calls.filter(([body]) => body.action === 'create').length;
+    const reload = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview }); controllers.push(reload); let reloaded!: StudioCaptureState; reload.subscribe(next => reloaded = next);
+    await reload.prepare(); expect(reload.getEnvelope()!.session.id).toBe('new-monitor'); expect(reloaded.pendingRecovery).toBe(true);
+    expect(h.request.mock.calls.filter(([body]) => body.action === 'create')).toHaveLength(creates); await reload.finishLocalTake!();
+    const afterStop = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview }); controllers.push(afterStop); let idle!: StudioCaptureState; afterStop.subscribe(next => idle = next); await afterStop.prepare();
+    expect(idle).toMatchObject({ phase: 'ready', pendingRecovery: false }); expect(afterStop.getEnvelope()!.session.id).toBe('new-monitor');
+    expect(h.request.mock.calls.filter(([body]) => body.action === 'create')).toHaveLength(creates);
+    afterStop.cancel();
+  });
+  it('catálogo mantém metadados raw para AirDrop quando upload graded possui bytes diferentes', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await h.controller.finishLocalTake!();
+    const raw = h.data.session.deviceState!.localTakes![0].metadata;
+    h.data.takes[0].status = 'uploaded'; h.data.takes[0].metadata = { ...raw, bytes: raw.bytes + 1000 };
+    expect(studioRemoteLocalTakes(h.data).find(take => take.id === first.takeId)).toMatchObject({ sourceMetadata: raw, metadata: { bytes: raw.bytes + 1000 } });
+    const persisted = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview }); controllers.push(persisted); await persisted.prepare();
+    const entry = JSON.parse(localStorage.getItem('classfy:studio:remote-library:v1:owner:new:aula')!)[0]; expect(entry.sourceMetadata.bytes).toBe(raw.bytes); expect(entry.metadata.bytes).toBe(raw.bytes + 1000);
+  });
+  it('original já enviado pode ser recebido após fechar preview sem acessar câmera ou criar sessão', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await h.controller.finishLocalTake!();
+    h.data.takes[0].status = 'uploaded'; h.data.takes[0].metadata = h.data.session.deviceState!.localTakes![0].metadata; await h.controller.reconnect(); h.controller.cancel();
+    const previews = vi.mocked(h.preview).mock.calls.length, creates = h.request.mock.calls.filter(([body]) => body.action === 'create').length;
+    const master = await h.controller.receiveRemoteTake!(first.takeId);
+    expect(master.take.id).toBe(first.takeId); expect(h.state()).toMatchObject({ phase: 'idle', stream: null, file: null }); expect(h.preview).toHaveBeenCalledTimes(previews); expect(h.request.mock.calls.filter(([body]) => body.action === 'create')).toHaveLength(creates);
+    expect(h.data.commands.filter(command => command.type === 'resume_upload')).toHaveLength(0); expect(h.download).toHaveBeenCalledOnce();
+  });
   it('desconexão definitiva libera a sala e retoma a mesma sessão sem outro REC ou CREATE', async () => {
     const h = fixture(), callbacks: Parameters<StudioRemotePreviewFactory>[1][] = [];
     const connect = h.preview as ReturnType<typeof vi.fn>;

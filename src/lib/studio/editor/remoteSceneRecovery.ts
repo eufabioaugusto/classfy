@@ -85,7 +85,7 @@ export function recoverStudioRemoteScene(owner: string, key: string, options: St
           entry.cameraFile = new File([blob], take.metadata.mime.includes('quicktime') ? 'iPhone original Classfy.mov' : 'iPhone original Classfy.mp4', { type: take.metadata.mime }); entry.take = take; entry.session = envelope.session; await store.save(entry);
           entry.cameraMetadata = await validateStudioRemoteMaster(blob, take, inspect, options.signal);
         } else {
-          const remote = options.remote ?? (ownedRemote = createStudioRemoteCapture({ owner, kind: envelope.session.kind, resumeSessionId: entry.sessionId, controllerId: entry.controllerId, persist: false, client }));
+          const remote = options.remote ?? (ownedRemote = createStudioRemoteCapture({ owner, kind: envelope.session.kind, resumeSessionId: entry.sessionId, resumeTakeId: takeId, controllerId: entry.controllerId, persist: false, client }));
           if (ownedRemote) await ownedRemote.prepare();
           const master = await remote.remoteStop(); entry.cameraFile = master.file; entry.cameraMetadata = master.metadata; entry.take = master.take; entry.session = master.session;
         }

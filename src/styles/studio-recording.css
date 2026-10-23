@@ -351,3 +351,12 @@
   .se-recording-quality button { min-width: 48px; padding-inline: 8px; }
   .se-recording-quality strong { font-size: 12px; }
 }
+
+/* Durable phone originals are visible independently from the browser montage. */
+.se-recording-phone-takes{border-top:1px solid #ffffff12;background:#101216;padding:12px 20px;color:#ececf0;flex-shrink:0}
+.se-recording-phone-takes header,.se-recording-phone-takes header>div{display:flex;align-items:center;gap:8px}
+.se-recording-phone-takes header{justify-content:space-between;gap:12px;flex-wrap:wrap}.se-recording-phone-takes header strong{font-size:13px}.se-recording-phone-takes header span{font-size:11px;color:#9697a3}
+.se-recording-phone-takes p,.se-recording-phone-takes>small{font-size:11px;color:#9799a5;margin:6px 0 0}
+.se-recording-phone-takes button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #ffffff1b;background:#1b1e25;border-radius:7px;color:#ececf0;padding:7px 9px;font-size:11px;cursor:pointer}.se-recording-phone-takes button:disabled{opacity:.45;cursor:default}
+.se-recording-phone-takes-list{display:flex;overflow:auto;gap:10px;margin-top:10px;padding-bottom:2px}.se-recording-phone-takes-list article{display:flex;align-items:center;gap:10px;min-width:310px;max-width:460px;flex:1;border:1px solid #ffffff15;border-radius:10px;padding:10px;background:#15171d}.se-recording-phone-take-icon{color:#ed526e;flex-shrink:0}.se-recording-phone-take-info{display:flex;flex-direction:column;gap:4px;min-width:120px;flex:1}.se-recording-phone-take-info strong{font-size:12px}.se-recording-phone-take-info small{font-size:10px;color:#a7a9b3}.se-recording-phone-take-info progress{height:3px;width:100%;accent-color:#f34365}.se-recording-phone-take-actions{display:flex;gap:5px;flex-shrink:0}
+@media(max-width:650px){.se-recording-phone-takes{padding:10px 12px}.se-recording-phone-takes-list article{min-width:280px}.se-recording-phone-take-actions button{padding:7px;font-size:10px}}

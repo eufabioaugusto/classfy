@@ -23,6 +23,8 @@ import { StudioRemoteMicrophoneMonitor } from './StudioRemoteMicrophoneMonitor';
 import { remoteCameraFocusPoint } from './remoteCameraFocusPoint';
 import { StudioRemoteSceneRecoveryList, type StudioRemoteSceneRecoveredSource } from './StudioRemoteSceneRecoveryList';
 import { readStudioRecordingSelection, saveStudioRecordingSelection } from '@/lib/studio/editor/recordingSetupPreferences';
+import { StudioRemoteLocalTakes } from './StudioRemoteLocalTakes';
+import { inspectStudioMedia } from '@/lib/studio/editor/media';
 import '@/styles/studio-recording.css';
 
 type RecordingSession = ReturnType<typeof createStudioRecordingSession>;
@@ -75,7 +77,10 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
   const [countdown, setCountdown] = useState<number | null>(null), countdownRef = useRef<number | null>(null);
   const [title, setTitle] = useState(initialTitle), [mode, setMode] = useState<'camera' | 'screen' | 'scenes' | 'remote'>('camera'), [remoteScenes, setRemoteScenes] = useState(false);
   const remoteCapture = useRef<StudioRemoteCaptureController | null>(null);
-  const [remoteState, setRemoteState] = useState<StudioRemoteView | null>(null);
+  const [remoteState, setRemoteState] = useState<StudioRemoteView | null>(null), remoteSnapshot = useRef<StudioRemoteView | null>(null);
+  const [remoteSaving, setRemoteSaving] = useState<string | null>(null), remoteSaveWork = useRef<Promise<void> | null>(null);
+  const [localSegmentSaved, setLocalSegmentSaved] = useState(false);
+  const importOriginalInput = useRef<HTMLInputElement>(null), importRemoteContext = useRef<{ takeId?: string; token: number; owner: string; session: RecordingSession | null; capture: StudioCaptureController | null }>();
   const [project, setProject] = useState<StudioProject | null>(null), [loading, setLoading] = useState(!!projectId);
   const [captureState, setCaptureState] = useState<StudioCaptureState>(idleCapture), [busy, setBusy] = useState<'save' | 'remove' | null>(null);
   const [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [selectedTake, setSelectedTake] = useState<string>();
@@ -113,13 +118,13 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     // The first durable save replaces only the URL query. Keep the same session,
     // File receipts and controller when that project id comes back as a prop.
     if (session.current?.current()?.id === projectId && projectSnapshot.current?.ownerId === owner) return;
-    const token = ++epoch.current; cancelConfirmation(); confirmationOperation.current = null; capture.current?.cancel(); candidate.current = null; attempted.current = new WeakSet(); exitIntent.current = false; exitWork.current = null; mutationWork.current = null; deviceWork.current = null; screenWork.current = null; saveBusy.current = false;
+    const token = ++epoch.current; cancelConfirmation(); confirmationOperation.current = null; capture.current?.cancel(); candidate.current = null; attempted.current = new WeakSet(); exitIntent.current = false; exitWork.current = null; mutationWork.current = null; deviceWork.current = null; screenWork.current = null; saveBusy.current = false; remoteSaveWork.current = null; importRemoteContext.current = undefined;
     const savedSelection = !projectId ? readStudioRecordingSelection(owner, canUseScenes, studioScenesSupport().supported) : null;
     const seedKind = initialKind ?? savedSelection?.kind ?? 'aula';
     selectionTouched.current = false;
     setCaptureRevision(value => value + 1);
     setPreviewRequested(false);
-    projectSnapshot.current = null; setProject(null); setSelectedTake(undefined); setError(null); setNotice(null); setBusy(null); setLeaving(false); setChangingDevice(false); setTakesExpanded(true); setStage('setup'); setLiveSelected(false); setToolsOpen(false); countdownRef.current = null; setCountdown(null); setGuides(initialRecordingGuides()); setKind(seedKind); setTitle(initialTitle); setMode(seedKind === 'podcast' ? 'camera' : savedSelection?.mode ?? 'camera'); setRemoteScenes(seedKind !== 'podcast' && (savedSelection?.remoteScenes ?? false)); setRemoteState(null); setLoading(!!projectId);
+    projectSnapshot.current = null; setProject(null); setSelectedTake(undefined); setError(null); setNotice(null); setBusy(null); setLeaving(false); setChangingDevice(false); setTakesExpanded(true); setStage('setup'); setLiveSelected(false); setToolsOpen(false); countdownRef.current = null; setCountdown(null); setGuides(initialRecordingGuides()); setKind(seedKind); setTitle(initialTitle); setMode(seedKind === 'podcast' ? 'camera' : savedSelection?.mode ?? 'camera'); setRemoteScenes(seedKind !== 'podcast' && (savedSelection?.remoteScenes ?? false)); setRemoteState(null); setLocalSegmentSaved(false); setRemoteSaving(null); setLoading(!!projectId);
     const owned = makeSession(seedKind, initialTitle, projectId); let active = true;
     if (projectId) void owned.loadExisting().then(value => {
       if (!active || !live(token) || session.current !== owned) return;
@@ -163,8 +168,8 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
       if (!mounted.current || currentOwner.current !== owner || capture.current !== owned) return;
       captureSnapshot.current = value; setCaptureState(value);
     });
-    const unsubscribeRemote = base?.subscribeRemote(value => { if (mounted.current && currentOwner.current === owner && remoteCapture.current === base) setRemoteState(value); });
-    if (!base) setRemoteState(null);
+    const unsubscribeRemote = base?.subscribeRemote(value => { if (mounted.current && currentOwner.current === owner && remoteCapture.current === base) { remoteSnapshot.current = value; setRemoteState(value); } });
+    if (!base) { remoteSnapshot.current = null; setRemoteState(null); }
     return () => { if (capture.current === owned) capture.current = null; if (remoteCapture.current === base) remoteCapture.current = null; unsubscribe(); unsubscribeRemote?.(); owned.dispose(); if (base && base !== owned) base.dispose(); };
   }, [owner, captureMode, isRemote, remoteScenes, captureRevision]);
   useEffect(() => {
@@ -218,13 +223,61 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
       finally { if (live(entry.token) && session.current === entry.session) { saveBusy.current = false; setBusy(null); } }
     })(); entry.work = work; void work.finally(() => { if (entry.work === work) entry.work = null; }); return work;
   };
+  const savePhoneOriginal = (file: File, takeId?: string): Promise<void> => {
+    if (remoteSaveWork.current) return Promise.reject(new Error('Aguarde o original atual ser salvo antes de importar outro.'));
+    const ownedSession = session.current, token = epoch.current;
+    if (!ownedSession) return Promise.reject(new Error('A gravação não está pronta.'));
+    const current = () => live(token) && session.current === ownedSession;
+    setRemoteSaving(takeId ?? 'import'); setError(null);
+    const work = (async () => {
+      const saved = await ownedSession.append(file, { operationId: takeId ?? crypto.randomUUID(), ...(takeId ? { remoteTakeId: takeId } : {}), isCurrent: current });
+      if (!current()) return;
+      selectionTouched.current = true; projectSnapshot.current = saved; setProject(saved); setSelectedTake(saved.takes.at(-1)?.id);
+      remoteCapture.current?.persistRemoteContext?.();
+      saveStudioRecordingSelection(owner, { kind: saved.kind, mode: 'remote', remoteScenes }, saved.id);
+      setNotice('Original salvo no computador. A cópia no iPhone está preservada.');
+      const params = new URLSearchParams(latest.current.location.search); params.set('project', saved.id); params.set('kind', saved.kind);
+      navigate({ pathname: '/studio/record', search: `?${params}` }, { replace: true });
+    })(); remoteSaveWork.current = work;
+    void work.finally(() => { if (remoteSaveWork.current === work) { remoteSaveWork.current = null; if (current()) setRemoteSaving(null); } }).catch(() => undefined);
+    return work;
+  };
+  const receivePhoneOriginal = (takeId: string) => {
+    const owned = remoteCapture.current, token = epoch.current;
+    if (!owned?.receiveRemoteTake || remoteSaveWork.current || confirmationOperation.current || exitIntent.current) return;
+    setError(null);
+    void owned.receiveRemoteTake(takeId).then(master => { if (live(token) && remoteCapture.current === owned) return savePhoneOriginal(master.file, takeId); }).catch(cause => report(cause, token));
+  };
+  const importPhoneOriginal = (takeId?: string) => {
+    if (remoteSaveWork.current || confirmationOperation.current || exitIntent.current) return;
+    importRemoteContext.current = { takeId, token: epoch.current, owner, session: session.current, capture: capture.current }; importOriginalInput.current?.click();
+  };
+  const acceptPhoneOriginal = async (file?: File) => {
+    const intent = importRemoteContext.current; importRemoteContext.current = undefined;
+    if (!file || remoteSaveWork.current || !intent || intent.owner !== owner) return;
+    const { takeId, token } = intent;
+    const current = () => live(token) && session.current === intent.session && capture.current === intent.capture;
+    if (!current()) return;
+    try {
+      // AirDrop sends the raw original. Validate content against that selected
+      // phone receipt, rather than attaching any file to the old browser take.
+      const expected = takeId ? remoteCapture.current?.getEnvelope?.()?.session.deviceState?.localTakes?.find(take => take.id === takeId)?.metadata ?? remoteState?.localTakes?.find(take => take.id === takeId)?.sourceMetadata : null;
+      if (takeId && !expected) throw new Error('O iPhone ainda não confirmou os dados deste original. Importe pela opção geral para criar outro take.');
+      if (expected) {
+        const metadata = await inspectStudioMedia(file);
+        if (!current()) return;
+        if (file.size !== expected.bytes || metadata.kind !== 'video' || !metadata.hasAudio || metadata.width !== expected.width || metadata.height !== expected.height || Math.abs(metadata.duration - expected.duration) > Math.max(.4, expected.duration * .02)) throw new Error('Este arquivo não corresponde ao original selecionado no iPhone. Escolha o arquivo correto ou importe como outro take.');
+      }
+      if (current()) await savePhoneOriginal(file, takeId);
+    } catch (cause) { report(cause, token); }
+  };
   const saveRef = useRef(saveCandidate); saveRef.current = saveCandidate;
   useEffect(() => {
     if (captureState.phase !== 'recorded' || !captureState.file || attempted.current.has(captureState.file)) return;
     attempted.current.add(captureState.file); void saveRef.current(captureState.file);
   }, [captureState.phase, captureState.file]);
 
-  const hasRisk = () => !!confirmationOperation.current || countdownRef.current !== null || ['preparing', 'recording', 'stopping'].includes(captureSnapshot.current.phase) || saveBusy.current || !!deviceWork.current || !!screenWork.current || captureSnapshot.current.scenes?.preparingScreen === true || !!candidate.current && !candidate.current.saved || !!captureSnapshot.current.file || captureSnapshot.current.pendingRecovery === true;
+  const hasRisk = () => !!remoteSaveWork.current || !!remoteSnapshot.current && !['idle', 'complete', 'retry'].includes(remoteSnapshot.current.transfer) || !!confirmationOperation.current || countdownRef.current !== null || ['preparing', 'recording', 'stopping'].includes(captureSnapshot.current.phase) || saveBusy.current || !!deviceWork.current || !!screenWork.current || captureSnapshot.current.scenes?.preparingScreen === true || !!candidate.current && !candidate.current.saved || !!captureSnapshot.current.file || captureSnapshot.current.pendingRecovery === true;
   const saveRecoveredRemote = async (file: File, source?: StudioRemoteSceneRecoveredSource) => {
     if (!mounted.current || hasRisk() || exitIntent.current) throw new Error('Salve ou descarte o take atual antes de recuperar outra gravação.');
     const token = epoch.current, formatChanged = !!source && source.kind !== latest.current.kind;
@@ -241,9 +294,14 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     const current = () => live(token) && capture.current === owned && session.current === ownedSession;
     const work = (async () => {
       try {
+        if (remoteSaveWork.current) await remoteSaveWork.current;
         if (mutationWork.current && !await mutationWork.current) return false;
         if (!current()) return false;
         let state = captureSnapshot.current, saveApproved = false;
+        if (!['recording', 'stopping'].includes(state.phase) && remoteSnapshot.current && !['idle', 'complete', 'retry'].includes(remoteSnapshot.current.transfer)) {
+          if (!await ask({ title: 'Pausar o envio e sair?', description: 'O envio será pausado ao sair. O original permanece no iPhone e você pode recebê-lo depois.', confirmLabel: 'Pausar e sair', tone: 'accent', icon: 'exit' }) || !current()) return false;
+          if (remoteSaveWork.current) await remoteSaveWork.current;
+        }
         if (screenWork.current || state.scenes?.preparingScreen) {
           if (!await ask({ title: 'Cancelar o compartilhamento?', description: 'Vamos fechar as fontes desta sessão. Seus takes salvos continuam no projeto.', confirmLabel: 'Sair', tone: 'accent', icon: 'exit' }) || !current()) return false;
           if (['recording', 'stopping'].includes(captureSnapshot.current.phase) || candidate.current || captureSnapshot.current.file) return false;
@@ -255,7 +313,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
         }
         state = captureSnapshot.current;
         if (['recording', 'stopping'].includes(state.phase)) {
-          if (!await ask({ title: 'Salvar e sair?', description: 'Vamos encerrar a gravação e salvar este take antes de voltar aos seus projetos.', confirmLabel: 'Salvar e sair', tone: 'accent', icon: 'exit' }) || !current()) return false;
+          if (!await ask({ title: 'Salvar e sair?', description: isRemote && remoteSnapshot.current?.localFirst && !remoteScenes ? 'Vamos encerrar e salvar este take no iPhone. Um envio em andamento pode ser retomado depois.' : 'Vamos encerrar a gravação e salvar este take antes de voltar aos seus projetos.', confirmLabel: 'Salvar e sair', tone: 'accent', icon: 'exit' }) || !current()) return false;
           saveApproved = true;
         } else if (state.phase === 'preparing') {
           if (!await ask({ title: 'Cancelar a abertura?', description: 'A câmera e o microfone serão fechados. Seus takes salvos permanecem no projeto.', confirmLabel: 'Sair', tone: 'accent', icon: 'exit' }) || !current()) return false;
@@ -270,13 +328,14 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
         state = captureSnapshot.current;
         if (['recording', 'stopping'].includes(state.phase)) {
           if (!saveApproved || !owned) return false;
-          const file = await owned.stop(); if (!current() || !await saveCandidate(file)) return false;
+          if (isRemote && !remoteScenes && remoteCapture.current?.getEnvelope?.()?.session.deviceState?.capabilities?.localTakeStorage === 1 && remoteCapture.current.finishLocalTake) { await remoteCapture.current.finishLocalTake(); if (!current()) return false; }
+          else { const file = await owned.stop(); if (!current() || !await saveCandidate(file)) return false; }
         } else if (candidate.current && !candidate.current.saved) {
           const entry = candidate.current; if (entry.session !== ownedSession || !await (entry.work ?? saveCandidate(entry.file))) return false;
         } else if (state.file || state.pendingRecovery) {
           if (!saveApproved || !owned) return false;
-          const file = state.phase === 'error' || state.pendingRecovery ? await owned.stop() : state.file!;
-          if (!current() || !await saveCandidate(file)) return false;
+          if (isRemote && !remoteScenes && remoteCapture.current?.getEnvelope?.()?.session.deviceState?.capabilities?.localTakeStorage === 1 && remoteCapture.current.finishLocalTake) { await remoteCapture.current.finishLocalTake(); if (!current()) return false; }
+          else { const file = state.phase === 'error' || state.pendingRecovery ? await owned.stop() : state.file!; if (!current() || !await saveCandidate(file)) return false; }
         }
         if (!current()) return false; owned?.cancel(); return true;
       } catch (cause) { if (current()) setError(cause instanceof Error ? cause.message : 'O trecho permanece disponível para salvar.'); return false; }
@@ -297,6 +356,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     setError(captureSnapshot.current.error ?? (denied ? 'Permita câmera e microfone nas permissões deste site e abra a captura.' : cause instanceof Error ? cause.message : 'Não foi possível abrir esta entrada.'));
   };
   const authorizeScenes = () => {
+    if (premiumLoading) return false;
     if (isRemote && !latest.current.canUseScenes) { (latest.current.onUpgradeRemote ?? latest.current.onUpgradeScenes)?.(); return false; }
     if (!hasScenes) return true;
     if (!latest.current.canUseScenes) { latest.current.onUpgradeScenes?.(); return false; }
@@ -305,7 +365,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     return true;
   };
   const chooseMode = (next: 'camera' | 'screen' | 'scenes' | 'remote', withScenes = next === 'scenes') => {
-    if (!mounted.current || loading || hasRisk() || captureSnapshot.current.videoControls?.busy || exitIntent.current || document.visibilityState === 'hidden') return;
+    if (!mounted.current || loading || premiumLoading || hasRisk() || captureSnapshot.current.videoControls?.busy || exitIntent.current || document.visibilityState === 'hidden') return;
     if (next === 'remote' && !latest.current.canUseScenes) { (latest.current.onUpgradeRemote ?? latest.current.onUpgradeScenes)?.(); return; }
     if (withScenes) {
       if (latest.current.kind === 'podcast') return;
@@ -387,10 +447,10 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     finally { if (deviceWork.current === work) { deviceWork.current = null; if (live(token) && capture.current === composite) setChangingDevice(false); } }
   };
   const openCapture = () => {
-    if (loading || confirmationOperation.current || exitWork.current || saveBusy.current || deviceWork.current || screenWork.current || exitIntent.current || candidate.current || captureSnapshot.current.pendingRecovery || countdownRef.current !== null || ['recording', 'stopping', 'preparing'].includes(captureSnapshot.current.phase)) return;
+    if (loading || premiumLoading || confirmationOperation.current || exitWork.current || saveBusy.current || deviceWork.current || screenWork.current || exitIntent.current || candidate.current || captureSnapshot.current.pendingRecovery || countdownRef.current !== null || ['recording', 'stopping', 'preparing'].includes(captureSnapshot.current.phase)) return;
     const token = epoch.current, owned = capture.current; if (!owned || !authorizeScenes()) return;
     if (!projectSnapshot.current && !session.current?.current()) makeSession(latest.current.kind, latest.current.title);
-    saveStudioRecordingSelection(owner, { kind: latest.current.kind, mode, remoteScenes });
+    saveStudioRecordingSelection(owner, { kind: latest.current.kind, mode, remoteScenes }, projectSnapshot.current?.id);
     reviewPlayer.current?.pause(); setPreviewRequested(true); setError(null); setNotice(null);
     // Keep getDisplayMedia/getUserMedia on the original user gesture.
     void owned.prepare().catch(cause => reportCapture(cause, token, owned));
@@ -408,8 +468,8 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
   const beginRecording = () => {
     if (latest.current.stage !== 'production' || confirmationOperation.current || exitWork.current || saveBusy.current || deviceWork.current || screenWork.current || exitIntent.current || captureSnapshot.current.pendingRecovery || captureSnapshot.current.phase !== 'ready' || !authorizeScenes()) return;
     if (!projectSnapshot.current) makeSession(latest.current.kind, latest.current.title);
-    saveStudioRecordingSelection(owner, { kind: latest.current.kind, mode, remoteScenes });
-    setError(null); setNotice(null); setToolsOpen(false);
+    saveStudioRecordingSelection(owner, { kind: latest.current.kind, mode, remoteScenes }, projectSnapshot.current?.id);
+    setError(null); setNotice(null); setToolsOpen(false); setLocalSegmentSaved(false);
     try { capture.current?.start(); } catch (cause) { report(cause, epoch.current); }
   };
   const start = () => {
@@ -495,7 +555,13 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     const work = document.fullscreenElement === workspace.current ? document.exitFullscreen() : workspace.current?.requestFullscreen();
     void work?.catch(() => { if (live(token)) setError('Não foi possível abrir a tela cheia neste navegador. Você pode continuar gravando aqui.'); });
   };
-  const stop = () => { if (confirmationOperation.current || exitWork.current) return; const token = epoch.current; setError(null); void capture.current?.stop().then(file => { if (live(token)) return saveCandidate(file); }).catch(cause => report(cause, token)); };
+  const stop = () => {
+    if (confirmationOperation.current || exitWork.current) return;
+    const token = epoch.current, owned = remoteCapture.current; setError(null);
+    if (isRemote && !remoteScenes && owned?.getEnvelope?.()?.session.deviceState?.capabilities?.localTakeStorage === 1 && owned.finishLocalTake) {
+      void owned.finishLocalTake().then(() => { if (live(token) && remoteCapture.current === owned) { setLocalSegmentSaved(true); setNotice('Take salvo no iPhone. Continue gravando ou envie o original quando quiser.'); } }).catch(cause => report(cause, token));
+    } else void capture.current?.stop().then(file => { if (live(token)) return saveCandidate(file); }).catch(cause => report(cause, token));
+  };
   const retry = () => { if (confirmationOperation.current || exitWork.current || saveBusy.current) return; const state = captureSnapshot.current; if (candidate.current) void saveCandidate(candidate.current.file); else if (state.file || state.pendingRecovery) stop(); };
   const discard = async () => {
     if (confirmationOperation.current || exitWork.current || saveBusy.current || deviceWork.current) return;
@@ -530,9 +596,10 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     })(); mutationWork.current = work; void work.finally(() => { if (mutationWork.current === work) mutationWork.current = null; });
   };
   const reviewing = !!reviewURL && !captureState.stream, recording = captureState.phase === 'recording';
-  const remoteControlsOccupied = confirmationPending || loading || !!busy || changingDevice || leaving || countdown !== null || captureState.scenes?.preparingScreen === true || captureState.phase === 'preparing' || captureState.phase === 'stopping';
+  const remoteControlsOccupied = confirmationPending || loading || premiumLoading || !!busy || changingDevice || leaving || countdown !== null || captureState.scenes?.preparingScreen === true || captureState.phase === 'preparing' || captureState.phase === 'stopping';
   const occupied = remoteControlsOccupied || captureState.videoControls?.busy === true;
   const pendingFile = !!candidate.current || captureState.pendingRecovery === true || captureState.phase === 'error' && !!captureState.file;
+  const localFirst = isRemote && remoteState?.localFirst === true;
   const recoveringRemote = isRemote && pendingFile && !candidate.current?.file && !captureState.file;
   const recoveryWorking = busy === 'save' || captureState.phase === 'stopping';
   const total = project?.takes.reduce((sum, item) => sum + studioTakeDuration(item), 0) ?? 0;
@@ -583,8 +650,9 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     </div>
     {hasScenes && captureState.scenes && <StudioSceneControls state={captureState.scenes} disabled={occupied || pendingFile || !ready} recording={false} onScene={selectScene} onPrepareScreen={prepareScreen} onConfigure={configureScene} />}
   </>;
+  const phoneOriginals = isRemote && remoteState && !hasScenes && (remoteState.localFirst || !!remoteState.localTakes?.length) ? <StudioRemoteLocalTakes state={remoteState} savedIds={new Set(project?.takes.filter(take => take.assetId?.startsWith('remote-')).map(take => take.assetId!.slice('remote-'.length)) ?? [])} savingId={remoteSaving} disabled={leaving || confirmationPending || captureState.phase === 'stopping'} recording={recording} onSend={receivePhoneOriginal} onImport={importPhoneOriginal} /> : null;
   const setupWorking = captureState.phase === 'preparing' || changingDevice || captureState.scenes?.preparingScreen === true;
-  const setupCTA = remoteScreenRequired ? 'Compartilhar tela' : ready ? 'Ir para gravação' : setupWorking ? isRemote ? 'Conectando iPhone…' : 'Preparando prévia…' : mode === 'camera' && kind !== 'podcast' ? 'Ativar câmera' : captureCTA;
+  const setupCTA = premiumLoading ? 'Confirmando seu plano…' : remoteScreenRequired ? 'Compartilhar tela' : ready ? 'Ir para gravação' : setupWorking ? isRemote ? 'Conectando iPhone…' : 'Preparando prévia…' : mode === 'camera' && kind !== 'podcast' ? 'Ativar câmera' : captureCTA;
   const setupContext = remoteScreenRequired ? 'Seu iPhone está pronto. Compartilhe a tela para completar a cena.' : ready && !remoteAudioReady ? 'Confirme o microfone do iPhone para gravar.' : setupWorking ? changingDevice ? 'Ajustando o enquadramento…' : mode === 'screen' ? 'Escolha uma tela ou aba no navegador.' : isRemote ? 'Abra a câmera remota no app Classfy.' : 'Autorize o acesso para conferir a prévia.' : undefined;
 
   return <div ref={workspace} className={`se-recording${recording ? ' is-recording' : ''}${hasScenes ? ' has-scenes' : ''}`} data-stage={stage} onKeyDown={event => {
@@ -599,7 +667,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
       onTitle={setTitle} onOpen={liveSelected ? () => navigate('/studio/live', { state: { studioRecordingTitle: title.trim().slice(0, 150) } }) : remoteScreenRequired ? prepareScreen : ready ? enterProduction : openCapture}
       preview={!liveSelected ? preflightPreview : undefined} devices={!liveSelected ? preflightDevices : undefined} tools={preflightTools} context={setupContext}
       ready={ready && !!captureState.stream && remoteAudioReady && !remoteScreenRequired} preparing={setupWorking} onCancelPreparation={cancelPreparation}
-      recovery={!liveSelected ? <StudioRemoteSceneRecoveryList owner={owner} onRecoveredFile={saveRecoveredRemote} /> : undefined} error={error ?? (!preflightPreview ? captureState.error : null)} /> : <main className="se-recording-production">
+      recovery={!liveSelected ? <><StudioRemoteSceneRecoveryList owner={owner} onRecoveredFile={saveRecoveredRemote} />{phoneOriginals}</> : undefined} error={error ?? (!preflightPreview ? captureState.error : null)} /> : <main className="se-recording-production">
       <div className={`se-recording-stage-shell${reviewing ? ' is-reviewing' : ''}`} data-testid="recording-stage">
         <div className={`se-recording-stage ${kind}`}>
           {liveVideo}
@@ -625,7 +693,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
           {!occupied && <button className="se-recording-button primary" onClick={openCapture}>{permissionError ? captureCTA : project?.takes.length ? 'Gravar outro take' : captureCTA}<ArrowRight size={16} /></button>}
           {!permissionError && !busy && <small><ShieldCheck size={13} />Só você vê esta captura.</small>}
         </div>}
-        {!recording && pendingFile && <div className="se-recording-recovery" aria-busy={recoveryWorking}><div className="se-recording-permission-icon">{recoveryWorking ? <Loader2 size={29} className="se-spin" /> : <Film size={29} />}</div><h2>{busy === 'save' ? 'Salvando seu take.' : recoveryWorking && recoveringRemote ? 'Recebendo seu original.' : recoveryWorking ? 'Preparando seu take.' : 'Seu take ainda está com você.'}</h2><p>{busy === 'save' ? 'Aguarde a confirmação antes de continuar.' : recoveringRemote ? 'Mantenha esta página e o app no iPhone abertos. O original será recebido e salvo no projeto.' : captureState.pendingRecovery && !captureState.file ? 'Mantenha esta página aberta e salve o trecho capturado para continuar.' : 'Salve o take ou baixe o original para guardar uma cópia.'}</p><div className={`se-recording-feedback${recoveryWorking ? '' : ' error'}`} role={recoveryWorking ? 'status' : 'alert'}><span>{recoveryWorking ? busy === 'save' ? 'Preservando o original neste navegador…' : recoveringRemote && remoteState ? studioRemoteTransferLabel(remoteState) : 'Finalizando o trecho capturado…' : error ?? captureState.error ?? 'Este trecho ainda não foi salvo.'}</span><div><button disabled={occupied} onClick={retry}>{recoveryWorking && <Loader2 size={14} className="se-spin" />}{recoveringRemote ? recoveryWorking ? 'Transferindo original…' : 'Retomar transferência' : busy === 'save' ? 'Salvando take…' : 'Salvar take'}</button>{(candidate.current?.file || captureState.file) && <button onClick={downloadOriginal}>Baixar original</button>}<button disabled={occupied} onClick={discard}>Descartar trecho</button></div></div></div>}
+        {!recording && pendingFile && <div className="se-recording-recovery" aria-busy={recoveryWorking}><div className="se-recording-permission-icon">{recoveryWorking ? <Loader2 size={29} className="se-spin" /> : <Film size={29} />}</div><h2>{busy === 'save' ? 'Salvando seu take.' : recoveryWorking && recoveringRemote ? 'Recebendo seu original.' : recoveryWorking ? 'Preparando seu take.' : 'Seu take ainda está com você.'}</h2><p>{busy === 'save' ? 'Aguarde a confirmação antes de continuar.' : recoveringRemote ? localFirst ? hasScenes ? 'As fontes ficam preservadas. Envie o original do iPhone para montar este take com a tela salva neste navegador.' : 'Confirme o salvamento no iPhone para continuar gravando. O envio ao computador fica para quando você escolher.' : 'Mantenha esta página e o app no iPhone abertos. O original será recebido e salvo no projeto.' : captureState.pendingRecovery && !captureState.file ? 'Mantenha esta página aberta e salve o trecho capturado para continuar.' : 'Salve o take ou baixe o original para guardar uma cópia.'}</p><div className={`se-recording-feedback${recoveryWorking ? '' : ' error'}`} role={recoveryWorking ? 'status' : 'alert'}><span>{recoveryWorking ? busy === 'save' ? 'Preservando o original neste navegador…' : recoveringRemote && remoteState ? studioRemoteTransferLabel(remoteState) : 'Finalizando o trecho capturado…' : error ?? captureState.error ?? 'Este trecho ainda não foi salvo.'}</span><div><button disabled={occupied} onClick={retry}>{recoveryWorking && <Loader2 size={14} className="se-spin" />}{recoveringRemote ? recoveryWorking ? localFirst ? 'Salvando no iPhone…' : 'Transferindo original…' : localFirst ? hasScenes ? 'Enviar e montar take' : 'Concluir e continuar' : 'Retomar transferência' : busy === 'save' ? 'Salvando take…' : 'Salvar take'}</button>{(candidate.current?.file || captureState.file) && <button onClick={downloadOriginal}>Baixar original</button>}<button disabled={occupied} onClick={discard}>Descartar trecho</button></div></div></div>}
         {!recording && !permissionError && !pendingFile && (error || captureState.error || notice) && <div className={`se-recording-feedback se-recording-stage-feedback ${error || captureState.phase === 'error' ? 'error' : ''}`} role={error || captureState.phase === 'error' ? 'alert' : 'status'}><span>{error ?? captureState.error ?? notice}</span></div>}
         {recording && <span className="se-recording-timer" role="timer"><i />{formatStudioEditorTime(captureState.elapsed)}</span>}
         {captureState.input && !showRemoteMicrophone && <AudioMonitor state={captureState} />}
@@ -635,17 +703,19 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
       </div>
       {hasScenes && captureState.scenes && captureState.stream && <StudioSceneControls state={captureState.scenes} disabled={occupied || pendingFile || !['ready', 'recording'].includes(captureState.phase)} recording={recording} onScene={selectScene} onPrepareScreen={prepareScreen} onConfigure={configureScene} director={{ supported: director.supported, isOpen: director.isOpen, onOpen: openDirector, error: director.error }} />}
       {!recording && !!project?.takes.length && <section className={`se-recording-takes${takesExpanded ? '' : ' collapsed'}`} aria-label="Takes salvos"><button className="se-recording-takes-toggle" aria-label={takesExpanded ? 'Recolher takes salvos' : 'Mostrar takes salvos'} aria-expanded={takesExpanded} aria-controls="se-recording-saved-takes" onClick={() => setTakesExpanded(value => !value)}><Film size={16} /><span>Seus takes<strong>{project.takes.length}</strong></span>{takesExpanded ? <ChevronDown size={15} /> : <ChevronUp size={15} />}</button><div className="se-recording-takes-strip" id="se-recording-saved-takes" hidden={!takesExpanded}>{project.takes.map((item, index) => <article key={item.id} className={item.id === selectedTake ? 'selected' : ''}><button className="se-recording-take" aria-label={`Revisar take ${index + 1}`} aria-pressed={item.id === selectedTake} disabled={occupied || pendingFile} onClick={() => { capture.current?.cancel(); setSelectedTake(item.id); }}><TakeThumbnail owner={owner} project={project} take={item} /><span><strong>Take {index + 1}</strong><small>{formatStudioDuration(studioTakeDuration(item))}</small></span></button><button className="se-recording-take-remove" aria-label={`Excluir take ${index + 1}`} disabled={occupied || pendingFile} onClick={() => void remove(item.id, index + 1)}><X size={13} /></button></article>)}</div></section>}
+      {phoneOriginals}
       <div className="se-recording-controls" data-testid="recording-toolbar" aria-label={recording ? 'Gravação em andamento' : 'Controles de gravação'}>
-        {recording ? <div className="se-recording-record-control"><button className="se-recording-rec stop" aria-label="Encerrar gravação" disabled={confirmationPending} onClick={stop}><Square fill="currentColor" size={22} /></button><span>Encerrar gravação</span></div> : <>
+        {recording ? <div className="se-recording-record-control"><button className="se-recording-rec stop" aria-label="Encerrar gravação" disabled={confirmationPending} onClick={stop}><Square fill="currentColor" size={22} /></button><span>{localFirst && !hasScenes ? 'Pausar e salvar no iPhone' : 'Encerrar gravação'}</span></div> : <>
           <div className="se-recording-devices">
             {isRemote ? <div className="se-recording-screen-label"><Smartphone size={17} /><span>{captureState.camera?.name ?? 'Meu iPhone'}<small>{hasScenes ? iphoneNarration ? 'Imagem e áudio no iPhone' : 'Imagem do iPhone · áudio no computador' : 'Câmera e áudio no aparelho'}</small></span></div> : kind !== 'podcast' && mode !== 'screen' ? <DeviceSelector label="Câmera" current={captureState.camera} devices={captureState.devices?.cameras ?? []} disabled={occupied || pendingFile} onChange={cameraId => selectDevice({ cameraId })} /> : kind !== 'podcast' ? <div className="se-recording-screen-label"><Monitor size={17} /><span>Tela compartilhada<small>{captureState.stream ? 'Captura ativa' : 'Selecione uma tela ao abrir'}</small></span></div> : null}
             {(!isRemote || hasScenes) && <div className="se-recording-microphone-control"><button className={`se-recording-mute${captureState.microphoneEnabled === false ? ' muted' : ''}`} aria-label={captureState.microphoneEnabled === false ? 'Ativar microfone da gravação' : 'Desativar microfone'} aria-pressed={captureState.microphoneEnabled === false} title={captureState.microphoneEnabled === false ? 'Ativar microfone' : 'Desativar microfone'} disabled={!ready || occupied || pendingFile || !captureState.input} onClick={toggleMicrophone}>{captureState.microphoneEnabled === false ? <MicOff size={19} /> : <Mic size={19} />}</button><DeviceSelector label="Microfone" current={captureState.input} devices={captureState.devices?.microphones ?? []} disabled={occupied || pendingFile} onChange={microphoneId => selectDevice({ microphoneId })} /></div>}
           </div>
-          <div className="se-recording-record-control">{ready ? <><button className="se-recording-rec" aria-label="Iniciar gravação" disabled={occupied || pendingFile || !remoteAudioReady} onClick={start}><i /></button><span>{remoteAudioReady ? 'Gravar take' : 'Confirme o microfone do iPhone'}</span></> : occupied ? <span className="se-recording-working" role="status"><Loader2 size={18} className="se-spin" />{countdown !== null ? 'Preparando REC…' : changingDevice ? 'Ajustando entrada…' : busy === 'save' ? 'Salvando original…' : busy === 'remove' ? 'Removendo take…' : captureState.phase === 'stopping' ? isRemote ? 'Recebendo original do iPhone…' : 'Preparando o take…' : isRemote ? 'Aguardando meu iPhone…' : 'Aguardando permissão…'}</span> : !pendingFile && !permissionCard && <button className="se-recording-button" disabled={occupied || pendingFile} onClick={openCapture}><span className="se-recording-small-dot" />{project?.takes.length ? 'Gravar outro take' : captureCTA}</button>}</div>
+          <div className="se-recording-record-control">{ready ? <><button className="se-recording-rec" aria-label="Iniciar gravação" disabled={occupied || pendingFile || !remoteAudioReady} onClick={start}><i /></button><span>{remoteAudioReady ? localSegmentSaved ? 'Continuar · novo take' : 'Gravar take' : 'Confirme o microfone do iPhone'}</span></> : occupied ? <span className="se-recording-working" role="status"><Loader2 size={18} className="se-spin" />{countdown !== null ? 'Preparando REC…' : changingDevice ? 'Ajustando entrada…' : busy === 'save' ? 'Salvando original…' : busy === 'remove' ? 'Removendo take…' : captureState.phase === 'stopping' ? isRemote ? localFirst ? 'Salvando no iPhone…' : 'Recebendo original do iPhone…' : 'Preparando o take…' : isRemote ? 'Aguardando meu iPhone…' : 'Aguardando permissão…'}</span> : !pendingFile && !permissionCard && <button className="se-recording-button" disabled={occupied || pendingFile} onClick={openCapture}><span className="se-recording-small-dot" />{project?.takes.length ? 'Gravar outro take' : captureCTA}</button>}</div>
           <div className="se-recording-next"><span>{project?.takes.length ? `${project.takes.length} ${project.takes.length === 1 ? 'take salvo' : 'takes salvos'} · ${formatStudioDuration(total)}` : 'Grave seu primeiro take'}</span><button className="se-recording-button primary" disabled={!project?.takes.length || occupied || pendingFile} onClick={() => void leave(true)}>Ir para edição<ArrowRight size={17} /></button></div>
         </>}
       </div>
     </main>}
+    <input ref={importOriginalInput} type="file" accept="video/*,.mov,.mp4" aria-label="Importar original recebido do iPhone" hidden onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; void acceptPhoneOriginal(file); }} />
     {dialog}
     {director.portal}
   </div>;

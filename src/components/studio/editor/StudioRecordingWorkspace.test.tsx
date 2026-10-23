@@ -144,6 +144,56 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('funil de gravação com componente, captura e sessão reais', () => {
+  it('STOP local mantém câmera, novo REC sobrevive ao recebimento anterior e AirDrop adiciona outro take sem substituir', async () => {
+    const firstId = '50000000-0000-4000-8000-000000000001', secondId = '50000000-0000-4000-8000-000000000002';
+    const file = new File(['phone-original'], 'iPhone.mp4', { type: 'video/mp4' }), receiving = deferred<any>();
+    const raw = { bytes: file.size, mime: file.type, width: 1920, height: 1080, fps: 30, duration: 2 };
+    const stream = new Stream([new Track('video', 'remote-camera', 'Câmera remota')]) as unknown as MediaStream;
+    const cancel = vi.fn(), legacyStop = vi.fn(), finish = vi.fn(), receive = vi.fn(), start = vi.fn();
+    let activeTake: string | null = null, count = 0;
+    remoteIO.create.mockImplementation(() => {
+      const listeners = new Set<(state: StudioCaptureState) => void>(), remoteListeners = new Set<(state: StudioRemoteView) => void>();
+      let state: StudioCaptureState = { phase: 'idle', stream: null, file: null, error: null, elapsed: 0, input: null, camera: null, devices: { cameras: [], microphones: [] }, levels: [], microphoneEnabled: true };
+      const device = { capabilities: { localTakeStorage: 1 }, localTakes: [] as any[], width: 1920, height: 1080, fps: 30 };
+      let remote: StudioRemoteView = { pairing: null, connection: 'connected', session: { id: 'remote-session', deviceId: 'iphone', configuration: { resolution: '1080p', fps: 30, cameraFacing: 'back' }, deviceState: device, status: 'ready' } as any, transfer: 'idle', pendingTakeId: null, error: null, localFirst: true, localTakes: [] };
+      const publish = (patch: Partial<StudioCaptureState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener(state)); };
+      const transfer = (patch: Partial<StudioRemoteView>) => { remote = { ...remote, ...patch }; remoteListeners.forEach(listener => listener(remote)); };
+      start.mockImplementation(() => { activeTake = ++count === 1 ? firstId : secondId; transfer({ pendingTakeId: activeTake }); publish({ phase: 'recording' }); });
+      finish.mockImplementation(async () => {
+        const row = { id: activeTake!, metadata: raw, sourceMetadata: raw, phase: 'local_ready' as const, localSaved: true }; device.localTakes.push(row);
+        transfer({ pendingTakeId: null, localTakes: [...device.localTakes] }); publish({ phase: 'ready', pendingRecovery: false, file: null }); activeTake = null; return row;
+      });
+      receive.mockImplementation(async () => { transfer({ transfer: 'uploading', transferTakeId: firstId }); const master = await receiving.promise; transfer({ transfer: 'complete' }); return master; });
+      return { subscribe(listener) { listeners.add(listener); listener(state); return () => listeners.delete(listener); }, subscribeRemote(listener) { remoteListeners.add(listener); listener(remote); return () => remoteListeners.delete(listener); },
+        prepare: async () => publish({ phase: 'ready', stream, width: 1920, height: 1080, frameRate: 30 }), start, stop: legacyStop, finishLocalTake: finish, receiveRemoteTake: receive,
+        getEnvelope: () => ({ session: remote.session, takes: [], commands: [], serverAt: '' }), getMicrophoneTrack: () => null, cancel, discardRemoteRecovery() {}, dispose() { listeners.clear(); remoteListeners.clear(); } } as unknown as StudioRemoteCaptureController;
+    });
+    function Route() { const location = useLocation(); return <StudioRecordingWorkspace owner={owner} projectId={new URLSearchParams(location.search).get('project') ?? undefined} canUseScenes />; }
+    await act(async () => root.render(<MemoryRouter><Route /></MemoryRouter>));
+    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); await startTake(); await click('Encerrar gravação');
+    expect(finish).toHaveBeenCalledOnce(); expect(legacyStop).not.toHaveBeenCalled(); expect(receive).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Salvo no iPhone'); expect(button('Iniciar gravação')?.disabled).toBe(false);
+    await click('Enviar ao computador'); await click('Iniciar gravação'); expect(activeTake).toBe(secondId);
+    const cancelsBefore = cancel.mock.calls.length, sourcesBefore = remoteIO.create.mock.calls.length;
+    await act(async () => receiving.resolve({ file, take: { id: firstId }, metadata: raw, session: remoteIO.create.mock.results.at(-1)!.value.getEnvelope().session }));
+    expect(host.querySelector('[aria-label="Gravação em andamento"]')).toBeTruthy(); expect(activeTake).toBe(secondId);
+    expect(cancel).toHaveBeenCalledTimes(cancelsBefore); expect(remoteIO.create).toHaveBeenCalledTimes(sourcesBefore); expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject).toBe(stream);
+    expect(io.put.mock.calls.find(call => call[2] === `remote-${firstId}`)?.[3]).toBe(file); expect(host.querySelectorAll('.se-recording-recovery')).toHaveLength(0);
+    await click('Encerrar gravação'); expect(finish).toHaveBeenCalledTimes(2); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1);
+    // A graded archived receipt has other final bytes; AirDrop still carries raw.
+    const previousDevice = remoteIO.create.mock.results.at(-1)!.value.getEnvelope().session.deviceState;
+    const archived = previousDevice.localTakes.pop(); archived.metadata = { ...raw, bytes: raw.bytes + 1000 }; archived.sessionId = 'archived-session';
+    await click('Importar original recebido do take 2');
+    const importInput = host.querySelector<HTMLInputElement>('input[type="file"]')!, secondFile = new File(['other-original'], 'AirDrop.mov', { type: 'video/quicktime' });
+    expect(secondFile.size).toBe(file.size);
+    await act(async () => { Object.defineProperty(importInput, 'files', { configurable: true, value: [secondFile] }); importInput.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(host.querySelectorAll('.se-recording-take')).toHaveLength(2); expect(io.put.mock.calls.find(call => call[2] === `remote-${secondId}`)?.[3]).toBe(secondFile);
+    expect(assets.get(key(owner, [...projects.values()][0].id, `remote-${firstId}`))).toBe(file); expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0); expect(button('Iniciar gravação')?.disabled).toBe(false);
+    await click('Importar original recebido'); const writes = io.put.mock.calls.length;
+    owner = 'different-owner'; await act(async () => root.render(<MemoryRouter><Route /></MemoryRouter>));
+    await act(async () => { Object.defineProperty(importInput, 'files', { configurable: true, value: [secondFile] }); importInput.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(io.put).toHaveBeenCalledTimes(writes);
+  });
   it.each(['save', 'discard'] as const)('take pendente restaurado na preparação oferece %s sem REC e sai do bloqueio de conexão', async action => {
     const start = vi.fn(), discardRecovery = vi.fn(), file = new File(['uploaded-original'], 'iPhone.mp4', { type: 'video/mp4' });
     remoteIO.create.mockImplementation(() => {
@@ -204,7 +254,8 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     const project = fixture(); projects.set(key(owner, project.id), project);
     saveStudioRecordingSelection(owner, { kind: 'aula', mode: 'remote', remoteScenes: false }, project.id);
     await act(async () => root.render(<MemoryRouter><StudioRecordingWorkspace owner={owner} projectId={project.id} premiumLoading /></MemoryRouter>));
-    expect(remoteIO.create).not.toHaveBeenCalled();
+    expect(remoteIO.create).not.toHaveBeenCalled(); expect(button('Confirmando seu plano…')?.disabled).toBe(true);
+    await click('Confirmando seu plano…'); expect(permissions).not.toHaveBeenCalled(); expect(readStudioRecordingSelection(owner, true, true, project.id)?.mode).toBe('remote');
     await act(async () => root.render(<MemoryRouter><StudioRecordingWorkspace owner={owner} projectId={project.id} canUseScenes /></MemoryRouter>));
     expect(button('Conectar meu iPhone')).toBeTruthy(); expect(host.querySelector('.src-pairing')).toBeNull(); expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
   });

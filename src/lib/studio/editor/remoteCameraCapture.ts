@@ -1,5 +1,5 @@
 import { Room, RoomEvent, Track, type RemoteTrack, type RemoteParticipant, type RemoteTrackPublication } from 'livekit-client';
-import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteEnvelope, StudioRemoteResponse, StudioRemoteSession, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
+import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteEnvelope, StudioRemoteLocalTake, StudioRemoteMetadata, StudioRemoteResponse, StudioRemoteSession, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
 import { studioGrade } from '../../../../shared/studio/model';
 import type { StudioCaptureController, StudioCaptureState, StudioCaptureVideoPatch } from './capture';
 import { inspectStudioMedia, type StudioMediaMetadata } from './media';
@@ -7,6 +7,24 @@ import { assertStudioRemoteScope, createStudioRemoteClient, StudioRemoteCameraEr
 
 export type StudioRemoteStart = { takeId: string; startedAtServerMs: number; result: Record<string, unknown> };
 export type StudioRemoteMaster = { file: File; take: StudioRemoteTake; session: StudioRemoteSession; metadata: StudioMediaMetadata };
+export type StudioRemoteLocalTakeView = {
+  id: string; metadata: StudioRemoteMetadata | null; localSaved: boolean; sessionId?: string; sourceMetadata?: StudioRemoteMetadata;
+  phase: StudioRemoteLocalTake['phase'] | StudioRemoteTake['status']; error?: string;
+};
+/** Only this versioned capability changes STOP semantics; older apps still transfer. */
+export const studioRemoteLocalStorage = (device?: StudioRemoteDeviceState | null) => device?.capabilities?.localTakeStorage === 1;
+export function studioRemoteLocalTakes(envelope: StudioRemoteEnvelope): StudioRemoteLocalTakeView[] {
+  const result = new Map<string, StudioRemoteLocalTakeView>(envelope.takes.map(take => [take.id, { id: take.id, sessionId: envelope.session.id, metadata: take.metadata, localSaved: false, phase: take.status }]));
+  for (const entry of Array.isArray(envelope.session.deviceState?.localTakes) ? envelope.session.deviceState.localTakes.slice(-24) : []) {
+    const m = entry?.metadata;
+    if (!entry || typeof entry.id !== 'string' || !entry.id || entry.id.length > 128 || entry.localSaved !== true || !m || !Number.isSafeInteger(m.bytes) || m.bytes <= 0 || ![m.duration, m.width, m.height, m.fps].every(value => typeof value === 'number' && Number.isFinite(value) && value > 0) || typeof m.mime !== 'string' || !['local_ready', 'preparing', 'uploading', 'uploaded', 'error'].includes(entry.phase)) continue;
+    const server = envelope.takes.find(take => take.id === entry.id);
+    // Uploaded authority and its final metadata belong to the server. Raw
+    // metadata remains useful before grading/upload has ever been requested.
+    result.set(entry.id, { id: entry.id, sessionId: envelope.session.id, sourceMetadata: m, metadata: server?.status === 'uploaded' && server.metadata ? server.metadata : m, localSaved: true, phase: server?.status === 'uploaded' ? 'uploaded' : entry.phase, ...(typeof entry.error === 'string' && entry.error ? { error: entry.error.slice(0, 300) } : {}) });
+  }
+  return [...result.values()];
+}
 export type StudioRemotePreviewDiagnostic = {
   stage: 'recovery-pending' | 'requesting-grant' | 'connecting' | 'room-connected' | 'media-received' | 'media-timeout' | 'subscription-failed' | 'disconnected';
   message: string | null;
@@ -20,6 +38,7 @@ export type StudioRemoteView = {
   transfer: 'idle' | 'waiting' | 'uploading' | 'downloading' | 'validating' | 'complete' | 'retry';
   transferBytes?: number; transferTotalBytes?: number;
   pendingTakeId: string | null; error: string | null;
+  localFirst?: boolean; localTakes?: StudioRemoteLocalTakeView[]; transferTakeId?: string | null;
   previewDiagnostic?: StudioRemotePreviewDiagnostic | null;
 };
 export type StudioRemotePreview = { disconnect(): Promise<void>; reconnect?(): Promise<void>; configure?(id: string, patch: Partial<StudioRemoteConfiguration>): Promise<StudioRemoteDeviceState> };
@@ -33,6 +52,8 @@ export function studioRemoteAudioReady(device: StudioRemoteDeviceState | null | 
 export type StudioRemoteCaptureController = StudioCaptureController & {
   remoteStart(): Promise<StudioRemoteStart>;
   remoteStop(): Promise<StudioRemoteMaster>;
+  finishLocalTake?(): Promise<StudioRemoteLocalTakeView>;
+  receiveRemoteTake?(takeId: string): Promise<StudioRemoteMaster>;
   configureRemote(patch: Partial<StudioRemoteConfiguration>): Promise<void>;
   subscribeRemote(listener: (state: StudioRemoteView) => void): () => void;
   getReceivedCameraTrack(): MediaStreamTrack | null;
@@ -40,6 +61,7 @@ export type StudioRemoteCaptureController = StudioCaptureController & {
   getEnvelope(): StudioRemoteEnvelope | null;
   getServerNow(): number;
   discardRemoteRecovery(): void;
+  persistRemoteContext?(): void;
   unlinkRemote(): Promise<void>;
 };
 
@@ -169,10 +191,12 @@ export async function validateStudioRemoteMaster(blob: Blob, take: StudioRemoteT
   return metadata;
 }
 
-export function createStudioRemoteCapture(options: { owner: string; kind: 'aula' | 'short'; title?: string; projectId?: string; getContext?: () => { title?: string; projectId?: string }; controllerId?: string; resumeSessionId?: string; persist?: boolean; client?: StudioRemoteClient; preview?: StudioRemotePreviewFactory; inspect?: typeof inspectStudioMedia; commandTimeoutMs?: number; transferTimeoutMs?: number }): StudioRemoteCaptureController {
+export function createStudioRemoteCapture(options: { owner: string; kind: 'aula' | 'short'; title?: string; projectId?: string; getContext?: () => { title?: string; projectId?: string }; controllerId?: string; resumeSessionId?: string; resumeTakeId?: string; persist?: boolean; client?: StudioRemoteClient; preview?: StudioRemotePreviewFactory; inspect?: typeof inspectStudioMedia; commandTimeoutMs?: number; transferTimeoutMs?: number }): StudioRemoteCaptureController {
   const client = options.client ?? createStudioRemoteClient(options.owner); let clientId = options.controllerId ?? studioRemoteControllerId(options.owner, options.persist !== false);
   const recoveryKey = () => `classfy:studio:remote-camera:v1:${options.owner}:${options.getContext?.().projectId ?? options.projectId ?? 'new'}:${options.kind}`;
   const ownedRecoveryKeys = new Set<string>();
+  const catalogKey = () => `classfy:studio:remote-library:v1:${options.owner}:${options.getContext?.().projectId ?? options.projectId ?? 'new'}:${options.kind}`;
+  const ownedCatalogKeys = new Set<string>();
   type Intent = { sessionId: string; controllerId: string; takeId: string; startId?: string; stopId?: string; resumeId?: string };
   let forgotten = false, configuring = false;
   type ConfigurationWaiter = { resolve(): void; reject(error: unknown): void };
@@ -186,6 +210,8 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   let previewLease: PreviewLease | null = null;
   let pollAbort: AbortController | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null, heartbeatAt = 0, serverOffset = 0, bestRTT = Infinity, polling: Promise<void> | null = null, connecting: Promise<void> | null = null, reconnectWork: Promise<void> | null = null, prepareWork: Promise<void> | null = null, startWork: Promise<StudioRemoteStart> | null = null, stopWork: Promise<StudioRemoteMaster> | null = null;
+  let finishWork: Promise<StudioRemoteLocalTakeView> | null = null, receiveWork: Promise<StudioRemoteMaster> | null = null;
+  const receivedMasters = new Map<string, StudioRemoteMaster>(), transferCommands = new Map<string, string>();
   let pendingStart: { id: string; takeId: string } | null = null, pendingStop: { id: string; takeId: string } | null = null, pendingResume: { id: string; takeId: string } | null = null, lastStart: StudioRemoteStart | null = null, cachedMaster: StudioRemoteMaster | null = null;
   const listeners = new Set<(state: StudioCaptureState) => void>(), remoteListeners = new Set<(state: StudioRemoteView) => void>();
   let state: StudioCaptureState = { phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true, levels: [] };
@@ -211,10 +237,33 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   };
   const persistIntent = () => {
     if (options.persist === false || forgotten) return;
-    const takeId = remote.pendingTakeId ?? pendingStart?.takeId ?? envelope?.session.activeTakeId;
-    try { if (envelope && takeId) { const key = recoveryKey(); ownedRecoveryKeys.add(key); localStorage.setItem(key, JSON.stringify({ sessionId: envelope.session.id, controllerId: clientId, takeId, startId: pendingStart?.id, stopId: pendingStop?.id, resumeId: pendingResume?.id } satisfies Intent)); } } catch { /* Phone retains its original if browser storage is unavailable. */ }
+    const takeId = remote.pendingTakeId ?? pendingStart?.takeId ?? envelope?.session.activeTakeId ?? (remote.localFirst ? [...remote.localTakes ?? []].reverse().find(take => take.localSaved && take.sessionId === envelope?.session.id)?.id : undefined);
+    try { if (envelope && takeId) { const key = recoveryKey(); for (const previous of ownedRecoveryKeys) if (previous !== key) localStorage.removeItem(previous); ownedRecoveryKeys.clear(); ownedRecoveryKeys.add(key); localStorage.setItem(key, JSON.stringify({ sessionId: envelope.session.id, controllerId: clientId, takeId, startId: pendingStart?.id, stopId: pendingStop?.id, resumeId: pendingResume?.id } satisfies Intent)); } } catch { /* Phone retains its original if browser storage is unavailable. */ }
   };
   const forgetIntent = () => { forgotten = true; ownedRecoveryKeys.add(recoveryKey()); try { for (const key of ownedRecoveryKeys) localStorage.removeItem(key); ownedRecoveryKeys.clear(); } catch { /* Best effort metadata cleanup, never delete the phone original. */ } };
+  const durableTakes = new Map<string, StudioRemoteLocalTakeView>();
+  const persistCatalog = () => {
+    if (options.persist === false) return;
+    try {
+      const key = catalogKey(); localStorage.setItem(key, JSON.stringify([...durableTakes.values()].filter(take => take.localSaved || take.phase === 'uploaded').slice(-100)));
+      // The first browser import assigns the pending library to its real project.
+      for (const previous of ownedCatalogKeys) if (previous !== key) localStorage.removeItem(previous);
+      ownedCatalogKeys.clear(); ownedCatalogKeys.add(key);
+    } catch { /* Phone originals remain authoritative if browser metadata is full. */ }
+  };
+  const restoreCatalog = () => {
+    if (options.persist === false) return;
+    try {
+      const key = catalogKey(), entries = JSON.parse(localStorage.getItem(key) ?? '[]'); ownedCatalogKeys.add(key);
+      if (!Array.isArray(entries)) return;
+      for (const take of entries.slice(-100)) {
+        const metadata = take?.metadata;
+        if (!take || typeof take.id !== 'string' || !take.id || typeof take.sessionId !== 'string' || !take.sessionId || !['local_ready', 'preparing', 'uploading', 'uploaded', 'error', 'failed'].includes(take.phase) || !metadata || !Number.isSafeInteger(metadata.bytes) || metadata.bytes <= 0 || ![metadata.duration, metadata.width, metadata.height, metadata.fps].every(value => typeof value === 'number' && Number.isFinite(value) && value > 0) || typeof metadata.mime !== 'string') continue;
+        durableTakes.set(take.id, { id: take.id, sessionId: take.sessionId, metadata, ...(take.sourceMetadata && Number.isSafeInteger(take.sourceMetadata.bytes) && take.sourceMetadata.bytes > 0 && [take.sourceMetadata.duration, take.sourceMetadata.width, take.sourceMetadata.height, take.sourceMetadata.fps].every(value => typeof value === 'number' && Number.isFinite(value) && value > 0) && typeof take.sourceMetadata.mime === 'string' ? { sourceMetadata: take.sourceMetadata } : {}), localSaved: take.localSaved === true, phase: take.phase });
+      }
+    } catch { /* Untrusted/malformed browser metadata cannot start a capture. */ }
+    publishRemote({ localTakes: [...durableTakes.values()] });
+  };
   const adopt = (response: StudioRemoteResponse, token: number) => {
     assert(token); if (response.session.kind !== options.kind) throw new StudioRemoteCameraError('A conexão do iPhone não confirmou o formato escolhido. Conecte novamente.', 'session_kind_mismatch');
     if (envelope && response.session.id !== envelope.session.id) throw new StudioRemoteCameraError('A sessão da câmera mudou.');
@@ -225,13 +274,15 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       envelope.session.status === 'closed' && response.session.status !== 'closed' ||
       envelope.commands.some(previous => previous.status !== 'pending' && response.commands.some(next => next.id === previous.id && next.status === 'pending'))
     )) return;
+    for (const take of studioRemoteLocalTakes(response)) { const previous = durableTakes.get(take.id); durableTakes.set(take.id, previous?.localSaved && !take.localSaved ? { ...take, localSaved: true, sourceMetadata: previous.sourceMetadata, metadata: take.metadata ?? previous.metadata } : take); }
+    persistCatalog();
     envelope = response;
     if (liveReceipt && response.session.deviceState?.liveConfigurationId === liveReceipt.id && response.session.deviceState.configurationConfirmed === true) liveReceipt.state = response.session.deviceState;
     if (configurationIntent && (response.session.status === 'closed' || response.commands.some(command => command.id === configurationIntent?.id && command.status !== 'pending'))) configurationIntent = null;
     // Retain the proven browser identity separately from per-take recovery;
     // successfully saving a take must not erase its computer pairing.
     if (options.persist !== false && response.session.controllerId === clientId && controllerUUID.test(clientId)) { try { localStorage.setItem(controllerStorageKey(options.owner), clientId); } catch { /* The server remains authoritative. */ } }
-    publishRemote({ session: response.session, error: typeof response.session.deviceState?.error === 'string' ? response.session.deviceState.error : null }); persistIntent();
+    publishRemote({ session: response.session, localFirst: studioRemoteLocalStorage(response.session.deviceState), localTakes: [...durableTakes.values()], error: typeof response.session.deviceState?.error === 'string' ? response.session.deviceState.error : null }); persistIntent();
     const profile = remoteStudioProfile(response, options.kind);
     const confirmed = response.session.deviceState?.configurationConfirmed !== false && response.session.deviceState?.imageGradeConfirmed !== false && Number(response.session.deviceState?.width) > 0 && Number(response.session.deviceState?.height) > 0 && Number(response.session.deviceState?.fps) > 0;
     publish({ width: confirmed ? profile.width : undefined, height: confirmed ? profile.height : undefined, frameRate: confirmed ? profile.frameRate : undefined, camera: response.session.deviceId ? { id: response.session.deviceId, name: response.session.deviceState?.deviceName || 'iPhone · Câmera remota' } : null,
@@ -335,6 +386,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   const remoteStart = () => {
     if (startWork) return startWork; if (state.phase === 'recording' && lastStart) return Promise.resolve(lastStart);
     if (!envelope || remote.connection !== 'connected' || !cameraTrack || !['ready', 'preparing', 'error'].includes(state.phase) || remote.pendingTakeId || state.pendingRecovery && !pendingStart) return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone ficar pronto antes de gravar.'));
+    if (envelope.commands.some(command => command.type === 'resume_upload' && command.status === 'pending')) return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone iniciar o envio antes de gravar outro take.'));
     if (configurationPending()) return Promise.reject(new StudioRemoteCameraError('Aguarde o iPhone confirmar o ajuste antes de gravar.', 'configuration_pending'));
     if (envelope.session.deviceState?.configurationConfirmed === false || envelope.session.deviceState?.imageGradeConfirmed === false) return Promise.reject(new StudioRemoteCameraError('Confirme os ajustes no iPhone antes de gravar.'));
     if (!studioRemoteAudioReady(envelope.session.deviceState)) return Promise.reject(new StudioRemoteCameraError(envelope.session.deviceState?.audioInput?.warning?.trim() || 'Confirme o microfone antes de gravar.', 'audio_input_unconfirmed'));
@@ -347,11 +399,93 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
         const startedAtServerMs = Number(ack.result?.startedAtServerMs);
         if (takeId !== intent.takeId || !Number.isFinite(startedAtServerMs)) throw new StudioRemoteCameraError('O iPhone não confirmou o início real deste take.', 'invalid_start');
         lastStart = { takeId, startedAtServerMs, result: ack.result ?? {} }; pendingStart = null; cachedMaster = null;
-        pendingResume = null; publishRemote({ pendingTakeId: takeId, transfer: 'idle', transferBytes: undefined, transferTotalBytes: undefined, error: null }); persistIntent(); publish({ phase: 'recording', elapsed: 0, file: null, error: null, pendingRecovery: false }); return lastStart;
+        pendingResume = null; publishRemote({ pendingTakeId: takeId, ...(!receiveWork ? { transfer: 'idle' as const, transferTakeId: null, transferBytes: undefined, transferTotalBytes: undefined, error: null } : {}) }); persistIntent(); publish({ phase: 'recording', elapsed: 0, file: null, error: null, pendingRecovery: false }); return lastStart;
       } catch (error) { if (!disposed && token === generation) { publish({ phase: 'error', error: error instanceof Error ? error.message : 'Não foi possível iniciar o take.', pendingRecovery: true }); publishRemote({ error: error instanceof Error ? error.message : 'Confirme o estado da gravação no iPhone.' }); } throw error; }
     })(); startWork = work; void work.finally(() => { if (startWork === work) startWork = null; }).catch(() => undefined); return work;
   };
+  const finishLocalTake = (): Promise<StudioRemoteLocalTakeView> => {
+    if (finishWork) return finishWork;
+    if (!envelope || !studioRemoteLocalStorage(envelope.session.deviceState)) return Promise.reject(new StudioRemoteCameraError('Atualize o app do iPhone para salvar no aparelho sem enviar.'));
+    const takeId = remote.pendingTakeId ?? lastStart?.takeId ?? pendingStart?.takeId ?? envelope.session.activeTakeId;
+    if (!takeId) return Promise.reject(new StudioRemoteCameraError('Nenhum take foi confirmado no iPhone.'));
+    const token = generation; pendingStop ??= { id: crypto.randomUUID(), takeId }; persistIntent();
+    publish({ phase: 'stopping', pendingRecovery: true, error: null });
+    const work = (async () => {
+      try {
+        await request({ action: 'status', sessionId: envelope!.session.id, afterSequence: 0 }, token);
+        if (envelope!.session.activeTakeId && envelope!.session.activeTakeId !== takeId) throw new StudioRemoteCameraError('Outro take está em gravação no iPhone. Finalize pelo app para continuar.');
+        const isDurable = () => studioRemoteLocalTakes(envelope!).find(take => take.id === takeId && take.localSaved);
+        if (!isDurable() || envelope!.session.activeTakeId === takeId || ['starting', 'recording', 'stopping'].includes(envelope!.session.status)) await command(pendingStop!.id, 'stop', { takeId }, token);
+        const saved = await wait(() => {
+          const take = isDurable();
+          return take && !envelope!.session.activeTakeId && envelope!.session.status === 'ready' && envelope!.session.deviceState?.recording !== true ? take : undefined;
+        }, token, options.commandTimeoutMs ?? 30_000);
+        pendingStart = null; pendingStop = null; lastStart = null; cachedMaster = null;
+        publishRemote({ pendingTakeId: null, error: null }); persistIntent();
+        publish({ phase: cameraTrack ? 'ready' : 'preparing', elapsed: 0, file: null, pendingRecovery: false, error: null }); return saved;
+      } catch (error) {
+        if (!disposed && token === generation) publish({ phase: 'error', pendingRecovery: true, error: error instanceof Error ? error.message : 'Confirme no iPhone se o take foi salvo.' });
+        throw error;
+      }
+    })(); finishWork = work; void work.finally(() => { if (finishWork === work) finishWork = null; }).catch(() => undefined); return work;
+  };
+  const receiveRemoteTake = (takeId: string): Promise<StudioRemoteMaster> => {
+    const known = remote.localTakes?.find(take => take.id === takeId);
+    if (!envelope && known && known.phase !== 'uploaded') return controller.prepare().then(() => receiveRemoteTake(takeId));
+    if (receivedMasters.has(takeId)) return Promise.resolve(receivedMasters.get(takeId)!);
+    if (receiveWork) return remote.transferTakeId === takeId ? receiveWork : Promise.reject(new StudioRemoteCameraError('Aguarde o envio atual antes de enviar outro take.'));
+    if ((!envelope && !known?.sessionId) || !envelope?.takes.some(take => take.id === takeId) && !(known?.localSaved || known?.phase === 'uploaded')) return Promise.reject(new StudioRemoteCameraError('Este original não foi confirmado nesta sessão.'));
+    const token = generation, sessionId = known?.sessionId ?? envelope!.session.id;
+    const receiveRequest = async (body: Record<string, unknown>) => {
+      if (sessionId === envelope?.session.id) return request({ ...body, sessionId }, token);
+      const result = await client.request({ ...body, action: String(body.action), sessionId, clientId }, scope(token)); assert(token);
+      if (result.session.id !== sessionId || result.session.kind !== options.kind) throw new StudioRemoteCameraError('O original não pertence a esta gravação.');
+      return result;
+    };
+    publishRemote({ transferTakeId: takeId, transfer: 'waiting', transferBytes: undefined, transferTotalBytes: undefined, error: null });
+    const work = (async () => {
+      try {
+        const originalSession = await receiveRequest({ action: 'status', afterSequence: 0 });
+        let take = originalSession.takes.find(take => take.id === takeId);
+        if (sessionId !== envelope?.session.id && take?.status !== 'uploaded') throw new StudioRemoteCameraError('Este original pertence a outra sessão. Compartilhe-o pelo app do iPhone e escolha Importar original recebido.');
+        if (take?.status !== 'uploaded') {
+          if (envelope!.session.activeTakeId || ['starting', 'recording', 'stopping'].includes(envelope!.session.status) || state.phase === 'recording') throw new StudioRemoteCameraError('Finalize este take antes de iniciar um novo envio. Os envios em andamento continuam durante a gravação.');
+          let commandId = transferCommands.get(takeId); if (!commandId) { commandId = crypto.randomUUID(); transferCommands.set(takeId, commandId); }
+          try { await command(commandId, 'resume_upload', { takeId }, token); }
+          catch (error) { if (error instanceof StudioRemoteCameraError && error.code === 'command_failed') transferCommands.delete(takeId); throw error; }
+          transferCommands.delete(takeId);
+          let lastBytes = -1;
+          take = await wait(() => {
+            const target = envelope!.takes.find(take => take.id === takeId), device = envelope!.session.deviceState;
+            if (target?.status === 'uploaded') return target;
+            publishRemote({ transfer: 'uploading', transferBytes: device?.uploadTakeId === takeId ? Number(device.uploadProgressBytes) || 0 : undefined, transferTotalBytes: target?.metadata?.bytes ?? remote.localTakes?.find(take => take.id === takeId)?.metadata?.bytes });
+            if (device?.uploadTakeId === takeId && (device.uploadState === 'paused' || device.uploadError)) throw new StudioRemoteCameraError('O envio foi pausado. Seu original está salvo no iPhone; retome quando quiser.', 'upload_paused');
+            return undefined;
+          }, token, options.transferTimeoutMs ?? 180_000, () => {
+            const device = envelope!.session.deviceState, bytes = Number(device?.uploadProgressBytes), seen = Date.parse(envelope!.session.deviceSeenAt ?? '');
+            if (options.transferTimeoutMs !== undefined || device?.uploadTakeId !== takeId || !Number.isFinite(seen) || Date.now() + serverOffset - seen >= 15_000 || !Number.isFinite(bytes) || bytes <= lastBytes) return false;
+            lastBytes = bytes; return true;
+          });
+        }
+        publishRemote({ transfer: 'downloading', transferBytes: 0, transferTotalBytes: take.metadata?.bytes });
+        const response = await receiveRequest({ action: 'download', takeId });
+        if (!response.download) throw new StudioRemoteCameraError('O original ainda não está disponível para receber.');
+        const blob = await client.download(response.download, { ...scope(token), cacheKey: `${sessionId}-${takeId}`, onProgress: (bytes, total) => { if (!disposed && token === generation) publishRemote({ transferBytes: bytes, transferTotalBytes: total }); }, nextPage: async partStart => { const page = await receiveRequest({ action: 'download', takeId, partStart, partCount: 100 }); if (!page.download) throw new StudioRemoteCameraError('A próxima parte do original não foi confirmada.'); return page.download; } }); assert(token);
+        publishRemote({ transfer: 'validating', transferBytes: blob.size });
+        const metadata = await validateStudioRemoteMaster(blob, take, options.inspect ?? inspectStudioMedia, lifecycle.signal); assert(token);
+        const master = { file: new File([blob], `iphone-${takeId}.${take.metadata!.mime.includes('quicktime') ? 'mov' : 'mp4'}`, { type: take.metadata!.mime }), take, session: originalSession.session, metadata };
+        receivedMasters.set(takeId, master); publishRemote({ transfer: 'complete', error: null }); return master;
+      } catch (error) { if (!disposed && token === generation) publishRemote({ transfer: 'retry', error: error instanceof Error ? error.message : 'O envio foi interrompido. Seu original continua no iPhone.' }); throw error; }
+    })(); receiveWork = work; void work.finally(() => { if (receiveWork === work) receiveWork = null; }).catch(() => undefined); return work;
+  };
   const remoteStop = () => {
+    // This compatibility path is used only by explicit receive/composition
+    // actions. The recording workspace calls finishLocalTake for ordinary STOP.
+    if (envelope && studioRemoteLocalStorage(envelope.session.deviceState)) {
+      const takeId = remote.pendingTakeId ?? lastStart?.takeId ?? envelope.session.activeTakeId ?? [...envelope.takes].reverse().find(take => ['local_ready', 'uploading', 'uploaded', 'failed'].includes(take.status))?.id;
+      if (!takeId) return Promise.reject(new StudioRemoteCameraError('Nenhum original foi confirmado no iPhone.'));
+      return remote.pendingTakeId ? finishLocalTake().then(() => receiveRemoteTake(takeId)) : receiveRemoteTake(takeId);
+    }
     if (cachedMaster) return Promise.resolve(cachedMaster); if (stopWork) return stopWork;
     const takeId = remote.pendingTakeId ?? lastStart?.takeId ?? pendingStart?.takeId ?? envelope?.session.activeTakeId;
     if (!envelope || !takeId) return Promise.reject(new StudioRemoteCameraError('Nenhum take foi confirmado no iPhone.'));
@@ -481,15 +615,16 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       !activeTakeId && !['starting', 'recording', 'stopping'].includes(previous.session.status) &&
       device?.recording !== true && device?.processing !== true && device?.uploading !== true && device?.uploadState !== 'uploading' &&
       !previous.commands.some(command => command.status === 'pending' && ['start', 'stop', 'resume_upload'].includes(command.type));
-    persistIntent(); if (previous && (hadMaster || !takeId)) forgetIntent(); configuring = false;
+    const preserveLocalSession = studioRemoteLocalStorage(device) && studioRemoteLocalTakes(previous!).some(take => take.localSaved);
+    persistIntent(); if (previous && (hadMaster || !takeId) && !preserveLocalSession) forgetIntent(); configuring = false;
     queuedConfiguration = null; queuedConfigurationId = null; configurationIntent = null; liveReceipt = null; liveDesired = null; liveJobs.clear(); const waiting = configurationWaiters; configurationWaiters = []; waiting.forEach(waiter => waiter.reject(new DOMException('Conexão cancelada.', 'AbortError')));
     const stopId = pendingStop?.id ?? crypto.randomUUID(); generation++; lifecycle.abort(); lifecycle = new AbortController(); if (pollTimer) clearTimeout(pollTimer); pollTimer = null; pollAbort?.abort(); pollAbort = null; polling = null; connecting = null;
-    void releasePreview().catch(() => undefined); preview = null; cameraTrack = null; envelope = null; pendingStart = null; pendingStop = null; pendingResume = null; lastStart = null; cachedMaster = null; prepareWork = null; reconnectWork = null; startWork = null; stopWork = null;
+    void releasePreview().catch(() => undefined); preview = null; cameraTrack = null; envelope = null; pendingStart = null; pendingStop = null; pendingResume = null; lastStart = null; cachedMaster = null; prepareWork = null; reconnectWork = null; startWork = null; stopWork = null; finishWork = null; receiveWork = null; receivedMasters.clear(); transferCommands.clear();
     // A lost browser must not delete/close the original while the phone is still
     // recording or transferring. Queue STOP and leave its private recovery open.
-    if (previous && takeId && !hadMaster && !completedIdleTake && !anotherTakeIsActive) void client.request({ action: 'command', sessionId: previous.session.id, clientId, commandId: stopId, type: 'stop', payload: { takeId } }).catch(() => undefined);
-    else if (previous && !anotherTakeIsActive) void client.request({ action: 'close', sessionId: previous.session.id, clientId, role: 'controller' }).catch(() => undefined);
-    publishRemote({ pairing: null, session: null, connection: 'idle', transfer: 'idle', transferBytes: undefined, transferTotalBytes: undefined, pendingTakeId: null, previewDiagnostic: null, error: null }); publish({ phase: 'idle', stream: null, cameraPreviewStream: null, file: null, input: null, camera: null, pendingRecovery: false, error: null });
+    if (previous && takeId && !hadMaster && !completedIdleTake && !anotherTakeIsActive && !(preserveLocalSession && !activeTakeId)) void client.request({ action: 'command', sessionId: previous.session.id, clientId, commandId: stopId, type: 'stop', payload: { takeId } }).catch(() => undefined);
+    else if (previous && !anotherTakeIsActive && !preserveLocalSession) void client.request({ action: 'close', sessionId: previous.session.id, clientId, role: 'controller' }).catch(() => undefined);
+    publishRemote({ pairing: null, session: null, connection: 'idle', transfer: 'idle', transferBytes: undefined, transferTotalBytes: undefined, pendingTakeId: null, localTakes: preserveLocalSession || durableTakes.size ? [...durableTakes.values()] : [], localFirst: preserveLocalSession, transferTakeId: null, previewDiagnostic: null, error: null }); publish({ phase: 'idle', stream: null, cameraPreviewStream: null, file: null, input: null, camera: null, pendingRecovery: false, error: null });
   };
   const controller: StudioRemoteCaptureController = {
     prepare() {
@@ -498,13 +633,29 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       const token = generation; publish({ phase: 'preparing', error: null });
       const work = (async () => { try {
         if (!envelope) {
+          restoreCatalog();
           let resume: Intent | undefined;
-          if (options.resumeSessionId) resume = { sessionId: options.resumeSessionId, controllerId: clientId, takeId: '' };
+          if (options.resumeSessionId) resume = { sessionId: options.resumeSessionId, controllerId: clientId, takeId: options.resumeTakeId ?? '' };
           else if (options.persist !== false && !forgotten) { try { const key = recoveryKey(), stored = JSON.parse(localStorage.getItem(key) ?? 'null'); if (stored && ['sessionId', 'controllerId', 'takeId'].every(key => typeof stored[key] === 'string' && stored[key].length > 0 && stored[key].length < 128)) { ownedRecoveryKeys.add(key); resume = stored; } } catch { /* Malformed local metadata has no authority. */ } }
           if (resume) {
             clientId = resume.controllerId; const response = await request({ action: 'status', sessionId: resume.sessionId, afterSequence: 0 }, token);
             const takeId = resume.takeId || response.session.activeTakeId || response.takes.find(value => value.status !== 'failed')?.id;
             if (!takeId) throw new StudioRemoteCameraError('Nenhum original pendente foi confirmado nesta conexão.');
+            const localSaved = studioRemoteLocalStorage(response.session.deviceState) && studioRemoteLocalTakes(response).some(take => take.id === takeId && take.localSaved);
+            if (localSaved && response.session.status === 'closed' && !response.session.activeTakeId && response.session.deviceState?.recording !== true) {
+              // Closed sessions retain their catalog/import actions. Replacing
+              // only the monitor must never wait for an optional old transfer.
+              envelope = null; pendingStart = null; pendingStop = null; pendingResume = null; forgotten = true;
+              publishRemote({ pendingTakeId: null, connection: 'connecting', error: null }); publish({ phase: 'preparing', pendingRecovery: false, error: null });
+              const context = options.getContext?.(); await request({ action: 'create', projectId: context?.projectId ?? options.projectId, kind: options.kind, title: context?.title ?? options.title, controllerId: clientId }, token);
+              publishRemote({ pairing: envelope!.session.deviceId ? null : (envelope as StudioRemoteResponse).pairing ?? null, connection: envelope!.session.deviceId ? 'connecting' : 'pairing', error: null });
+              await poll(token); return;
+            }
+            if (localSaved && response.session.status === 'ready' && !response.session.activeTakeId && response.session.deviceState?.recording !== true) {
+              pendingStart = null; pendingStop = null; pendingResume = null;
+              publishRemote({ pendingTakeId: null, connection: 'connecting', error: null }); publish({ phase: 'preparing', pendingRecovery: false, error: null });
+              persistIntent(); await poll(token); return;
+            }
             pendingStart = resume.startId ? { id: resume.startId, takeId } : null; pendingStop = resume.stopId ? { id: resume.stopId, takeId } : null; pendingResume = resume.resumeId ? { id: resume.resumeId, takeId } : null;
             console.info('[Classfy Studio] Recuperação pendente', { sessionOpen: response.session.status !== 'closed', originalUploaded: response.takes.some(take => take.id === takeId && take.status === 'uploaded') });
             publishRemote({ pendingTakeId: takeId, transfer: 'retry', connection: 'disconnected', previewDiagnostic: { stage: 'recovery-pending', message: null }, error: null }); publish({ phase: 'error', pendingRecovery: true, error: 'Seu original do iPhone ainda está disponível. Salve ou descarte o trecho para continuar.' }); persistIntent(); await poll(token); return;
@@ -519,7 +670,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     },
     start() { void remoteStart().catch(() => undefined); },
     async stop() { const master = await remoteStop(); publish({ phase: 'recorded', file: master.file, pendingRecovery: false, stream: null, cameraPreviewStream: null, error: null }); return master.file; },
-    remoteStart, remoteStop, configureRemote,
+    remoteStart, remoteStop, finishLocalTake, receiveRemoteTake, configureRemote,
     async configureVideo(patch: StudioCaptureVideoPatch) {
       if (patch.grade || patch.hardware || patch.zoom !== undefined) throw new StudioRemoteCameraError('Use os controles Pro do iPhone para ajustar o original.');
       const output = patch.output ?? patch, resolution = output.height && output.width ? Math.min(output.width, output.height) : undefined;
@@ -535,6 +686,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     getReceivedCameraTrack() { return cameraTrack; }, getEnvelope() { return envelope ? structuredClone(envelope) : null; },
     getServerNow() { return Date.now() + serverOffset; },
     discardRemoteRecovery: forgetIntent,
+    persistRemoteContext() { persistIntent(); persistCatalog(); },
     async unlinkRemote() {
       if (!envelope || remote.pendingTakeId || state.pendingRecovery || startWork || stopWork || configuring || state.phase === 'recording') throw new StudioRemoteCameraError('Finalize e salve o take antes de desvincular o iPhone.');
       const token = generation;
