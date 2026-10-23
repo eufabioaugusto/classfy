@@ -307,7 +307,8 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     if (confirmed && response.session.status === 'ready' && cameraTrack && (state.phase === 'preparing' || state.phase === 'error' && !state.pendingRecovery) && !pendingStart) publish({ phase: 'ready', error: null });
     const physicalEnd = lastStart ? studioRemoteRecordingEnd(response, lastStart.takeId, lastStart.startedAtServerMs) : null;
     if (physicalEnd && (state.phase === 'recording' || physicalEnd.interrupted && state.phase === 'stopping')) {
-      const message = physicalEnd.interrupted ? interruptedTakeMessage(physicalEnd.durationSeconds) : 'A gravação terminou no iPhone. Confira o trecho salvo antes de continuar.';
+      const confirmedSource = studioRemoteLocalTakes(response).some(take => take.id === physicalEnd.takeId && take.localSaved);
+      const message = physicalEnd.interrupted ? confirmedSource ? interruptedTakeMessage(physicalEnd.durationSeconds) : 'A gravação foi interrompida no iPhone. Aguarde a confirmação do trecho no aparelho antes de continuar.' : 'A gravação terminou no iPhone. Confira o trecho salvo antes de continuar.';
       publishRemote({ recordingEnd: physicalEnd, error: message });
       publish({ phase: 'error', elapsed: physicalEnd.durationSeconds, pendingRecovery: true, error: message });
     } else if (lastStart && state.phase === 'recording') publish({ elapsed: Math.max(0, (Date.parse(response.serverAt) - lastStart.startedAtServerMs) / 1000) });

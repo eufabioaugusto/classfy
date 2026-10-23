@@ -63,7 +63,7 @@ describe('câmera remota preserva o original nativo e a autoridade do iPhone', (
   it('fim sem fonte durável para contador mas conserva recuperação e bloqueio de REC', async () => {
     const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart(); await vi.advanceTimersByTimeAsync(70_000);
     h.data.session.deviceState = { ...h.data.session.deviceState, recording: false, recordingEnd: { version: 1, takeId: first.takeId, finishedAtServerMs: first.startedAtServerMs + 66_000, durationSeconds: 66, reason: 'runtime_error', interrupted: true } };
-    await h.controller.reconnect(); expect(h.state()).toMatchObject({ phase: 'error', elapsed: 66, pendingRecovery: true }); await expect(h.controller.remoteStart()).rejects.toThrow();
+    await h.controller.reconnect(); expect(h.state()).toMatchObject({ phase: 'error', elapsed: 66, pendingRecovery: true }); expect(h.state().error).toContain('Aguarde a confirmação'); await expect(h.controller.remoteStart()).rejects.toThrow();
     expect(h.remote().localTakes!.find(take => take.id === first.takeId)?.localSaved).toBe(false); expect(h.download).not.toHaveBeenCalled(); expect(h.data.commands.map(command => command.type)).toEqual(['start']);
   });
   it('STOP normal não vira interrupção quando o recibo físico chega durante sua confirmação', async () => {
