@@ -44,6 +44,75 @@ beforeEach(() => { controllers = []; localStorage.clear(); vi.useFakeTimers(); v
 afterEach(() => { controllers.forEach(controller => controller.dispose()); vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('câmera remota preserva o original nativo e a autoridade do iPhone', () => {
+  it('desconexão definitiva libera a sala e retoma a mesma sessão sem outro REC ou CREATE', async () => {
+    const h = fixture(), callbacks: Parameters<StudioRemotePreviewFactory>[1][] = [];
+    const connect = h.preview as ReturnType<typeof vi.fn>;
+    connect.mockImplementation(async (_response, events) => { callbacks.push(events); events.track(track); events.connection('connected'); return { disconnect: h.disconnect }; });
+    await h.controller.prepare(); const sessionId = h.controller.getEnvelope()!.session.id;
+    callbacks[0].connection('disconnected');
+    expect(h.remote().connection).toBe('reconnecting'); expect(h.state()).toMatchObject({ phase: 'preparing', stream: null });
+    await vi.advanceTimersByTimeAsync(1001);
+    expect(connect).toHaveBeenCalledTimes(2); expect(h.state().phase).toBe('ready'); expect(h.remote().connection).toBe('connected');
+    callbacks[0].track(null); callbacks[0].connection('disconnected');
+    expect(h.state().stream!.getVideoTracks()[0]).toBe(track); expect(h.remote().connection).toBe('connected');
+    expect(h.controller.getEnvelope()!.session.id).toBe(sessionId); expect(h.request.mock.calls.filter(([body]) => body.action === 'create')).toHaveLength(1);
+    expect(h.request.mock.calls.some(([body]) => body.action === 'command')).toBe(false);
+  });
+  it('Reconectar cancela factory que nunca responde, compartilha clique e ignora a sala tardia', async () => {
+    const h = fixture(), pending = deferred<{ disconnect(): Promise<void> }>(), lateDisconnect = vi.fn(async () => undefined);
+    let previous!: Parameters<StudioRemotePreviewFactory>[1], previousSignal!: AbortSignal;
+    (h.preview as ReturnType<typeof vi.fn>).mockImplementationOnce((_response, events, signal) => { previous = events; previousSignal = signal; return pending.promise; });
+    const opening = h.controller.prepare(); await vi.advanceTimersByTimeAsync(0);
+    expect(h.state().phase).toBe('preparing'); expect(h.preview).toHaveBeenCalledTimes(1);
+    const first = h.controller.reconnect(), second = h.controller.reconnect(); expect(first).toBe(second);
+    await first; await opening;
+    expect(previousSignal.aborted).toBe(true); expect(h.preview).toHaveBeenCalledTimes(2);
+    expect(h.state().phase).toBe('ready'); expect(h.remote().connection).toBe('connected');
+    pending.resolve({ disconnect: lateDisconnect }); await vi.advanceTimersByTimeAsync(0);
+    previous.track(null); previous.connection('disconnected');
+    expect(lateDisconnect).toHaveBeenCalledTimes(1); expect(h.state().stream!.getVideoTracks()[0]).toBe(track);
+    expect(h.remote().connection).toBe('connected'); expect(h.request.mock.calls.filter(([body]) => body.action === 'create')).toHaveLength(1);
+    expect(h.data.takes).toHaveLength(0); expect(h.request.mock.calls.some(([body]) => body.action === 'command')).toBe(false);
+  });
+  it('Reconectar supersede polling HTTP pendurado sem aguardar sua resposta ou adotar estado antigo', async () => {
+    const h = fixture(), pending = deferred<StudioRemoteResponse>(); await h.controller.prepare();
+    const stale = structuredClone(h.data); stale.session.status = 'closed';
+    h.request.mockImplementationOnce(() => pending.promise); await vi.advanceTimersByTimeAsync(1001);
+    await h.controller.reconnect();
+    expect(h.preview).toHaveBeenCalledTimes(2); expect(h.remote().connection).toBe('connected');
+    pending.resolve(stale); await vi.advanceTimersByTimeAsync(0);
+    expect(h.controller.getEnvelope()!.session.status).toBe('ready'); expect(h.state().phase).toBe('ready');
+    expect(h.request.mock.calls.some(([body]) => body.action === 'command')).toBe(false);
+  });
+  it('factory sem resposta tem prazo e o polling tenta nova prévia mantendo heartbeat e REC parado', async () => {
+    const h = fixture(); let oldSignal!: AbortSignal;
+    (h.preview as ReturnType<typeof vi.fn>).mockImplementationOnce((_response, _events, signal) => { oldSignal = signal; return new Promise(() => undefined); });
+    const opening = h.controller.prepare(); await vi.advanceTimersByTimeAsync(15_001); await opening;
+    expect(oldSignal.aborted).toBe(true); expect(h.remote().error).toContain('A prévia não respondeu');
+    await vi.advanceTimersByTimeAsync(1001);
+    expect(h.preview).toHaveBeenCalledTimes(2); expect(h.state().phase).toBe('ready');
+    expect(h.request.mock.calls.filter(([body]) => body.action === 'heartbeat').length).toBeGreaterThan(1);
+    expect(h.request.mock.calls.some(([body]) => body.action === 'command')).toBe(false);
+  });
+  it('Reconectar substitui sessão encerrada ociosa com o mesmo vínculo e preserva takes já enviados', async () => {
+    const h = fixture(); await h.controller.prepare(); const controllerId = h.data.session.controllerId;
+    h.data.takes.push({ id: 'saved-original', status: 'uploaded', metadata: null, createdAt: new Date(NOW).toISOString(), uploadedAt: new Date(NOW).toISOString() });
+    h.data.session.status = 'closed'; const request = h.request.getMockImplementation()!;
+    h.request.mockImplementation(async body => { if (body.action === 'create') h.data.session = { ...h.data.session, id: 'replacement-session', status: 'ready' }; return request(body); });
+    await h.controller.reconnect();
+    expect(h.controller.getEnvelope()!.session).toMatchObject({ id: 'replacement-session', controllerId }); expect(h.state().phase).toBe('ready');
+    expect(h.request.mock.calls.filter(([body]) => body.action === 'create')).toHaveLength(2);
+    expect(h.data.takes).toEqual([expect.objectContaining({ id: 'saved-original', status: 'uploaded' })]);
+    expect(h.request.mock.calls.some(([body]) => ['unpair', 'close', 'command'].includes(String(body.action)))).toBe(false);
+  });
+  it('sessão encerrada com original pendente continua recuperável e Reconectar não cria outro projeto ou REC', async () => {
+    const h = fixture(); await h.controller.prepare(); await h.controller.remoteStart(); h.data.session.status = 'closed';
+    await h.controller.reconnect();
+    expect(h.state()).toMatchObject({ phase: 'error', pendingRecovery: true });
+    expect(h.request.mock.calls.filter(([body]) => body.action === 'create')).toHaveLength(1);
+    expect(h.data.takes).toHaveLength(1); expect(h.data.commands.filter(command => command.type === 'start')).toHaveLength(1);
+    expect(h.request.mock.calls.some(([body]) => ['unpair', 'close'].includes(String(body.action)))).toBe(false);
+  });
   it('reconectar após CREATE bloqueado repete a preparação e conecta sem gravar um take', async () => {
     const h = fixture();
     h.request.mockRejectedValueOnce(new StudioRemoteCameraError('Há um envio pausado no iPhone.', 'studio_camera_pending_upload'));

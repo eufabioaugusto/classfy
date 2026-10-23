@@ -38,6 +38,18 @@ export type StudioRemoteCaptureController = StudioCaptureController & {
 
 const controllerStorageKey = (owner: string) => `classfy:studio:remote-controller:v1:${owner}`;
 const controllerUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Cancellation must settle our owner even when a provider ignores its signal. */
+function boundedRemoteWork<T>(work: Promise<T>, signal: AbortSignal, milliseconds: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (done: () => void) => { if (settled) return; settled = true; clearTimeout(timer); signal.removeEventListener('abort', abort); done(); };
+    const abort = () => finish(() => reject(new DOMException('Conexão cancelada.', 'AbortError')));
+    signal.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(() => finish(() => reject(new StudioRemoteCameraError(message, 'preview_timeout'))), milliseconds);
+    void work.then(value => finish(() => resolve(value)), error => finish(() => reject(error)));
+    if (signal.aborted) abort();
+  });
+}
 /** Device binding belongs to this signed-in account and this browser's storage. */
 export function studioRemoteControllerId(owner: string, persist = true): string {
   if (persist) { try { const existing = localStorage.getItem(controllerStorageKey(owner)); if (existing && controllerUUID.test(existing)) return existing; } catch { /* Private browsing may deny storage. */ } }
@@ -133,7 +145,10 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   let liveReceipt: { id: string; order: number; state: StudioRemoteDeviceState } | null = null, liveOrder = 0;
   const liveJobs = new Map<string, Promise<StudioRemoteDeviceState | null>>();
   let generation = 0, disposed = false, lifecycle = new AbortController(), envelope: StudioRemoteEnvelope | null = null, preview: StudioRemotePreview | null = null, cameraTrack: MediaStreamTrack | null = null;
-  let pollTimer: ReturnType<typeof setTimeout> | null = null, heartbeatAt = 0, serverOffset = 0, bestRTT = Infinity, polling: Promise<void> | null = null, connecting: Promise<void> | null = null, prepareWork: Promise<void> | null = null, startWork: Promise<StudioRemoteStart> | null = null, stopWork: Promise<StudioRemoteMaster> | null = null;
+  type PreviewLease = { abort: AbortController; transport: StudioRemotePreview | null; releaseLifecycle(): void };
+  let previewLease: PreviewLease | null = null;
+  let pollAbort: AbortController | null = null;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null, heartbeatAt = 0, serverOffset = 0, bestRTT = Infinity, polling: Promise<void> | null = null, connecting: Promise<void> | null = null, reconnectWork: Promise<void> | null = null, prepareWork: Promise<void> | null = null, startWork: Promise<StudioRemoteStart> | null = null, stopWork: Promise<StudioRemoteMaster> | null = null;
   let pendingStart: { id: string; takeId: string } | null = null, pendingStop: { id: string; takeId: string } | null = null, pendingResume: { id: string; takeId: string } | null = null, lastStart: StudioRemoteStart | null = null, cachedMaster: StudioRemoteMaster | null = null;
   const listeners = new Set<(state: StudioCaptureState) => void>(), remoteListeners = new Set<(state: StudioRemoteView) => void>();
   let state: StudioCaptureState = { phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, camera: null, devices: { cameras: [], microphones: [] }, microphoneEnabled: true, levels: [] };
@@ -146,6 +161,17 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
   const publishRemote = (patch: Partial<StudioRemoteView>) => { if (disposed) return; remote = { ...remote, ...patch }; remoteListeners.forEach(listener => listener(view())); };
   const scope = (token = generation) => ({ signal: lifecycle.signal, isCurrent: () => !disposed && token === generation });
   const assert = (token: number) => assertStudioRemoteScope(scope(token));
+  const releasePreview = async (lease = previewLease) => {
+    if (!lease || lease.abort.signal.aborted) return;
+    if (previewLease === lease) {
+      previewLease = null; preview = null; cameraTrack = null;
+      publish({ stream: null, cameraPreviewStream: null });
+    }
+    lease.releaseLifecycle(); lease.abort.abort();
+    // Teardown is best effort. A provider whose disconnect never settles must
+    // not keep the browser's next connection or its heartbeat behind a promise.
+    void lease.transport?.disconnect().catch(() => undefined);
+  };
   const persistIntent = () => {
     if (options.persist === false || forgotten) return;
     const takeId = remote.pendingTakeId ?? pendingStart?.takeId ?? envelope?.session.activeTakeId;
@@ -178,36 +204,78 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     if (confirmed && response.session.status === 'ready' && cameraTrack && (state.phase === 'preparing' || state.phase === 'error' && !state.pendingRecovery) && !pendingStart) publish({ phase: 'ready', error: null });
     if (lastStart && state.phase === 'recording') publish({ elapsed: Math.max(0, (Date.parse(response.serverAt) - lastStart.startedAtServerMs) / 1000) });
   };
-  const request = async (body: Record<string, unknown>, token = generation) => { const sentAt = Date.now(); const response = await client.request({ ...body, action: String(body.action), clientId }, scope(token)); const receivedAt = Date.now(); adopt(response, token); const rtt = receivedAt - sentAt; if (rtt < bestRTT) { bestRTT = rtt; serverOffset = Date.parse(response.serverAt) - (sentAt + receivedAt) / 2; } return response; };
-  const connect = async (token: number) => {
+  const request = async (body: Record<string, unknown>, token = generation, signal?: AbortSignal) => {
+    const sentAt = Date.now(), ownedScope = { ...scope(token), ...(signal ? { signal } : {}) };
+    const task = client.request({ ...body, action: String(body.action), clientId }, ownedScope);
+    const response = signal ? await boundedRemoteWork(task, signal, 20_000, 'A conexão demorou. Reconecte a prévia para continuar.') : await task;
+    assertStudioRemoteScope(ownedScope); const receivedAt = Date.now(); adopt(response, token);
+    const rtt = receivedAt - sentAt; if (rtt < bestRTT) { bestRTT = rtt; serverOffset = Date.parse(response.serverAt) - (sentAt + receivedAt) / 2; } return response;
+  };
+  const connect = async (token: number, signal: AbortSignal) => {
     // Recovering owned bytes does not need a new Premium preview token, and a
     // closed session can still finish its private original transfer.
     if (!envelope?.session.deviceId || preview || state.pendingRecovery || envelope.session.status === 'closed') return; if (connecting) return connecting;
     const work = (async () => {
-      const response = await request({ action: 'connect', sessionId: envelope!.session.id, role: 'controller' }, token);
-      const next = await (options.preview ?? connectStudioRemotePreview)(response, { track(track) { if (disposed || token !== generation) return; cameraTrack = track; publish({ stream: track ? new MediaStream([track]) : null, cameraPreviewStream: track ? new MediaStream([track]) : null }); if (track && envelope?.session.status === 'ready' && state.width && state.height && state.frameRate && state.phase === 'preparing' && !pendingStart) publish({ phase: 'ready', error: null }); }, connection(value) { if (!disposed && token === generation) publishRemote({ connection: value }); } }, lifecycle.signal);
-      if (disposed || token !== generation) { await next.disconnect(); assert(token); } preview = next;
+      const response = await request({ action: 'connect', sessionId: envelope!.session.id, role: 'controller' }, token, signal);
+      const parentSignal = lifecycle.signal, abort = new AbortController();
+      const lease: PreviewLease = { abort, transport: null, releaseLifecycle: () => parentSignal.removeEventListener('abort', cancelLease) };
+      const cancelLease = () => { void releasePreview(lease).catch(() => undefined); };
+      parentSignal.addEventListener('abort', cancelLease, { once: true }); previewLease = lease;
+      const current = () => !disposed && token === generation && previewLease === lease && !abort.signal.aborted;
+      try {
+        const opening = (options.preview ?? connectStudioRemotePreview)(response, {
+          track(track) {
+            if (!current()) return; cameraTrack = track;
+            publish({ stream: track ? new MediaStream([track]) : null, cameraPreviewStream: track ? new MediaStream([track]) : null });
+            if (track && envelope?.session.status === 'ready' && state.width && state.height && state.frameRate && state.phase === 'preparing' && !pendingStart) publish({ phase: 'ready', error: null });
+          },
+          connection(value) {
+            if (!current()) return;
+            if (value === 'disconnected') {
+              // LiveKit has exhausted its own retry. Release this exact room so
+              // the next poll can obtain a fresh grant for the same session.
+              void releasePreview(lease).catch(() => undefined);
+              if (state.phase === 'ready') publish({ phase: 'preparing' });
+              publishRemote({ connection: 'reconnecting', error: null });
+            } else publishRemote({ connection: value });
+          },
+        }, abort.signal);
+        // A late factory still owns a physical room and must close it, but may
+        // never publish into the replacement lease or hold the poll forever.
+        void opening.then(next => { if (!current()) void next.disconnect().catch(() => undefined); }, () => undefined);
+        const next = await boundedRemoteWork(opening, abort.signal, 15_000, 'A prévia não respondeu. Reconecte para continuar; seus takes permanecem preservados.');
+        lease.transport = next;
+        if (!current()) { void next.disconnect().catch(() => undefined); assert(token); return; }
+        preview = next;
+      } catch (error) { await releasePreview(lease); throw error; }
     })(); connecting = work; void work.finally(() => { if (connecting === work) connecting = null; }).catch(() => undefined); return work;
   };
   const poll = async (token: number) => {
     if (polling) return polling;
     if (pollTimer) clearTimeout(pollTimer); pollTimer = null;
+    const parentSignal = lifecycle.signal, abort = new AbortController(), cancelPoll = () => abort.abort();
+    parentSignal.addEventListener('abort', cancelPoll, { once: true }); pollAbort = abort;
+    const current = () => !disposed && token === generation && pollAbort === abort && !abort.signal.aborted;
     const work = (async () => {
       try {
-        if (!envelope || disposed || token !== generation) return;
-        await request({ action: 'status', sessionId: envelope.session.id, afterSequence: 0 }, token); assert(token);
+        if (!envelope || !current()) return;
+        await request({ action: 'status', sessionId: envelope.session.id, afterSequence: 0 }, token, abort.signal); assert(token);
         // A lost POST response is indeterminate. If status has no receipt, retry
         // that exact UUID and payload, never a second adjustment or a new REC.
         const intent = configurationIntent;
         if (intent?.uncertain && !envelope.commands.some(command => command.id === intent.id)) {
-          try { await request({ action: 'command', sessionId: envelope.session.id, commandId: intent.id, type: 'configure', payload: intent.patch }, token); }
+          try { await request({ action: 'command', sessionId: envelope.session.id, commandId: intent.id, type: 'configure', payload: intent.patch }, token, abort.signal); }
           catch (error) { if (error instanceof StudioRemoteCameraError && error.code.startsWith('studio_camera_') && configurationIntent === intent) { configurationIntent = null; publish({ videoControls: state.videoControls ? { ...state.videoControls, busy: configurationPending() } : null }); } throw error; }
         }
-        if (Date.now() - heartbeatAt >= 8000) { await request({ action: 'heartbeat', sessionId: envelope.session.id, role: 'controller' }, token); heartbeatAt = Date.now(); }
-        await connect(token);
-        if (envelope.session.status === 'closed' && !stopWork) { if (!cachedMaster && (lastStart || envelope.takes.length)) publish({ phase: 'error', pendingRecovery: true, error: 'A conexão foi encerrada. O original permanece no iPhone; retome o recebimento do take.' }); else publish({ phase: 'error', error: 'A conexão com o iPhone foi encerrada.' }); }
-      } catch (error) { if (!disposed && token === generation && !(error instanceof DOMException && error.name === 'AbortError')) publishRemote({ error: error instanceof Error ? error.message : 'A conexão foi interrompida.' }); }
-      finally { if (!disposed && token === generation && envelope?.session.status !== 'closed') pollTimer = setTimeout(() => { pollTimer = null; void poll(token); }, 1000); }
+        if (Date.now() - heartbeatAt >= 8000) { await request({ action: 'heartbeat', sessionId: envelope.session.id, role: 'controller' }, token, abort.signal); heartbeatAt = Date.now(); }
+        await connect(token, abort.signal);
+        if (envelope.session.status === 'closed' && !stopWork) { if (!cachedMaster && (lastStart || remote.pendingTakeId || envelope.takes.some(take => take.status !== 'uploaded'))) publish({ phase: 'error', pendingRecovery: true, error: 'A conexão foi encerrada. O original permanece no iPhone; retome o recebimento do take.' }); else publish({ phase: 'error', error: 'A conexão com o iPhone foi encerrada. Reconecte para continuar.' }); }
+      } catch (error) { if (current() && !(error instanceof DOMException && error.name === 'AbortError')) publishRemote({ error: error instanceof Error ? error.message : 'A conexão foi interrompida.' }); }
+      finally {
+        parentSignal.removeEventListener('abort', cancelPoll);
+        if (current() && envelope?.session.status !== 'closed') pollTimer = setTimeout(() => { pollTimer = null; void poll(token); }, 1000);
+        if (pollAbort === abort) pollAbort = null;
+      }
     })(); polling = work; void work.finally(() => { if (polling === work) polling = null; }); return work;
   };
   const wait = async <T,>(find: () => T | undefined, token: number, milliseconds: number, active?: () => boolean): Promise<T> => {
@@ -369,8 +437,8 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     const previous = envelope, hadMaster = !!cachedMaster, takeId = remote.pendingTakeId ?? pendingStart?.takeId ?? previous?.session.activeTakeId; bestRTT = Infinity;
     persistIntent(); if (previous && (hadMaster || !takeId)) forgetIntent(); configuring = false;
     queuedConfiguration = null; queuedConfigurationId = null; configurationIntent = null; liveReceipt = null; liveDesired = null; liveJobs.clear(); const waiting = configurationWaiters; configurationWaiters = []; waiting.forEach(waiter => waiter.reject(new DOMException('Conexão cancelada.', 'AbortError')));
-    const stopId = pendingStop?.id ?? crypto.randomUUID(); generation++; lifecycle.abort(); lifecycle = new AbortController(); if (pollTimer) clearTimeout(pollTimer); pollTimer = null; polling = null; connecting = null;
-    const ownedPreview = preview; preview = null; void ownedPreview?.disconnect(); cameraTrack = null; envelope = null; pendingStart = null; pendingStop = null; pendingResume = null; lastStart = null; cachedMaster = null; prepareWork = null; startWork = null; stopWork = null;
+    const stopId = pendingStop?.id ?? crypto.randomUUID(); generation++; lifecycle.abort(); lifecycle = new AbortController(); if (pollTimer) clearTimeout(pollTimer); pollTimer = null; pollAbort?.abort(); pollAbort = null; polling = null; connecting = null;
+    void releasePreview().catch(() => undefined); preview = null; cameraTrack = null; envelope = null; pendingStart = null; pendingStop = null; pendingResume = null; lastStart = null; cachedMaster = null; prepareWork = null; reconnectWork = null; startWork = null; stopWork = null;
     // A lost browser must not delete/close the original while the phone is still
     // recording or transferring. Queue STOP and leave its private recovery open.
     if (previous && takeId && !hadMaster) void client.request({ action: 'command', sessionId: previous.session.id, clientId, commandId: stopId, type: 'stop', payload: { takeId } }).catch(() => undefined);
@@ -428,10 +496,33 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       if (options.persist !== false) { try { if (localStorage.getItem(controllerStorageKey(options.owner)) === clientId) localStorage.removeItem(controllerStorageKey(options.owner)); } catch { /* Server revocation is authoritative. */ } }
       clientId = studioRemoteControllerId(options.owner, options.persist !== false);
     },
-    async reconnect() {
-      const token = generation; assert(token);
-      if (!envelope) return controller.prepare();
-      const current = preview; preview = null; await current?.disconnect(); assert(token); await poll(token);
+    reconnect() {
+      if (reconnectWork) return reconnectWork;
+      const token = generation;
+      const work = (async () => {
+        assert(token);
+        if (!envelope) return controller.prepare();
+        publishRemote({ connection: 'reconnecting', error: null });
+        if (state.phase === 'ready') publish({ phase: 'preparing', error: null });
+        await releasePreview(); assert(token);
+        // Supersede the old cycle immediately, including a provider that never
+        // settles. Its signal and lease prevent every late response/callback.
+        pollAbort?.abort(); pollAbort = null; polling = null; connecting = null;
+        await poll(token); assert(token);
+        if (envelope?.session.status !== 'closed') return;
+        const device = envelope.session.deviceState;
+        const protectedWork = remote.pendingTakeId || state.pendingRecovery || state.file || pendingStart || pendingStop || pendingResume || lastStart || cachedMaster || startWork || stopWork || configuring || configurationIntent ||
+          envelope.session.activeTakeId || device?.recording === true || device?.processing === true || device?.uploading === true || device?.uploadState === 'uploading' ||
+          envelope.takes.some(take => take.status !== 'uploaded') || envelope.commands.some(command => command.status === 'pending' && ['start', 'stop', 'resume_upload'].includes(command.type));
+        if (protectedWork) return;
+        // Keep the browser binding and every original. Only the expired preview
+        // session is replaced, after status confirms there is no physical work.
+        if (pollTimer) clearTimeout(pollTimer); pollTimer = null;
+        envelope = null; forgotten = true; heartbeatAt = 0; bestRTT = Infinity;
+        publishRemote({ session: null, pairing: null, pendingTakeId: null, transfer: 'idle', connection: 'connecting', error: null });
+        await controller.prepare();
+      })();
+      reconnectWork = work; void work.finally(() => { if (reconnectWork === work) reconnectWork = null; }).catch(() => undefined); return work;
     },
     subscribe(listener) { listeners.add(listener); listener(snapshot()); return () => listeners.delete(listener); },
     subscribeRemote(listener) { remoteListeners.add(listener); listener(view()); return () => remoteListeners.delete(listener); },
