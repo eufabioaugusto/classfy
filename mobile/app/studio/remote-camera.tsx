@@ -12,12 +12,13 @@ import {useAuth} from '@/features/auth/authContext';
 import {useStudioOrientation} from '@/features/studio/useStudioOrientation';
 import {StudioAccess,StudioButton} from '@/features/studio/StudioUI';
 import {readRemotePairingCode} from '@/features/studio/remoteCameraApi';
-import {createRemoteCameraRuntime,createRemoteNativePort,remoteCameraDeviceId,restoreStudioRemoteAudioPolicy,type RemoteNativeEvent} from '@/features/studio/remoteCameraRuntime';
+import {createRemoteCameraRuntime,createRemoteNativePort,remoteCameraDeviceId,restoreStudioRemoteAudioPolicy,listRemoteCameraOriginals,type RemoteNativeEvent,type RemoteCameraLocalOriginal} from '@/features/studio/remoteCameraRuntime';
 import type {RemoteCameraSnapshot} from '@/features/studio/remoteCameraController';
 import {readRememberedRemoteBrowser,rememberRemoteBrowser,forgetRemoteBrowser,mayResumeRemoteCameraAutomatically} from '@/features/studio/remoteCameraPairing';
 import {reserveNativeCaptureForStudioCamera} from '@/features/live/transport';
 import {useStudioCaptureAudioMonitor} from '@/features/studio/StudioCaptureAudio';
 import {StudioRemoteCameraMonitor} from '@/features/studio/StudioRemoteCameraMonitor';
+import {StudioRemoteLocalTakes} from '@/features/studio/StudioRemoteLocalTakes';
 import {isStudioRemoteCameraAvailable,isStudioNativeCameraAudioMonitorAvailable,type StudioCaptureAudioEvent} from '../../modules/classfy-studio-media';
 import {colors} from '@/theme/colors';
 
@@ -32,6 +33,7 @@ export default function StudioRemoteCameraScreen(){
   const [foreground,setForeground]=useState(AppState.currentState==='active'),[joining,setJoining]=useState(false),[connected,setConnected]=useState(false),[leaving,setLeaving]=useState(false),[lastSession,setLastSession]=useState<string|null>(null);
   const [lastControllerId,setLastControllerId]=useState<string|null>(null),[pairingLoaded,setPairingLoaded]=useState(false),[hasSavedPairing,setHasSavedPairing]=useState(false),[automaticAllowed,setAutomaticAllowed]=useState(true),[confirmUnpair,setConfirmUnpair]=useState(false);
   const [unpairing,setUnpairing]=useState(false);
+  const [localMenu,setLocalMenu]=useState(false),[localTakes,setLocalTakes]=useState<RemoteCameraLocalOriginal[]>([]),[sharing,setSharing]=useState<string|null>(null),[localError,setLocalError]=useState('');
   const [explicitPairingPending,setExplicitPairingPending]=useState(!!params.code),nextAutomaticAt=useRef(0);
   const controller=useRef<ReturnType<typeof createRemoteCameraRuntime>|null>(null),port=useRef<ReturnType<typeof createRemoteNativePort>|null>(null),nativeRef=useRef(null),unsubscribe=useRef<(()=>void)|null>(null);
   const connectionAbort=useRef<AbortController|null>(null);
@@ -46,6 +48,17 @@ export default function StudioRemoteCameraScreen(){
   const audioMonitor=useStudioCaptureAudioMonitor({active:cameraActive,available:isStudioNativeCameraAudioMonitorAvailable(),scopeKey:`${user?.id}:${state.session?.id}`,generation:typeof state.state?.generation==='number'?state.state.generation:undefined});
   const audioRef=useRef(audioMonitor);audioRef.current=audioMonitor;
   const isRecording=state.phase==='starting'||state.phase==='recording'||state.phase==='saving';
+  async function refreshLocalTakes(){const owner=user?.id;if(!owner)return;try{const device=await remoteCameraDeviceId(owner),takes=await listRemoteCameraOriginals(owner,device);
+    if(lifecycle.current.mounted&&lifecycle.current.owner===owner)setLocalTakes(takes);
+  }catch(cause){if(lifecycle.current.owner===owner)setLocalError(cause instanceof Error?cause.message:'Não foi possível listar os originais.');}}
+  useEffect(()=>{if(focused&&foreground&&!isRecording)void refreshLocalTakes();},[user?.id,focused,foreground,isRecording,state.takeCount]);
+  const openLocalTakes=()=>{if(isRecording)return;setLocalError('');setLocalMenu(true);void refreshLocalTakes();};
+  async function shareOriginal(take:RemoteCameraLocalOriginal){if(isRecording||sharing||!user)return;const owner=user.id,key=`${take.sessionId}:${take.id}`;setSharing(key);setLocalError('');
+    try{const device=await remoteCameraDeviceId(owner);if(lifecycle.current.owner!==owner)return;
+      const local=createRemoteCameraRuntime(owner,device,{isCurrent:()=>lifecycle.current.mounted&&lifecycle.current.owner===owner});await local.shareOriginal(take.sessionId,take.id);
+    }catch(cause){if(lifecycle.current.mounted&&lifecycle.current.owner===owner)setLocalError(cause instanceof Error?cause.message:'Não foi possível compartilhar o original.');}
+    finally{if(lifecycle.current.mounted){setSharing(null);void refreshLocalTakes();}}
+  }
   const [elapsed,setElapsed]=useState(0);
   useEffect(()=>{if(!state.recordingStartedAtMs){setElapsed(0);return;}const update=()=>setElapsed(Math.max(0,(Date.now()-state.recordingStartedAtMs!)/1000));update();const timer=setInterval(update,250);return()=>clearInterval(timer);},[state.recordingStartedAtMs]);
   useEffect(()=>{if(!focused||!foreground||!user||( !connected&&!state.uploading))return;
@@ -58,6 +71,7 @@ export default function StudioRemoteCameraScreen(){
     setForeground(active);
   });return()=>{lifecycle.current.mounted=false;lifecycle.current.epoch++;listener.remove();unsubscribe.current?.();void dispose();};},[]);
   useEffect(()=>{const owner=user?.id;setPairingLoaded(false);setHasSavedPairing(false);setLastSession(null);setLastControllerId(null);setAutomaticAllowed(true);setConfirmUnpair(false);nextAutomaticAt.current=0;
+    setLocalMenu(false);setLocalTakes([]);setSharing(null);setLocalError('');
     if(owner)void readRememberedRemoteBrowser(owner).then(value=>{if(lifecycle.current.mounted&&lifecycle.current.owner===owner){setLastSession(value.sessionId);setLastControllerId(value.controllerId);setHasSavedPairing(!!(value.controllerId||value.sessionId));setPairingLoaded(true);}}).catch(()=>{if(lifecycle.current.owner===owner)setPairingLoaded(true);});
     setConnected(false);setState(initial);port.current=null;void dispose();
   },[user?.id]);
@@ -76,7 +90,7 @@ export default function StudioRemoteCameraScreen(){
     try{await dispose();if(!isCurrent())return;const deviceId=await remoteCameraDeviceId(owner);if(!isCurrent())return;
       const abort=new AbortController();connectionAbort.current=abort;
       const next=createRemoteCameraRuntime(owner,deviceId,{isCurrent,signal:abort.signal});controller.current=next;unsubscribe.current?.();unsubscribe.current=next.subscribe(value=>{if(isCurrent()){setState(value);if(value.phase==='closed'||value.phase==='unpaired'){setConnected(false);port.current=null;}}});
-      if(recoverOnly&&lastSession){await next.recoverLocal(lastSession);if(isCurrent())setFailure(next.getSnapshot().error||'Originais recuperados no Studio deste iPhone. O envio pode ser retomado sem abrir a câmera.');return;}
+      if(recoverOnly&&lastSession){await next.recoverLocal(lastSession);if(isCurrent()){setFailure(next.getSnapshot().error||'Originais preservados neste iPhone. Abra Takes neste iPhone para compartilhar. O envio ao computador é opcional.');void refreshLocalTakes();}return;}
       if(resume){const ready=await next.resumePairing(lastControllerId||undefined);if(!isCurrent())return;
         const linked=next.getSnapshot().linkedControllerId;
         if(linked){await rememberRemoteBrowser(owner,linked);if(!isCurrent())return;setLastControllerId(linked);setHasSavedPairing(true);}
@@ -121,6 +135,7 @@ export default function StudioRemoteCameraScreen(){
     audio={{input:audioMonitor.input,channels:audioMonitor.channels,status:audioMonitor.status,message:audioMonitor.message}}
     onClose={()=>void leave()} onStop={()=>void controller.current?.stopLocal().catch(cause=>setFailure(cause.message))}
     onUpload={()=>{setFailure('');void controller.current?.retryUploads().catch(cause=>setFailure(cause.message));}}
+    onLocalTakes={openLocalTakes}
     onReconnect={()=>{setFailure('');void controller.current?.reconnectPreview().catch(cause=>setFailure(cause.message));}}
     onUnpair={()=>setConfirmUnpair(true)} onFocus={async point=>{
       const current=controller.current;if(!current)throw new Error('Aguarde a câmera preparar o foco.');return current.focusLocal(point);
@@ -144,13 +159,15 @@ export default function StudioRemoteCameraScreen(){
             if(lifecycle.current.epoch!==epoch||lifecycle.current.owner!==owner||!lifecycle.current.focused||!lifecycle.current.foreground)return;
             if(allowed){setAutomaticAllowed(false);setScanning(true);}else setFailure('Permita a câmera para ler o QR. Você também pode colar o código.');})()}/>
           {hasSavedPairing?<StudioButton label="Retomar conexão" disabled={joining} onPress={()=>{setAutomaticAllowed(true);void connect(true);}}/>:null}
-          {lastSession?<StudioButton label="Recuperar e enviar originais" disabled={joining} onPress={()=>void connect(false,undefined,true)}/>:null}
+          {lastSession?<StudioButton label="Recuperar originais neste iPhone" disabled={joining} onPress={()=>void connect(false,undefined,true)}/>:null}
         </>}
         {lastControllerId?<StudioButton label="Desvincular computador" secondary disabled={joining} onPress={()=>setConfirmUnpair(true)}/>:null}
       </>}
+      <StudioButton label="Takes neste iPhone" secondary onPress={openLocalTakes}/>
       {error?<Text accessibilityLiveRegion="polite" style={s.error}>{error}</Text>:null}
       <Text style={s.hint}>{state.phase==='unpaired'?'Leia o QR para vincular este iPhone ao computador. Seus originais continuam preservados.':'O vínculo fica salvo na sua conta. Fechar a câmera pausa a sessão; desvincular exige um novo QR.'}</Text>
     </View></AppScreen>}
+    <StudioRemoteLocalTakes visible={localMenu&&!isRecording} takes={localTakes} sharing={sharing} error={localError} onClose={()=>setLocalMenu(false)} onShare={take=>void shareOriginal(take)}/>
     <Modal transparent visible={confirmUnpair} animationType="fade" presentationStyle="overFullScreen" supportedOrientations={['portrait','landscape-left','landscape-right']} onRequestClose={()=>{if(!unpairing)setConfirmUnpair(false);}}>
       <View style={s.dialogBackdrop}><View accessibilityViewIsModal style={s.dialog}>
         <View style={s.dialogHeader}><Text style={s.dialogTitle}>Desvincular computador?</Text><Pressable accessibilityLabel="Fechar confirmação" disabled={unpairing} onPress={()=>setConfirmUnpair(false)} style={s.close}><X size={20} color={colors.text}/></Pressable></View>

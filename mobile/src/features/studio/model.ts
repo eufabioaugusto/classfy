@@ -124,11 +124,19 @@ export const studioStateLabel: Record<StudioState, string> = {
 };
 // iOS may relocate the data container during an app update. Store-owned files
 // are rebased to the current Documents root; arbitrary external files are not.
+const studioUUID = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
+const remoteStudioPath = new RegExp(`^file:///[^?#]*?/Documents/(classfy-studio-remote/(${studioUUID})/${studioUUID}/${studioUUID}(?:-2k\\.mov|-grade-[a-f0-9]{8,64}\\.mp4|\\.mov))$`, 'i');
+function remoteStudioRelativePath(value: string) {
+  if (value.split('/').some(part => part === '.' || part === '..')) return null;
+  return value.match(remoteStudioPath);
+}
 export function rebaseStudioProject(project: StudioProject, documentDirectory: string | null): StudioProject {
   if (!documentDirectory) return project;
   const relativeRoot = `classfy-studio/${project.ownerId}/${project.id}/`;
   const uri = (value?: string) => {
     if (!value) return value;
+    const remote = remoteStudioRelativePath(value);
+    if (remote && remote[2] === project.ownerId) return `${documentDirectory}${remote[1]}`;
     const marker = `/Documents/${relativeRoot}`;
     const index = value.indexOf(marker);
     return index >= 0 ? `${documentDirectory}${relativeRoot}${value.slice(index + marker.length)}` : value;
@@ -328,6 +336,8 @@ export function emptyStudioEditing(kind: StudioKind, legacy = false): StudioEdit
 }
 /** The path of an immutable original identifies it locally, independently of the iOS container. */
 function stableStudioPath(uri: string) {
+  const remote = remoteStudioRelativePath(uri);
+  if (remote) return `/${remote[1]}`;
   const at = uri.indexOf('/classfy-studio/');
   return at >= 0 ? uri.slice(at) : uri;
 }

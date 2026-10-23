@@ -19,12 +19,12 @@ function harness(patch={}){
       ...(action==='unpair'?{unpaired:patch.unpaired===true}:{}),
       ...(['join','connect'].includes(action)?{connection:{url:'wss://private.invalid',token:'not-a-real-token',identity:'device'}}:{})};
   };
-  const deps={owner:'owner',deviceId:'device',current:()=>current,now:()=>time,request,journal:async()=>clone(journal),
+  const deps={owner:'owner',deviceId:'device',localTakeStorage:patch.localTakeStorage===true,current:()=>current,now:()=>time,request,journal:async()=>clone(journal),
     discover:async controllerId=>{calls.push({action:'discover',body:{deviceId:'device',...(controllerId?{controllerId}:{})}});return patch.discover?await patch.discover():{ownerId:'owner',paired:true,controllerId:'controller',session:clone(session),commands:[],takes:[],serverAt:new Date(time+1200).toISOString()};},
     mutate:async(_id,change)=>{if(writeGate){const gate=writeGate;writeGate=undefined;gate.entered.resolve();await gate.promise;}journal=change(clone(journal));writes.push(clone(journal));return clone(journal);},
     ...(patch.prepareMaster?{prepareMaster:async(session,take,progress)=>{calls.push({action:'prepare-master',take:clone(take)});return patch.prepareMaster(session,take,progress);}}:{}),
     masterUri:(_session,id)=>`file:///Documents/classfy-studio-remote/owner/${sessionId}/${id}.mov`,
-    inspect:async uri=>{calls.push({action:'inspect',uri});return{bytes:6291457,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4};},
+    inspect:async uri=>{calls.push({action:'inspect',uri});if(patch.inspect)return patch.inspect(uri);return{bytes:6291457,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4};},
     saveLocal:async(_session,take)=>{calls.push({action:'save-local',take:clone(take)});if(patch.saveFail?.())throw Error('Disco indisponível');return{projectId:'project',localTakeId:'local-take'};},
     upload:async(_session,take,onProgress)=>{calls.push({action:'upload',take:clone(take)});onProgress?.(5);await patch.upload?.(take);},
   };
@@ -51,6 +51,41 @@ function harness(patch={}){
 
 const selectedAudio=()=>({supportsAudioInputSelection:true,audioInput:{version:1,available:[{id:'builtin',name:'iPhone',type:'MicrophoneBuiltIn'},{id:'usb',name:'USB',type:'USBAudio'}],preferredId:null,current:{id:'builtin',name:'iPhone',type:'MicrophoneBuiltIn'},confirmed:true,selecting:false,warning:null}});
 const fastId=index=>`22222222-2222-4222-8222-${String(index).padStart(12,'0')}`;
+test('local-first confirma STOP bruto de 2,7 GB sem render ou upload e deixa novo REC disponível',async()=>{
+  const h=harness({localTakeStorage:true,inspect:async()=>({bytes:2747050311,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:777}),prepareMaster:async()=>{throw Error('Render não deve iniciar');}});
+  await h.ready();h.started.resolve(10050);h.queue([h.command('start')]);await h.controller.poll();h.queue([h.command('stop','stop',2)]);await h.controller.poll();await tick();
+  const receipt=h.calls.find(call=>call.action==='ack'&&call.body.commandId==='stop').body.result;
+  assert.equal(receipt.ok,true);assert.equal(receipt.metadata,undefined);assert.equal(receipt.state.capabilities.localTakeStorage,1);
+  assert.equal(receipt.state.localTakes[0].metadata.bytes,2747050311);assert.equal(receipt.state.localTakes[0].metadata.duration,777);assert.equal(receipt.state.localTakes[0].localSaved,true);
+  assert.equal(h.journal().takes[0].sourceMetadata.bytes,2747050311);assert.equal(h.journal().takes[0].metadata,undefined);assert.equal(h.controller.getSnapshot().phase,'ready');
+  h.queue([{...h.command('start','start-2',3),payload:{takeId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}}]);await h.controller.poll();
+  assert.equal(h.calls.filter(call=>call.action==='native-start').length,2);assert.equal(h.calls.filter(call=>call.action==='prepare-master'||call.action==='upload').length,0);await h.controller.dispose();
+});
+test('local-first só prepara/envia por resume_upload explícito e outro REC não espera o worker de render',async()=>{
+  const gate=deferred(),entered=deferred(),raw={bytes:6291457,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:4};
+  const h=harness({localTakeStorage:true,journal:{takes:[{id:takeId,uri:'file:///raw.mov',sourceUri:'file:///raw.mov',sourceMetadata:raw,localSaved:true,localTakeId:'saved',phase:'local_ready'}]},
+    prepareMaster:async(_session,take)=>{entered.resolve();await gate.promise;return {uri:`file:///${take.id}-grade-12345678.mp4`,metadata:{...raw,bytes:77,mime:'video/mp4'}};}});
+  await h.ready();await tick();assert.equal(h.calls.filter(call=>call.action==='upload'||call.action==='prepare-master').length,0);
+  h.queue([h.command('resume_upload','send',1)]);await h.controller.poll();await entered.promise;
+  assert.equal(h.calls.find(call=>call.action==='ack'&&call.body.commandId==='send').body.result.ok,true);
+  h.started.resolve(10050);h.queue([{...h.command('start','next',2),payload:{takeId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}}]);await h.controller.poll();
+  assert.equal(h.calls.filter(call=>call.action==='native-start').length,1);gate.resolve();await tick();await tick();
+  assert.equal(h.calls.filter(call=>call.action==='upload').length,1);assert.equal(h.calls.find(call=>call.action==='upload').take.sourceMetadata.bytes,raw.bytes);await h.controller.dispose();
+});
+test('local-first reabrir e repetir ACK STOP conserva cursor antigo sem retomar envio sozinho',async()=>{
+  const raw={bytes:2747050311,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:777},uri='file:///raw.mov';
+  const h=harness({localTakeStorage:true,journal:{receipts:{oldstop:{ok:true,takeId,state:{localTakes:[]}}},takes:[{id:takeId,uri,sourceUri:uri,sourceMetadata:raw,metadata:raw,localTakeId:'existing',phase:'error',partUrls:{107:'https://private.invalid/resume'}}]}});
+  await h.ready();h.queue([h.command('stop','oldstop',1)]);await h.controller.poll();await tick();
+  assert.equal(h.calls.filter(call=>call.action==='upload'||call.action==='prepare-master').length,0);assert.equal(h.journal().takes[0].partUrls[107],'https://private.invalid/resume');
+  assert.equal(h.controller.getSnapshot().localTakes[0].metadata.duration,777);assert.equal(JSON.stringify(h.controller.getSnapshot().localTakes).includes('file:'),false);await h.controller.dispose();
+});
+test('catálogo wire fica abaixo de 4 KiB e mantém take mais recente; arquivo ausente não vira localSaved',async()=>{
+  const raw={bytes:2747050311,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:777};
+  const takes=Array.from({length:40},(_,index)=>({id:fastId(index),uri:`file:///raw-${index}.mov`,sourceMetadata:raw,localTakeId:'saved',phase:'local_ready'}));
+  const h=harness({localTakeStorage:true,journal:{takes},inspect:async uri=>{if(uri.endsWith('0.mov'))throw Error('Arquivo ausente');return raw;}});await h.ready();
+  const catalog=h.controller.getSnapshot().localTakes;assert.ok(catalog.length<=24);assert.ok(new TextEncoder().encode(JSON.stringify(catalog)).byteLength<=4096);
+  assert.equal(catalog.at(-1).id,fastId(39));assert.equal(catalog.some(take=>take.id===fastId(0)),false);assert.equal(h.journal().takes[0].localSaved,false);await h.controller.dispose();
+});
 test('START aguarda hardware RTC pendente; canal rápido recusa controles enquanto o take está ativo',async()=>{
   const gate=deferred();let block=false;
   const h=harness({liveControls:true,configure:configuration=>block&&configuration.pro?.iso===300?gate.promise:undefined});

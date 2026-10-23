@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import {randomUUID} from 'expo-crypto';
-import {NativeModules} from 'react-native';
+import {NativeModules,Share} from 'react-native';
 import type {Room,LocalVideoTrack,RemoteParticipant} from 'livekit-client';
 import type {MediaStream} from '@livekit/react-native-webrtc';
 import {withLiveDeadline} from '@/features/live/request';
@@ -12,7 +12,7 @@ import {configureStudioNativeCameraAsync,getStudioNativeCameraCapabilitiesAsync,
   type StudioCameraProSettings,type StudioCameraState} from '../../../modules/classfy-studio-media';
 import {createRemoteCameraController,REMOTE_CAMERA_LIVE_CONTROL_TOPIC,REMOTE_CAMERA_LIVE_ACK_TOPIC,remoteCameraLiveId,validRemoteCameraLivePatch,type RemoteCameraNative} from './remoteCameraController';
 import {remoteCameraRequest,remoteCameraDiscoveryRequest,createRemoteUploadFetch,type RemoteCameraScope,assertRemoteCameraScope} from './remoteCameraApi';
-import {readRemoteCameraJournal,mutateRemoteCameraJournal,remoteMasterUri,type RemoteTakeJournal} from './remoteCameraJournal';
+import {readRemoteCameraJournal,readRemoteCameraJournals,mutateRemoteCameraJournal,remoteMasterUri,type RemoteTakeJournal} from './remoteCameraJournal';
 import {createStudioProject,getStudioProject,loadStudioProjects,mutateStudioProject} from './store';
 import {persistStudioTake} from './media';
 import {studioGrade,validateStudioGrade,type StudioGrade} from './model';
@@ -39,6 +39,16 @@ export const remoteDeviceState=(state:StudioCameraState,configuration?:StudioRem
 });
 export async function remoteCameraDeviceId(owner:string){const key=`classfy:remote-camera:device:${owner}`;let id=await AsyncStorage.getItem(key);if(!id){id=randomUUID();await AsyncStorage.setItem(key,id);}return id;}
 export type RemoteNativeEvent={phase:string;operationId:string;startedAtEpochMs?:number;recoveryUri?:string;error?:string};
+export type RemoteCameraLocalOriginal={sessionId:string;id:string;metadata:NonNullable<RemoteTakeJournal['sourceMetadata']>;phase:RemoteTakeJournal['phase'];available:boolean;error?:string};
+export async function listRemoteCameraOriginals(owner:string,deviceId:string):Promise<RemoteCameraLocalOriginal[]>{
+  const result:RemoteCameraLocalOriginal[]=[];
+  for(const journal of await readRemoteCameraJournals(owner,deviceId))for(const take of journal.takes){
+    const metadata=take.sourceMetadata||take.metadata;if(!metadata)continue;
+    const file=await FileSystem.getInfoAsync(take.sourceUri||take.uri).catch(()=>({exists:false}));
+    const available=file.exists&&(!('size'in file)||Number(file.size)>0);
+    result.push({sessionId:journal.sessionId,id:take.id,metadata,phase:take.phase,available,...(!available?{error:'O arquivo original não foi encontrado neste iPhone.'}:take.error?{error:take.error.replace('Esta operação de live foi cancelada.','A transferência foi pausada. O original permanece neste iPhone.').replace(/(?:https?|wss?|file):\/\/\S+|Bearer\s+\S+/gi,'[dado privado omitido]').slice(0,300)}:{})});
+  }return result.reverse();
+}
 export function createRemoteNativePort(owner:string,session:StudioRemoteSession,getTag:()=>number|null,scope:RemoteCameraScope,getAudio?:()=>Record<string,unknown>) {
   type PreviewLease={epoch:number;room:Room|null;stream:MediaStream|null;track:LocalVideoTrack|null;tag:number|null;
     nativeStarted:boolean;ready:boolean;removeListener:(()=>void)|null;cleanup:Promise<void>|null;
@@ -319,15 +329,28 @@ export function createRemoteCameraRuntime(owner:string,deviceId:string,scope:Rem
     mutate:change=>mutate(session.id,change),
     read:async(position,length)=>decodeBase64Bytes(await FileSystem.readAsStringAsync(take.uri,{encoding:FileSystem.EncodingType.Base64,position,length})),
   });
-  return createRemoteCameraController({owner,deviceId,current:()=>scope.isCurrent?.()!==false&&!scope.signal?.aborted,request,
+  const controller=createRemoteCameraController({owner,deviceId,localTakeStorage:true,current:()=>scope.isCurrent?.()!==false&&!scope.signal?.aborted,request,
     discover:controllerId=>remoteCameraDiscoveryRequest(owner,{deviceId,...(controllerId?{controllerId}:{})},scope),
     journal:id=>readRemoteCameraJournal(owner,id,deviceId),mutate,masterUri:(session,take)=>remoteMasterUri(owner,session,take),inspect,upload,
     async prepareMaster(session,take,onProgress){check();return prepareRemoteCameraGradedMaster({owner,sessionId:session.id,takeId:take.id,sourceUri:take.sourceUri||take.uri,imageGrade:take.imageGrade||studioGrade('natural'),shouldContinue:()=>scope.isCurrent?.()!==false&&!scope.signal?.aborted,onProgress});},
     async saveLocal(session,take){check();await loadStudioProjects(owner);let journal=await readRemoteCameraJournal(owner,session.id,deviceId);
       let project=journal.projectId?getStudioProject(owner,journal.projectId):undefined;
       if(!project){project=await createStudioProject(owner,session.kind,{transient:true,isCurrent:scope.isCurrent});const id=project.id;await mutate(session.id,value=>({...value,projectId:id}));}
-      const local=await persistStudioTake(project,{id:take.id,uri:take.uri,name:`${session.title||'Take do computador'}.mov`});check();
+      const existing=project.takes.find(value=>value.id===take.id);
+      const raw=take.sourceMetadata;
+      const local=existing||(raw?{id:take.id,uri:take.sourceUri||take.uri,name:`${session.title||'Take do computador'}.mov`,duration:raw.duration,start:0,end:raw.duration,
+        width:raw.width,height:raw.height,frameRate:raw.fps,hasAudio:true,sourceKind:'standard' as const,sourceStage:'standard' as const,grade:take.imageGrade||studioGrade('natural')}
+        :await persistStudioTake(project,{id:take.id,uri:take.uri,name:`${session.title||'Take do computador'}.mov`}));check();
       await mutateStudioProject(owner,project.id,value=>{check();return {takes:value.takes.some(item=>item.id===local.id)?value.takes:[...value.takes,local],...(!value.coverUri&&!value.coverUrl&&local.thumbnailUri?{coverUri:local.thumbnailUri}:{})};});
       return {projectId:project.id,localTakeId:local.id};},
   });
+  return {...controller,
+    async listLocalOriginals(){check();const values=await listRemoteCameraOriginals(owner,deviceId);check();return values;},
+    async shareOriginal(sessionId:string,takeId:string){
+      check();const journal=await readRemoteCameraJournal(owner,sessionId,deviceId),take=journal.takes.find(value=>value.id===takeId);check();
+      if(!take||!take.sourceMetadata&&!take.metadata)throw new Error('Este original ainda não foi concluído.');
+      const uri=take.sourceUri||take.uri,file=await FileSystem.getInfoAsync(uri);check();if(!file.exists||'size'in file&&Number(file.size)<=0)throw new Error('O original não foi encontrado neste iPhone.');
+      const shared=await Share.share({url:uri},{subject:'Original Classfy'});return shared.action===Share.sharedAction;
+    },
+  };
 }

@@ -54,11 +54,12 @@ function harness(options={}){
     '@/features/studio/useStudioOrientation':{useStudioOrientation:()=>({orientationReady:true,prepareForExit:async()=>true})},
     '@/features/studio/StudioUI':{StudioAccess:'access',StudioButton:'studio-button'},
     '@/features/studio/remoteCameraApi':{readRemotePairingCode:value=>value},
-    '@/features/studio/remoteCameraRuntime':{createRemoteCameraRuntime:runtime,createRemoteNativePort:()=>({port:nativePort,onRecordingState:()=>{}}),remoteCameraDeviceId:async()=>device,restoreStudioRemoteAudioPolicy:()=>{}},
+    '@/features/studio/remoteCameraRuntime':{createRemoteCameraRuntime:runtime,createRemoteNativePort:()=>({port:nativePort,onRecordingState:()=>{}}),remoteCameraDeviceId:async()=>device,restoreStudioRemoteAudioPolicy:()=>{},listRemoteCameraOriginals:async()=>[]},
     '@/features/studio/remoteCameraPairing':pairing,
     '@/features/live/transport':{reserveNativeCaptureForStudioCamera:()=>{calls.push({action:'reserve-camera'});return {current:()=>true,release:()=>{}};}},
     '@/features/studio/StudioCaptureAudio':{useStudioCaptureAudioMonitor:()=>({status:'idle',input:null,channels:[],onAudioMonitor:()=>{}})},
     '@/features/studio/StudioRemoteCameraMonitor':{StudioRemoteCameraMonitor:'remote-monitor'},
+    '@/features/studio/StudioRemoteLocalTakes':{StudioRemoteLocalTakes:'local-takes'},
     '../../modules/classfy-studio-media':{isStudioRemoteCameraAvailable:()=>true,isStudioNativeCameraAudioMonitorAvailable:()=>true},
     '@/theme/colors':{colors:{text:'#fff',accent:'#f06',muted:'#aaa',border:'#333'}},
   },globals).default;

@@ -50,6 +50,30 @@ test('atualização do iPhone recupera arquivos após mudança do container, pre
   assert.equal(rebaseStudioProject(project(), 'file:///new/Documents/').takes[0].uri, 'file:///a.mp4');
 });
 
+test('original remoto referenciado conserva identidade, receita e exportação após mudança do container', () => {
+  const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',session='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',id='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  for(const name of [`${id}.mov`,`${id}-2k.mov`,`${id}-grade-12345678.mp4`]){
+    const uri=`file:///old/Documents/classfy-studio-remote/${owner}/${session}/${name}`;
+    const raw=project({version:1,id:'project',ownerId:owner,kind:'aula',takes:[{...take(id,777),uri,width:3840,height:2160,frameRate:30,grade:{preset:'cinematic',intensity:0.5,exposure:0,contrast:0,saturation:0,temperature:0}}]});
+    const migrated=migrateStudioProject(raw),signature=timelineSignature(migrated);
+    migrated.exportedSignature=signature;migrated.uploadSignature=signature;
+    const relocated=rebaseStudioProject(migrated,'file:///new/Documents/');
+    assert.equal(relocated.takes[0].uri,uri.replace('/old/','/new/'));
+    assert.equal(timelineSignature(relocated),signature);assert.equal(relocated.exportedSignature,signature);assert.equal(relocated.uploadSignature,signature);
+    assert.equal(migrateStudioProject({...raw,takes:[{...raw.takes[0],uri:relocated.takes[0].uri}]}).editing.assets[0].id,migrated.editing.assets[0].id);
+    assert.equal(compileStudioRecipe(relocated).durationTicks,studioTicks(777));
+  }
+});
+
+test('rebase remoto rejeita outro dono, arquivo externo, sessão inválida e traversal',()=>{
+  const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',session='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',id='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const root=`file:///old/Documents/classfy-studio-remote/${owner}/${session}/`;
+  for(const uri of [`${root}${id}.mov`.replace(owner,session),`${root}../${id}.mov`,`${root}${id}.mov?token=private`,`${root}${id}-grade-private.mp4`,`${root}${id}.mov`.replace(session,'external'),'file:///external.mov','https://host.invalid/Documents/classfy-studio-remote/'+owner+'/'+session+'/'+id+'.mov']){
+    const p=project({ownerId:owner,id:'project',takes:[{...take(id,10),uri}]});
+    assert.equal(rebaseStudioProject(p,'file:///new/Documents/').takes[0].uri,uri);
+  }
+});
+
 function trackFixture() {
   const t = studioTicks;
   const editing = emptyStudioEditing('aula');

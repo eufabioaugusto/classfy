@@ -3,12 +3,20 @@ import * as FileSystem from 'expo-file-system/legacy';
 import type { StudioRemoteMetadata,StudioRemoteConfiguration } from './remoteCameraProtocol';
 
 export type RemoteTakeJournal = { id: string; uri: string; phase:'reserved'|'recording'|'local_ready'|'uploading'|'uploaded'|'error';
+  localSaved?:boolean;
   sourceUri?:string;sourceMetadata?:StudioRemoteMetadata;imageGrade?:StudioRemoteConfiguration['imageGrade'];gradeSignature?:string;
   metadata?:StudioRemoteMetadata; projectId?:string; localTakeId?:string; tusUrl?:string; partUrls?:Record<string,string>; error?:string; startedAtServerMs?:number };
 export type RemoteCameraJournal = {version:1;owner:string;sessionId:string;deviceId:string;projectId?:string;sequence:number;receipts:Record<string,Record<string,unknown>>;takes:RemoteTakeJournal[]};
 const queue=new Map<string,Promise<unknown>>();
 const key=(owner:string,id:string)=>`classfy:remote-camera:v1:${owner}:${id}`;
 const uuid=(value:string)=>/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
+export async function readRemoteCameraJournals(owner:string,deviceId:string):Promise<RemoteCameraJournal[]> {
+  if(!uuid(owner)||!uuid(deviceId))throw new Error('A conta local não foi confirmada.');
+  const prefix=`classfy:remote-camera:v1:${owner}:`,keys=await AsyncStorage.getAllKeys(),journals:RemoteCameraJournal[]=[];
+  for(const value of keys){if(!value.startsWith(prefix)||!uuid(value.slice(prefix.length)))continue;
+    try{journals.push(await readRemoteCameraJournal(owner,value.slice(prefix.length),deviceId));}catch{/* A malformed journal cannot expose another account's media. */}}
+  return journals;
+}
 export function remoteMasterUri(owner:string,session:string,take:string) {
   if(![owner,session,take].every(uuid)||!FileSystem.documentDirectory) throw new Error('A identificação do original não é válida.');
   return `${FileSystem.documentDirectory}classfy-studio-remote/${owner}/${session}/${take}.mov`;
@@ -30,9 +38,10 @@ export async function readRemoteCameraJournal(owner:string,id:string,deviceId:st
     const graded=new RegExp(`^${take.id}-grade-[a-f0-9]{8,64}\\.mp4$`,'i');
     if(!uri.startsWith(prefix)||!(clean.test(uri.slice(prefix.length))||graded.test(uri.slice(prefix.length)))) throw new Error('Um original está fora desta conexão.');
     if(sourceUri&&(!sourceUri.startsWith(prefix)||!clean.test(sourceUri.slice(prefix.length))))throw new Error('A fonte deste take está fora da conexão.');
-    const m=take.metadata;
+    for(const m of [take.metadata,take.sourceMetadata]){
     if(m&&(!Number.isSafeInteger(m.bytes)||m.bytes<=0||!['video/quicktime','video/mp4'].includes(m.mime)||![m.width,m.height].every(value=>Number.isSafeInteger(value)&&value>0&&value<=7680)
       ||!Number.isFinite(m.fps)||m.fps<1||m.fps>120||!Number.isFinite(m.duration)||m.duration<=0||m.duration>86400))throw new Error('Os metadados deste original precisam de recuperação.');
+    }
     return {...take,uri,...(sourceUri?{sourceUri}:{})};
   })};
 }

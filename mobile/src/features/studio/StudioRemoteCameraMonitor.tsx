@@ -13,14 +13,14 @@ import { remoteCameraAudioInputSelected, remoteCameraAudioInputState, remoteCame
 type Props = {
   children: ReactNode; state: RemoteCameraSnapshot; audio: StudioCaptureAudioMonitorProps; active: boolean;
   captureScope: string; elapsed: number; error?: string | null; canUnpair: boolean;
-  onClose(): void; onStop(): void; onUpload(): void; onReconnect(): void; onUnpair(): void;
+  onClose(): void; onStop(): void; onUpload(): void; onReconnect(): void; onUnpair(): void;onLocalTakes?():void;
   onFocus(point: RemoteCameraFocusPoint): Promise<unknown>; onFocusError(message: string): void;
   onAudioSelect?(id: string | null): Promise<StudioAudioInputState>;
 };
 
 /** Camera-first monitor: only status, metering and REC remain over the scene. */
 export function StudioRemoteCameraMonitor({ children, state, audio, active, captureScope, elapsed, error, canUnpair,
-  onClose, onStop, onUpload, onReconnect, onUnpair, onFocus, onFocusError, onAudioSelect }: Props) {
+  onClose, onStop, onUpload, onReconnect, onUnpair, onLocalTakes, onFocus, onFocusError, onAudioSelect }: Props) {
   const window = useWindowDimensions(), insets = useSafeAreaInsets();
   const [size, setSize] = useState({ width: window.width, height: window.height });
   const [menu, setMenu] = useState(false), [reticle, setReticle] = useState<RemoteCameraFocusPoint | null>(null);
@@ -86,7 +86,7 @@ export function StudioRemoteCameraMonitor({ children, state, audio, active, capt
   const transfer = state.processing ? `${state.processingStage === 'validating' ? 'Conferindo original' : 'Preparando take'} · ${processingPercent}%`
     : state.uploading ? `Enviando original · ${percent}%`
     : state.uploadState === 'paused' ? 'Envio pausado · original preservado'
-      : state.uploadState === 'complete' ? 'Original enviado' : null;
+      : state.uploadState === 'complete' ? 'Original enviado' : state.localTakes?.length ? 'Take salvo neste iPhone · envio opcional' : null;
   const needsUpload = state.uploadState === 'paused' || !!state.uploadPendingCount;
   const audioDescription = [`Microfone: ${audio.input?.name || audioInputs?.current?.name || 'Entrada de áudio'}`,
     audio.status === 'live' ? 'Entrada ativa' : audio.status === 'waiting' ? 'Aguardando áudio' : audio.status === 'interrupted' ? 'Áudio interrompido' : 'Monitor indisponível',
@@ -155,6 +155,7 @@ export function StudioRemoteCameraMonitor({ children, state, audio, active, capt
             {!!error && <Text accessibilityLiveRegion="polite" style={styles.sheetError}>{error}</Text>}
             {!!transfer && <View style={styles.transferDetail}><Text style={styles.sheetDetail}>{transfer}</Text>{state.uploading && <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${percent}%` }]} /></View>}</View>}
             <Text style={styles.sheetDetail}>O Studio no computador controla a gravação.{canFocus ? ` Você também pode tocar na imagem para focar${canLockFocus ? '; segure para travar o foco' : ''}.` : ''}</Text>
+            {onLocalTakes&&<MonitorAction icon={<Check size={20} color="#A6E0C0"/>} label="Takes neste iPhone · compartilhar original" onPress={()=>{setMenu(false);onLocalTakes();}}/>}
             <MonitorAction icon={<CloudUpload size={20} color="#fff" />} label={state.uploading ? `Enviando original · ${percent}%` : needsUpload ? 'Retomar envio' : state.uploadState === 'complete' ? 'Original enviado' : 'Enviar original'}
               disabled={state.uploading || !state.takeCount || state.uploadState === 'complete' && !state.uploadPendingCount} onPress={onUpload} />
             <MonitorAction icon={<RotateCw size={20} color="#fff" />} label="Reconectar prévia" onPress={() => { setMenu(false); onReconnect(); }} />
