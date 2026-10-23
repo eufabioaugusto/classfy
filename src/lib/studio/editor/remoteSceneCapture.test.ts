@@ -55,6 +55,15 @@ function fixture() {
   return { controller, base, ack, saves, store, local, sceneFactory, preview, rawStream, recover, result, state: () => state, disposeBuffer, screenTrack, envelope, builtin, usb, remoteEvent: (session: Record<string, unknown>) => { if (session.id === envelope.session.id) Object.assign(envelope.session, session); remoteListeners.forEach(listener => listener({ connection: 'connected', session: session.id === envelope.session.id ? envelope.session : session })); } };
 }
 describe('cenas remotas preservam RAW e nunca promovem preview a4K', () => {
+  it('STOP local preserva câmera+tela sem envio; montar exige uma segunda ação explícita', async () => {
+    const h = fixture(); h.envelope.session.deviceState!.capabilities!.localTakeStorage = 1;
+    h.base.finishLocalTake = vi.fn(async () => ({ id: 'take', localSaved: true, phase: 'local_ready' as const, metadata: null }));
+    h.base.receiveRemoteTake = vi.fn(async () => ({ file: new File(['native4k'], 'native.mp4'), take: { id: 'take' }, session: h.envelope.session, metadata: { width: 3840, height: 2160 } }) as any);
+    await h.controller.prepare(); await h.controller.prepareScreen!(); h.ack.resolve({ takeId: 'take', startedAtServerMs: 100000, result: {} }); await h.controller.remoteStart();
+    await expect(h.controller.stop()).rejects.toThrow('Fontes salvas');
+    expect(h.saves.at(-1)).toMatchObject({ status: 'recoverable', screenFile: expect.anything() }); expect(h.base.finishLocalTake).toHaveBeenCalledOnce(); expect(h.base.receiveRemoteTake).not.toHaveBeenCalled(); expect(h.base.remoteStop).not.toHaveBeenCalled(); expect(h.recover).not.toHaveBeenCalled();
+    expect(await h.controller.stop()).toBe(h.result); expect(h.base.receiveRemoteTake).toHaveBeenCalledWith('take'); expect(h.base.remoteStart).toHaveBeenCalledOnce(); expect(h.saves.at(-1)).toMatchObject({ cameraFile: expect.anything(), screenFile: expect.anything() });
+  });
   it('UIDs nativos têm namespace próprio, Auto não colide e a lista reúne entradas reais de ambos aparelhos', async () => {
     for (const uid of ['auto', 'USB-Audio:1/2%']) expect(studioRemoteMicrophoneUID(studioRemoteMicrophoneId(uid))).toBe(uid);
     expect(studioRemoteMicrophoneUID(studioRemoteMicrophoneId(null))).toBeNull(); expect(studioRemoteMicrophoneUID('mac-usb')).toBeUndefined(); expect(() => studioRemoteMicrophoneUID('remote-iphone:input:%xx')).toThrow('disponível');
