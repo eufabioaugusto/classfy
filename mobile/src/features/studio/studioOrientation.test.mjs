@@ -18,7 +18,7 @@ function production(file, dependencies, globals) {
 // UIKit's rotation receipt, window, React/focus, AppState and time are boundaries.
 // No camera, navigation, device setting or server is changed by this harness.
 function harness() {
-  const contexts = new Map(), timers = new Map(), locks = [], orientationListeners = new Set(), dimensionListeners = new Set(), appListeners = new Set();
+  const contexts = new Map(), timers = new Map(), locks = [], orientationListeners = new Set(), dimensionListeners = new Set(), appListeners = new Set(), diagnostics=[];
   let now = 1000, timerId = 0, dirty = false, effects = [], currentContext;
   let orientation = 3, dimensions = { width: 844, height: 390 }, lockBehavior = async () => {}, readBehavior;
   const app = { currentState: 'active', addEventListener: (_name, callback) => { appListeners.add(callback); return { remove: () => appListeners.delete(callback) }; } };
@@ -46,6 +46,7 @@ function harness() {
     },
   };
   const globals = {
+    console:{info:(_label,value)=>diagnostics.push(structuredClone(value))},
     Date: class extends Date { static now() { return now; } },
     setTimeout: (callback, delay = 0) => { const id = ++timerId; timers.set(id, { callback, at: now + delay }); return id; },
     clearTimeout: id => timers.delete(id),
@@ -113,7 +114,7 @@ function harness() {
       },
     };
   }
-  return { mount, locks, geometry, advance, flush, manager, settle, globals,
+  return { mount, locks, geometry, advance, flush, manager, settle, globals, diagnostics,
     lockBehavior: value => { lockBehavior = value; }, readBehavior: value => { readBehavior = value; },
     async appState(value) { app.currentState = value; for (const listener of appListeners) listener(value); await flush(); },
     counts: () => ({ timers: timers.size, orientation: orientationListeners.size, dimensions: dimensionListeners.size, app: appListeners.size }),
@@ -219,6 +220,23 @@ test('nova apresentação e novo foco não herdam ready ou resposta da câmera a
   h.geometry('landscape'); await h.advance(120); assert.equal(second.value().orientationReady, true);
   await camera.unmount(); assert.equal(h.locks.at(-1), 'landscape');
   await second.unmount(); await h.flush(); assert.equal(h.locks.at(-1), 'portrait');
+});
+
+test('retry explícito recupera enquadramento falho e compartilha operação até interface e janela confirmarem', async () => {
+  const h=harness();h.lockBehavior(async()=>{throw Object.assign(Error('private://omitido'),{code:'ERR_ORIENTATION',name:'OrientationError'});});
+  const camera=h.mount();await h.flush();assert.equal(camera.value().orientationReady,false);assert.match(camera.value().orientationError,/Tente novamente/);
+  assert.deepEqual(h.diagnostics[0],{phase:'entry',requestedMask:'LANDSCAPE',outcome:'failed',before:{interfaceOrientation:3,width:844,height:390},after:{interfaceOrientation:0,width:844,height:390},failure:{name:'OrientationError',code:'ERR_ORIENTATION'}});assert.equal(JSON.stringify(h.diagnostics).includes('private'),false);
+  h.lockBehavior(async()=>{});const first=camera.value().retryOrientation(),second=camera.value().retryOrientation();assert.equal(first,second);await h.flush();
+  h.geometry('portrait',{interfaceChanged:false});await h.advance(240);assert.equal(camera.value().orientationReady,false);
+  h.geometry('landscape');await h.advance(120);assert.equal(await first,true);assert.equal(camera.value().orientationReady,true);assert.equal(camera.value().orientationError,null);
+  await camera.update({focused:false});const locks=h.locks.length;assert.equal(await camera.value().retryOrientation(),false);assert.equal(h.locks.length,locks);await camera.unmount();
+});
+
+test('retry antigo não libera câmera após blur e foco de outra apresentação',async()=>{
+  const h=harness(),camera=h.mount();await h.advance(120);let release;h.lockBehavior(()=>new Promise(resolve=>{release=resolve;}));
+  const retry=camera.value().retryOrientation();await h.flush();await camera.update({focused:false});assert.equal(await retry,false);
+  h.lockBehavior(async()=>{});const editor=h.mount('editor',{presentation:'editor'});release();h.geometry('portrait');await h.advance(120);
+  assert.equal(camera.value().orientationReady,false);assert.equal(editor.value().orientationReady,true);await camera.unmount();await editor.unmount();
 });
 
 test('late ACK após timeout reafirma o foco atual e não certifica a operação expirada', async () => {

@@ -43,11 +43,13 @@ export default function StudioRemoteCameraScreen(){
     await current?.dispose();if(lease?.current()){restoreStudioRemoteAudioPolicy();lease.release();}if(captureLease.current===lease)captureLease.current=null;}
   if(lifecycle.current.owner!==user?.id||lifecycle.current.focused!==focused||lifecycle.current.foreground!==foreground)lifecycle.current.epoch++;
   lifecycle.current.owner=user?.id;lifecycle.current.focused=focused;lifecycle.current.foreground=foreground;
-  const {orientationReady,orientationError,prepareForExit}=useStudioOrientation(connected?state.session?.kind:undefined,connected);
+  const {orientationReady,orientationError,retryOrientation,prepareForExit}=useStudioOrientation(connected?state.session?.kind:undefined,connected);
+  const orientationRetried=useRef(false);
   const cameraActive=connected&&focused&&foreground&&!leaving&&orientationReady;
   const audioMonitor=useStudioCaptureAudioMonitor({active:cameraActive,available:isStudioNativeCameraAudioMonitorAvailable(),scopeKey:`${user?.id}:${state.session?.id}`,generation:typeof state.state?.generation==='number'?state.state.generation:undefined});
   const audioRef=useRef(audioMonitor);audioRef.current=audioMonitor;
   const isRecording=state.phase==='starting'||state.phase==='recording'||state.phase==='saving';
+  useEffect(()=>{if(!connected){orientationRetried.current=false;return;}if(orientationError&&!orientationReady&&!isRecording&&!orientationRetried.current){orientationRetried.current=true;void retryOrientation();}},[connected,orientationError,orientationReady,isRecording,retryOrientation]);
   async function refreshLocalTakes(){const owner=user?.id;if(!owner)return;try{const device=await remoteCameraDeviceId(owner),takes=await listRemoteCameraOriginals(owner,device);
     if(lifecycle.current.mounted&&lifecycle.current.owner===owner)setLocalTakes(takes);
   }catch(cause){if(lifecycle.current.owner===owner)setLocalError(cause instanceof Error?cause.message:'Não foi possível listar os originais.');}}
@@ -136,7 +138,7 @@ export default function StudioRemoteCameraScreen(){
     onClose={()=>void leave()} onStop={()=>void controller.current?.stopLocal().catch(cause=>setFailure(cause.message))}
     onUpload={()=>{setFailure('');void controller.current?.retryUploads().catch(cause=>setFailure(cause.message));}}
     onLocalTakes={openLocalTakes}
-    onReconnect={()=>{setFailure('');void controller.current?.reconnectPreview().catch(cause=>setFailure(cause.message));}}
+    onReconnect={()=>{setFailure('');if(!orientationReady&&!isRecording){void retryOrientation();return;}void controller.current?.reconnectPreview().catch(cause=>setFailure(cause.message));}}
     onUnpair={()=>setConfirmUnpair(true)} onFocus={async point=>{
       const current=controller.current;if(!current)throw new Error('Aguarde a câmera preparar o foco.');return current.focusLocal(point);
     }} onFocusError={setFailure} onAudioSelect={async inputId=>{
@@ -167,6 +169,7 @@ export default function StudioRemoteCameraScreen(){
       {error?<Text accessibilityLiveRegion="polite" style={s.error}>{error}</Text>:null}
       <Text style={s.hint}>{state.phase==='unpaired'?'Leia o QR para vincular este iPhone ao computador. Seus originais continuam preservados.':'O vínculo fica salvo na sua conta. Fechar a câmera pausa a sessão; desvincular exige um novo QR.'}</Text>
     </View></AppScreen>}
+    {connected&&orientationError&&!orientationReady&&!isRecording&&<View style={s.orientationRecovery}><Text style={s.hint}>Prepare o enquadramento para abrir a câmera.</Text><StudioButton label="Preparar enquadramento" onPress={()=>{setFailure('');void retryOrientation();}}/></View>}
     <StudioRemoteLocalTakes visible={localMenu&&!isRecording} takes={localTakes} sharing={sharing} error={localError} onClose={()=>setLocalMenu(false)} onShare={take=>void shareOriginal(take)}/>
     <Modal transparent visible={confirmUnpair} animationType="fade" presentationStyle="overFullScreen" supportedOrientations={['portrait','landscape-left','landscape-right']} onRequestClose={()=>{if(!unpairing)setConfirmUnpair(false);}}>
       <View style={s.dialogBackdrop}><View accessibilityViewIsModal style={s.dialog}>
@@ -178,4 +181,4 @@ export default function StudioRemoteCameraScreen(){
     </Modal>
   </StudioAccess>;
 }
-const s=StyleSheet.create({setup:{padding:24,gap:18,flex:1,justifyContent:'center'},icon:{alignSelf:'flex-start',padding:16,borderRadius:24,backgroundColor:'#291420'},title:{color:colors.text,fontSize:28,fontWeight:'600'},hint:{color:colors.muted,fontSize:13,lineHeight:20},input:{minHeight:52,borderRadius:14,borderWidth:1,borderColor:colors.border,color:colors.text,padding:14},error:{color:'#FFA1AE',fontSize:13,lineHeight:18},scanner:{height:300,borderRadius:20,overflow:'hidden',justifyContent:'flex-end'},camera:{...StyleSheet.absoluteFillObject},close:{width:44,height:44,alignItems:'center',justifyContent:'center',backgroundColor:'#181818DD',borderRadius:22},actions:{flexDirection:'row',gap:10},dialogBackdrop:{flex:1,backgroundColor:'#000B',justifyContent:'center',alignItems:'center',padding:24},dialog:{width:'100%',maxWidth:480,backgroundColor:'#141416',borderColor:colors.border,borderWidth:1,borderRadius:24,padding:24,gap:20},dialogHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:12},dialogTitle:{fontSize:22,fontWeight:'600',color:colors.text,flex:1}});
+const s=StyleSheet.create({setup:{padding:24,gap:18,flex:1,justifyContent:'center'},orientationRecovery:{position:'absolute',top:'35%',alignSelf:'center',width:'85%',maxWidth:340,padding:20,gap:16,borderRadius:20,backgroundColor:'#141416'},icon:{alignSelf:'flex-start',padding:16,borderRadius:24,backgroundColor:'#291420'},title:{color:colors.text,fontSize:28,fontWeight:'600'},hint:{color:colors.muted,fontSize:13,lineHeight:20},input:{minHeight:52,borderRadius:14,borderWidth:1,borderColor:colors.border,color:colors.text,padding:14},error:{color:'#FFA1AE',fontSize:13,lineHeight:18},scanner:{height:300,borderRadius:20,overflow:'hidden',justifyContent:'flex-end'},camera:{...StyleSheet.absoluteFillObject},close:{width:44,height:44,alignItems:'center',justifyContent:'center',backgroundColor:'#181818DD',borderRadius:22},actions:{flexDirection:'row',gap:10},dialogBackdrop:{flex:1,backgroundColor:'#000B',justifyContent:'center',alignItems:'center',padding:24},dialog:{width:'100%',maxWidth:480,backgroundColor:'#141416',borderColor:colors.border,borderWidth:1,borderRadius:24,padding:24,gap:20},dialogHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:12},dialogTitle:{fontSize:22,fontWeight:'600',color:colors.text,flex:1}});

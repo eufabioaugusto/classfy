@@ -12,7 +12,8 @@ function load(file,dependencies,globals={}){
 // Exercise the real route/controller/pairing persistence with controlled OS/network boundaries.
 function harness(options={}){
   const slots=[],calls=[],timers=new Map(),listeners=new Set(),data=new Map();
-  let cursor=0,dirty=true,effects=[],tree,focused=options.focused!==false,time=0,timerId=0,account=owner,permission=options.permissions!==false;
+  let cursor=0,dirty=true,effects=[],tree,focused=options.focused!==false,time=0,timerId=0,account=owner,permission=options.permissions!==false,orientationFailed=options.orientationFailure===true;
+  const retryFraming=async()=>{calls.push({action:'retry-orientation'});if(options.orientationRetriesBeforeReady&&calls.filter(call=>call.action==='retry-orientation').length>=options.orientationRetriesBeforeReady){orientationFailed=false;dirty=true;}return!orientationFailed;};
   const session={id:sessionId,ownerId:owner,controllerId:browser,deviceId:device,kind:'aula',status:'ready',configuration:{resolution:'4k',fps:30,cameraFacing:'back'}};
   if(options.saved!==false){data.set(`classfy:remote-camera:last:${owner}`,sessionId);data.set(`classfy:remote-camera:browser:${owner}`,browser);}
   const appState={currentState:'active',addEventListener:(_name,callback)=>{listeners.add(callback);return {remove:()=>listeners.delete(callback)};}};
@@ -51,7 +52,7 @@ function harness(options={}){
     'expo-keep-awake':{activateKeepAwakeAsync:async()=>{},deactivateKeepAwake:async()=>{}},
     '@/components/AppScreen':{AppScreen:'screen'},'@/components/NavigationHeader':{NavigationHeader:'header'},
     '@/features/auth/authContext':{useAuth:()=>({user:{id:account}})},
-    '@/features/studio/useStudioOrientation':{useStudioOrientation:()=>({orientationReady:true,prepareForExit:async()=>true})},
+    '@/features/studio/useStudioOrientation':{useStudioOrientation:()=>({orientationReady:!orientationFailed,orientationError:orientationFailed?'Não foi possível ajustar a tela. Tente novamente.':null,retryOrientation:retryFraming,prepareForExit:async()=>true})},
     '@/features/studio/StudioUI':{StudioAccess:'access',StudioButton:'studio-button'},
     '@/features/studio/remoteCameraApi':{readRemotePairingCode:value=>value},
     '@/features/studio/remoteCameraRuntime':{createRemoteCameraRuntime:runtime,createRemoteNativePort:()=>({port:nativePort,onRecordingState:()=>{}}),remoteCameraDeviceId:async()=>device,restoreStudioRemoteAudioPolicy:()=>{},listRemoteCameraOriginals:async()=>[]},
@@ -80,6 +81,18 @@ test('rota com vínculo abre câmera sem QR; fechar explicitamente impede reaber
     assert.equal(h.calls.filter(call=>call.action==='join').length,0);assert.equal(h.nodes('native-camera').length,1);
     await h.close();await h.app('background');await h.app('active');await h.advance(10_000);
     assert.equal(h.calls.filter(call=>call.action==='connect').length,1);assert.equal(h.nodes('native-camera').length,0);
+  }finally{h.unmount();}
+});
+test('falha inicial de enquadramento refaz preparo uma vez sem novo QR, API duplicada ou REC',async()=>{
+  const h=harness({orientationFailure:true,orientationRetriesBeforeReady:1});try{await h.pump();await h.advance(0);
+    assert.equal(h.calls.filter(call=>call.action==='retry-orientation').length,1);assert.equal(h.calls.filter(call=>call.action==='connect').length,1);assert.equal(h.nodes('native-camera').length,1);
+    assert.equal(h.calls.filter(call=>call.action==='native-preview').length,0);
+  }finally{h.unmount();}
+});
+test('falha persistente mantém câmera protegida e botão de enquadramento repete preparo real',async()=>{
+  const h=harness({orientationFailure:true,orientationRetriesBeforeReady:2});try{await h.pump();await h.advance(0);
+    assert.equal(h.calls.filter(call=>call.action==='retry-orientation').length,1);assert.equal(h.nodes('native-camera').length,0);
+    await h.press('Preparar enquadramento');assert.equal(h.calls.filter(call=>call.action==='retry-orientation').length,2);assert.equal(h.nodes('native-camera').length,1);assert.equal(h.calls.filter(call=>call.action==='connect').length,1);
   }finally{h.unmount();}
 });
 test('câmera ativa consulta comandos em 300ms e cancela timer ao perder foco ou foreground',async()=>{
