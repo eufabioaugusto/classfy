@@ -9,6 +9,7 @@ import type { StudioCaptureState } from '@/lib/studio/editor/capture';
 import * as videoProcessing from '@/lib/studio/editor/captureVideo';
 import * as remoteSceneRecovery from '@/lib/studio/editor/remoteSceneRecovery';
 import type { StudioRemoteCaptureController, StudioRemoteView } from '@/lib/studio/editor/remoteCameraCapture';
+import { createStudioRecordingSession } from '@/lib/studio/editor/recording';
 import { readStudioRecordingSelection, saveStudioRecordingSelection } from '@/lib/studio/editor/recordingSetupPreferences';
 
 const io = vi.hoisted(() => ({ inspect: vi.fn(), create: vi.fn(), get: vi.fn(), save: vi.fn(), put: vi.fn(), asset: vi.fn() }));
@@ -144,6 +145,30 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('funil de gravação com componente, captura e sessão reais', () => {
+  it('importa original recebido com iPhone offline e catálogo vazio sem ativar câmera e preserva take de31s', async () => {
+    const previousFile = new File(['original-already-saved'], 'Take anterior.mp4', { type: 'video/mp4' });
+    io.inspect.mockResolvedValueOnce({ kind: 'video', duration: 31, hasAudio: true, width: 1920, height: 1080, frameRate: 30, mimeType: previousFile.type, warnings: [] });
+    const previousSession = createStudioRecordingSession({ owner, kind: 'aula', title: 'Minha gravação' });
+    const previous = await previousSession.append(previousFile), previousAsset = previous.takes[0].assetId!;
+    saveStudioRecordingSelection(owner, { kind: 'aula', mode: 'remote', remoteScenes: false }, previous.id);
+    const prepare = vi.fn(), start = vi.fn(), reconnect = vi.fn();
+    remoteIO.create.mockImplementation(() => {
+      const state: StudioCaptureState = { phase: 'idle', stream: null, file: null, error: null, elapsed: 0, input: null, camera: null, devices: { cameras: [], microphones: [] }, levels: [], microphoneEnabled: true };
+      const remote: StudioRemoteView = { pairing: null, connection: 'idle', session: null, transfer: 'idle', pendingTakeId: null, error: null, localFirst: false, localTakes: [] };
+      return { subscribe(listener) { listener(state); return () => {}; }, subscribeRemote(listener) { listener(remote); return () => {}; }, prepare, start, reconnect, getEnvelope: () => null, cancel() {}, dispose() {}, getMicrophoneTrack: () => null } as unknown as StudioRemoteCaptureController;
+    });
+    await act(async () => root.render(<MemoryRouter><StudioRecordingWorkspace owner={owner} projectId={previous.id} canUseScenes /></MemoryRouter>));
+    expect(button('Importar original recebido')?.disabled).toBe(false); expect(host.textContent).toContain('Importe um original recebido do iPhone');
+    const received = new File(['original-received-offline'], 'AirDrop original.mov', { type: 'video/quicktime' });
+    io.inspect.mockResolvedValueOnce({ kind: 'video', duration: 777, hasAudio: true, width: 3840, height: 2160, frameRate: 30, mimeType: received.type, warnings: [] });
+    await click('Importar original recebido');
+    const picker = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    await act(async () => { Object.defineProperty(picker, 'files', { configurable: true, value: [received] }); picker.dispatchEvent(new Event('change', { bubbles: true })); });
+    const saved = projects.get(key(owner, previous.id))!;
+    expect(saved.takes).toHaveLength(2); expect(saved.takes[0]).toMatchObject({ assetId: previousAsset, duration: 31 }); expect(saved.takes[1]).toMatchObject({ duration: 777, width: 3840, height: 2160 });
+    expect(assets.get(key(owner, previous.id, previousAsset))).toBe(previousFile); expect(assets.get(key(owner, previous.id, saved.takes[1].assetId!))).toBe(received);
+    expect(io.create).toHaveBeenCalledOnce(); expect(prepare).not.toHaveBeenCalled(); expect(start).not.toHaveBeenCalled(); expect(reconnect).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
+  });
   it('STOP local mantém câmera, novo REC sobrevive ao recebimento anterior e AirDrop adiciona outro take sem substituir', async () => {
     const firstId = '50000000-0000-4000-8000-000000000001', secondId = '50000000-0000-4000-8000-000000000002';
     const file = new File(['phone-original'], 'iPhone.mp4', { type: 'video/mp4' }), receiving = deferred<any>();

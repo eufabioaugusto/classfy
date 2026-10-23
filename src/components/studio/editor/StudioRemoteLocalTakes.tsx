@@ -12,7 +12,7 @@ export function StudioRemoteLocalTakes({ state, savedIds, savingId, disabled, re
   const label = (take: StudioRemoteLocalTakeView) => savedIds.has(take.id) ? 'Salvo no computador' : savingId === take.id ? 'Salvando no computador…' : state.transferTakeId === take.id && active ? state.transfer === 'downloading' ? 'Recebendo original…' : state.transfer === 'validating' ? 'Conferindo original…' : 'Enviando ao computador…' : take.phase === 'uploaded' ? 'Disponível para receber' : take.phase === 'uploading' ? 'Envio em andamento no iPhone' : take.phase === 'preparing' ? 'Preparando envio no iPhone' : take.localSaved ? 'Salvo no iPhone' : 'Envio pendente';
   return <section className="se-recording-phone-takes" aria-label="Originais do iPhone">
     <header><div><Smartphone size={16} /><strong>Originais do iPhone</strong><span>{takes.length}</span></div><button disabled={disabled || !!savingId} onClick={() => onImport()}><Download size={14} />Importar original recebido</button></header>
-    <p>A gravação fica salva no iPhone. Envie quando quiser ou compartilhe por AirDrop no app.</p>
+    <p>Importe um original recebido do iPhone ou escolha um take para enviar.</p>
     {!!takes.length && <div className="se-recording-phone-takes-list">{takes.map((take, index) => {
       const sending = state.transferTakeId === take.id && active, saved = savedIds.has(take.id), archived = !!take.sessionId && !!state.session && take.sessionId !== state.session.id;
       const progress = sending && state.transferTotalBytes && Number.isFinite(state.transferBytes) ? Math.min(100, Math.floor(state.transferBytes! / state.transferTotalBytes * 100)) : null;
