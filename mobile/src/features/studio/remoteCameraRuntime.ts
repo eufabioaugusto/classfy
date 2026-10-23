@@ -39,14 +39,17 @@ export const remoteDeviceState=(state:StudioCameraState,configuration?:StudioRem
 });
 export async function remoteCameraDeviceId(owner:string){const key=`classfy:remote-camera:device:${owner}`;let id=await AsyncStorage.getItem(key);if(!id){id=randomUUID();await AsyncStorage.setItem(key,id);}return id;}
 export type RemoteNativeEvent={phase:string;operationId:string;startedAtEpochMs?:number;recoveryUri?:string;error?:string};
-export type RemoteCameraLocalOriginal={sessionId:string;id:string;metadata:NonNullable<RemoteTakeJournal['sourceMetadata']>;phase:RemoteTakeJournal['phase'];available:boolean;error?:string};
+export type RemoteCameraLocalOriginal={sessionId:string;id:string;metadata:NonNullable<RemoteTakeJournal['sourceMetadata']>;phase:RemoteTakeJournal['phase'];available:boolean;inProject:boolean;projectTitle?:string;error?:string};
 export async function listRemoteCameraOriginals(owner:string,deviceId:string):Promise<RemoteCameraLocalOriginal[]>{
+  await loadStudioProjects(owner);
   const result:RemoteCameraLocalOriginal[]=[];
   for(const journal of await readRemoteCameraJournals(owner,deviceId))for(const take of journal.takes){
     const metadata=take.sourceMetadata||take.metadata;if(!metadata)continue;
     const file=await FileSystem.getInfoAsync(take.sourceUri||take.uri).catch(()=>({exists:false}));
     const available=file.exists&&(!('size'in file)||Number(file.size)>0);
-    result.push({sessionId:journal.sessionId,id:take.id,metadata,phase:take.phase,available,...(!available?{error:'O arquivo original não foi encontrado neste iPhone.'}:take.error?{error:take.error.replace('Esta operação de live foi cancelada.','A transferência foi pausada. O original permanece neste iPhone.').replace(/(?:https?|wss?|file):\/\/\S+|Bearer\s+\S+/gi,'[dado privado omitido]').slice(0,300)}:{})});
+    const projectId=take.projectId||journal.projectId,project=projectId?getStudioProject(owner,projectId):undefined;
+    const inProject=project?.takes.some(value=>value.id===(take.localTakeId||take.id))===true;
+    result.push({sessionId:journal.sessionId,id:take.id,metadata,phase:take.phase,available,inProject,...(inProject?{projectTitle:project!.title.trim()||'Projeto sem título'}:{}),...(!available?{error:'O arquivo original não foi encontrado neste iPhone.'}:take.error?{error:take.error.replace('Esta operação de live foi cancelada.','A transferência foi pausada. O original permanece neste iPhone.').replace(/(?:https?|wss?|file):\/\/\S+|Bearer\s+\S+/gi,'[dado privado omitido]').slice(0,300)}:{})});
   }return result.reverse();
 }
 export function createRemoteNativePort(owner:string,session:StudioRemoteSession,getTag:()=>number|null,scope:RemoteCameraScope,getAudio?:()=>Record<string,unknown>) {

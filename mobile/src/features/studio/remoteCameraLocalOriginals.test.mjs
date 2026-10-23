@@ -6,7 +6,7 @@ import * as model from './model.ts';
 const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',session='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',device='cccccccc-cccc-4ccc-8ccc-cccccccccccc',takeId='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const otherSession='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const metadata={bytes:2747050311,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:777};
-function compile(file,deps){const code=ts.transpileModule(readFileSync(new URL(file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,module={exports:{}};
+function compile(file,deps){const code=ts.transpileModule(readFileSync(new URL(file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,module={exports:{}};
   new Function('require','module','exports',code)(name=>{if(!(name in deps))throw Error(`Unexpected dependency ${name}`);return deps[name];},module,module.exports);return module.exports;}
 function harness(){
   const disk=new Map(),files=new Map(),calls=[];let current=true,shareAction='shared',captured;
@@ -56,6 +56,21 @@ test('Share usa original intacto; cancelar mantém diário e recibos, sem export
 });
 test('remover projeto apaga apenas índice e mantém original/journal compartilhável de outra conexão',async()=>{
   const h=harness(),take=await h.saved(otherSession),saved=await h.deps().saveLocal({id:otherSession,kind:'aula'},take);
+  assert.equal((await h.client.listLocalOriginals())[0].inProject,true);
   await h.store.removeStudioProject(owner,saved.projectId);assert.equal(h.store.getStudioProject(owner,saved.projectId),undefined);
-  assert.equal((await h.client.listLocalOriginals()).length,1);assert.equal(await h.client.shareOriginal(otherSession,takeId),true);assert.equal(h.files.get(take.uri),2747050311);
+  const list=await h.client.listLocalOriginals();assert.equal(list.length,1);assert.equal(list[0].inProject,false);assert.equal(await h.client.shareOriginal(otherSession,takeId),true);assert.equal(h.files.get(take.uri),2747050311);
+});
+test('dois takes nos projetos e sete históricos aparecem em grupos distintos sem renumerar nove ativos',async()=>{
+  const h=harness(),project=await h.store.createStudioProject(owner,'aula');
+  const takes=Array.from({length:9},(_,index)=>{const id=`11111111-1111-4111-8111-${String(index).padStart(12,'0')}`,uri=h.journal.remoteMasterUri(owner,session,id);h.files.set(uri,metadata.bytes);return {id,uri,sourceUri:uri,sourceMetadata:metadata,phase:'local_ready',projectId:project.id,localTakeId:id};});
+  await h.journal.mutateRemoteCameraJournal(owner,session,device,value=>({...value,projectId:project.id,takes}));
+  await h.store.mutateStudioProject(owner,project.id,()=>({title:'Meus dois takes',takes:takes.slice(0,2).map(take=>({id:take.id,uri:take.uri,name:'Take',duration:metadata.duration,start:0,end:metadata.duration,width:3840,height:2160}))}));
+  const list=await h.client.listLocalOriginals();assert.equal(list.filter(take=>take.inProject).length,2);assert.equal(list.filter(take=>!take.inProject).length,7);
+  const jsx=(type,props)=>({type,props:props||{}}),ui=compile('./StudioRemoteLocalTakes.tsx',{'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'react-native':{ActivityIndicator:'spinner',Modal:'modal',Pressable:'button',ScrollView:'scroll',StyleSheet:{create:value=>value},Text:'text',View:'view'},'./remoteCameraMonitorLayout':{remoteCameraModalOrientations:['portrait','landscape-left','landscape-right']}});
+  const tree=ui.StudioRemoteLocalTakes({visible:true,takes:list,sharing:null,error:'',onClose(){},onShare(){}}),nodes=[];
+  const visit=value=>{if(Array.isArray(value))value.forEach(visit);else if(value&&typeof value==='object'){nodes.push(value);visit(value.props?.children);}};visit(tree);
+  const text=value=>Array.isArray(value)?value.map(text).join(''):value&&typeof value==='object'?text(value.props?.children):value??'';
+  const labels=nodes.filter(node=>node.type==='button').map(node=>node.props.accessibilityLabel||'');
+  assert.ok(nodes.some(node=>node.type==='text'&&text(node)==='Takes dos seus projetos · 2'));assert.ok(nodes.some(node=>node.type==='text'&&text(node)==='Originais recuperados · 7'));
+  assert.equal(labels.filter(label=>label.startsWith('Compartilhar take')).length,2);assert.equal(labels.filter(label=>label.startsWith('Compartilhar original recuperado')).length,7);assert.equal(labels.some(label=>label==='Compartilhar take 9'),false);
 });
