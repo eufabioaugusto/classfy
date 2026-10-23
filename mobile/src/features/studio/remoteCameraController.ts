@@ -67,6 +67,8 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
   let state:RemoteCameraSnapshot={phase:'idle',session:null,state:null,error:null,previewConnected:false,uploading:false,takeCount:0,syncUncertaintyMs:null};
   let closed=false, native:RemoteCameraNative|null=null, connection:StudioRemoteResponse['connection'], polling:Promise<void>|null=null;
   let commandWork:Promise<void>=Promise.resolve(), uploadWork:Promise<void>|null=null, bestRtt=Infinity, offset=0;
+  let previewWork:Promise<void>|null=null,previewEpoch=0;
+  const invalidatePreview=()=>{previewEpoch++;previewWork=null;};
   let nativeSettingsWork:Promise<void>=Promise.resolve(),startingNative=false;
   const liveApplied=new Map<string,Partial<StudioRemoteConfiguration>>();
   let liveConfigurationId:string|undefined;
@@ -303,13 +305,15 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       if(!browser)throw new Error('Nenhum computador vinculado foi encontrado.');
       const response=await request('unpair',{controllerId:browser});
       if(response.unpaired!==true)throw new Error('O servidor não confirmou a desvinculação.');
-      native?.setLiveConfigurationHandler?.(null);await native?.disconnect();native=null;liveApplied.clear();liveConfigurationId=undefined;connection=undefined;publish({phase:'unpaired',previewConnected:false,linkedControllerId:null,error:null});},
+      invalidatePreview();native?.setLiveConfigurationHandler?.(null);await native?.disconnect();native=null;liveApplied.clear();liveConfigurationId=undefined;connection=undefined;publish({phase:'unpaired',previewConnected:false,linkedControllerId:null,error:null});},
     async recoverLocal(sessionId:string){publish({phase:'joining',error:null});const response=await request('status',{sessionId,afterSequence:0});await recover(response.session);await uploads();publish({phase:'closed'});},
     async cameraReady(port:RemoteCameraNative){if(native||!state.session||!connection||!current())return;native=port;deviceHeartbeatAt=null;deviceHeartbeatKey=null;liveApplied.clear();liveConfigurationId=undefined;
-      const sessionId=state.session.id;
+      const sessionId=state.session.id,epoch=previewEpoch;
+      const ownsPort=()=>current()&&native===port&&state.session?.id===sessionId&&previewEpoch===epoch;
+      const checkPort=()=>{check();if(!ownsPort())throw new Error('A câmera mudou.');};
       const liveAllowed=()=>{
-        check();if(native!==port||state.session?.id!==sessionId)throw new Error('A câmera mudou.');
-        if(active||startingNative||state.uploading||state.processing||!['ready','error'].includes(state.phase)||state.session.status!=='ready')throw new Error('Aguarde o iPhone estar pronto antes de ajustar a imagem.');
+        checkPort();
+        if(active||startingNative||state.uploading||state.processing||!['ready','error'].includes(state.phase)||state.session?.status!=='ready')throw new Error('Aguarde o iPhone estar pronto antes de ajustar a imagem.');
       };
       port.setLiveConfigurationHandler?.(async(id,patch)=>{
         if(!remoteCameraLiveId(id)||!validRemoteCameraLivePatch(patch))throw new Error('O ajuste remoto é inválido.');
@@ -332,8 +336,13 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
           }throw cause;
         }
       });
-      try{const snapshot=await settings(()=>port.snapshot());publish({state:snapshot});const configured=await settings(()=>port.configure(state.session!.deviceState?.configuration||state.session!.configuration));check();publish({state:configured});await port.preview(connection);check();publish({phase:'ready',previewConnected:true});await controller.poll();void uploads();}
-      catch(cause){publish({phase:'error',error:failure(cause)});if(current()&&state.session)void request('heartbeat',{sessionId:state.session.id,role:'device',clientId:deps.deviceId,state:{...state.state,error:failure(cause)}}).catch(()=>undefined);}},
+      try{const snapshot=await settings(()=>{checkPort();return port.snapshot();});checkPort();publish({state:snapshot});
+        const configured=await settings(()=>{checkPort();return port.configure(state.session!.deviceState?.configuration||state.session!.configuration);});checkPort();publish({state:configured});
+        await port.preview(connection);checkPort();
+        const actual=await settings(()=>{checkPort();return port.snapshot();});checkPort();
+        if(actual.previewConnection!=='connected')throw new Error('A prévia privada ainda não confirmou a conexão. Reconecte a prévia.');
+        publish({state:stamped(actual),phase:'ready',previewConnected:true});await controller.poll();void uploads();}
+      catch(cause){if(ownsPort()){publish({phase:'error',previewConnected:false,error:failure(cause)});void request('heartbeat',{sessionId,role:'device',clientId:deps.deviceId,state:{...state.state,error:failure(cause)}}).catch(()=>undefined);}}},
     async poll(){if(polling||!state.session||!native||state.phase==='preparing'||!current())return polling;
       const work=(async()=>{const session=state.session!,journal=await deps.journal(session.id);check();
         let response:StudioRemoteResponse,snapshot:StudioRemoteDeviceState|undefined;
@@ -347,7 +356,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
             // heartbeat waited for its turn. Keep command delivery fast anyway.
             if(!heartbeatDue())return {envelope:await request('status',{sessionId:session.id,afterSequence:journal.sequence}),actual:undefined};
             const actual=await settings(async()=>stamped(await owned.snapshot()));check();if(native!==owned)throw new Error('A câmera mudou.');
-            publish({state:actual,...(actual.previewConnection!==undefined?{previewConnected:actual.previewConnection==='connected'}:{})});
+            publish({state:actual,...(actual.previewConnection!==undefined?{previewConnected:!previewWork&&actual.previewConnection==='connected'}:{})});
             const envelope=await request('heartbeat',{sessionId:session.id,role:'device',clientId:deps.deviceId,afterSequence:journal.sequence,
               state:{...actual,syncUncertaintyMs:state.syncUncertaintyMs,...transferState()}});
             return {envelope,actual};
@@ -365,7 +374,24 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       if(!takes.some(take=>take.metadata))throw new Error(state.uploadError||(takes.some(take=>take.sourceMetadata)?'Retome a preparação da imagem. O original limpo está preservado.':'Nenhum original concluído está disponível para envio neste aparelho.'));
       if(!takes.some(take=>take.metadata&&take.phase!=='uploaded')){publish({uploadState:'complete',uploading:false,uploadPendingCount:0});return;}
       publish({uploadResumedAtServerMs:now()+offset});await uploads();},
-    async reconnectPreview(){if(!native||!state.session)return;const response=await request('connect',{sessionId:state.session.id,role:'device',clientId:deps.deviceId});if(!response.connection)throw new Error('A prévia privada não foi renovada.');await native.disconnect();await native.preview(response.connection);connection=response.connection;publish({previewConnected:true,error:null});},
+    async reconnectPreview(){
+      if(previewWork)return previewWork;
+      if(!native||!state.session||state.phase==='preparing'||!current())return;
+      const owned=native,sessionId=state.session.id,epoch=previewEpoch;
+      const checkOwned=()=>{check();if(native!==owned||state.session?.id!==sessionId||previewEpoch!==epoch)throw Object.assign(new Error('A câmera mudou.'),{name:'AbortError'});};
+      let work!:Promise<void>;
+      work=(async()=>{
+        publish({previewConnected:false});
+        const response=await request('connect',{sessionId,role:'device',clientId:deps.deviceId});checkOwned();
+        if(!response.connection)throw new Error('A prévia privada não foi renovada.');
+        await owned.disconnect();checkOwned();await owned.preview(response.connection);checkOwned();
+        const actual=await settings(()=>owned.snapshot());checkOwned();
+        if(actual.previewConnection!=='connected')throw new Error('A prévia privada ainda não confirmou a conexão. Reconecte a prévia.');
+        connection=response.connection;publish({state:stamped(actual),...(state.phase==='error'&&actual.configurationConfirmed===true?{phase:'ready'}:{}),previewConnected:true,error:null});
+      })().catch(cause=>{if(current()&&native===owned&&previewEpoch===epoch)publish({previewConnected:false,error:failure(cause)});throw cause;})
+        .finally(()=>{if(previewWork===work)previewWork=null;});
+      previewWork=work;return work;
+    },
     async focusLocal(point:{x:number;y:number;locked:boolean}){
       check();if(!native?.focus||!state.session||!['ready','recording'].includes(state.phase))throw new Error('Aguarde a câmera estar pronta para focar.');
       const owned=native;
@@ -395,7 +421,7 @@ export function createRemoteCameraController(deps:RemoteCameraDependencies) {
       commandWork=work.then(()=>undefined,()=>undefined);return work;
     },
     async stopLocal(){if(active&&native){active.stopping=true;const owned=active;publish({phase:'saving'});await native.stop(owned.id);await owned.finished;publish({phase:'ready'});void uploads(owned.id);}},
-    async disconnect(){if(active&&native)await controller.stopLocal();native?.setLiveConfigurationHandler?.(null);await native?.disconnect();native=null;liveApplied.clear();liveConfigurationId=undefined;connection=undefined;publish({phase:'closed',previewConnected:false});},
-    async dispose(){closed=true;listeners.clear();native?.setLiveConfigurationHandler?.(null);liveApplied.clear();liveConfigurationId=undefined;if(active&&native){const owned=active;owned.stopping=true;await native.stop(owned.id).catch(()=>undefined);await owned.finished.catch(()=>undefined);}await native?.disconnect().catch(()=>undefined);native=null;},
+    async disconnect(){invalidatePreview();if(active&&native)await controller.stopLocal();native?.setLiveConfigurationHandler?.(null);await native?.disconnect();native=null;liveApplied.clear();liveConfigurationId=undefined;connection=undefined;publish({phase:'closed',previewConnected:false});},
+    async dispose(){closed=true;invalidatePreview();listeners.clear();native?.setLiveConfigurationHandler?.(null);liveApplied.clear();liveConfigurationId=undefined;if(active&&native){const owned=active;owned.stopping=true;await native.stop(owned.id).catch(()=>undefined);await owned.finished.catch(()=>undefined);}await native?.disconnect().catch(()=>undefined);native=null;},
   };return controller;
 }

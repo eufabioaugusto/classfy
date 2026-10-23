@@ -56,16 +56,16 @@ function nativeHarness(options={}){
     setStudioNativeCameraZoomAsync:async(tag,value)=>{calls.push({kind:'zoom',tag,value});state.zoom=Math.min(state.maxZoom,Math.max(state.minZoom,value));return state;},
     startStudioRemoteCameraRecordingAsync:(...args)=>{calls.push({kind:'REC',args});return recording.promise;},
     stopStudioNativeCameraRecordingAsync:async(...args)=>{calls.push({kind:'STOP',args});},
-    startStudioRemoteCameraPreviewAsync:async tag=>{calls.push({kind:'native-preview',tag});return {streamId:'native-stream',streamReactTag:'native-stream',tracks:[{id:'native-track',kind:'video'}]};},
+    startStudioRemoteCameraPreviewAsync:async tag=>{calls.push({kind:'native-preview',tag});await options.nativePreview?.();return {streamId:'native-stream',streamReactTag:'native-stream',tracks:[{id:'native-track',kind:'video'}]};},
     stopStudioRemoteCameraPreviewAsync:async tag=>{calls.push({kind:'stop-native-preview',tag});},
   };
   const sdk={Track:{Source:{Camera:'camera'}},RoomEvent:{DataReceived:'dataReceived'},LogLevel:{silent:'silent'},setLogLevel(){},
     LocalVideoTrack:class{constructor(media,_constraints,provided){calls.push({kind:'user-track',media,provided});}},
-    Room:class{state='disconnected';listeners=new Map();localParticipant={publishTrack:async(_track,options)=>{calls.push({kind:'publish',options});},publishData:async(bytes,options)=>{calls.push({kind:'data-ack',value:JSON.parse(new TextDecoder().decode(bytes)),options});}};
+    Room:class{state='disconnected';listeners=new Map();localParticipant={publishTrack:async(_track,value)=>{calls.push({kind:'publish',options:value});await options.publish?.();},publishData:async(bytes,options)=>{calls.push({kind:'data-ack',value:JSON.parse(new TextDecoder().decode(bytes)),options});}};
       constructor(options){rooms.push(this);calls.push({kind:'room',options});}
       on(event,listener){this.listeners.set(event,listener);return this;}off(event,listener){if(this.listeners.get(event)===listener)this.listeners.delete(event);return this;}
       emit(bytes,identity='studio-controller-session-controller',topic=controller.REMOTE_CAMERA_LIVE_CONTROL_TOPIC,participantIdentity){this.listeners.get('dataReceived')?.(bytes,identity===null?undefined:{identity},0,topic,undefined,participantIdentity);}
-      async connect(url,_token,options){calls.push({kind:'connect',url,options});this.state='connected';}async disconnect(){calls.push({kind:'disconnect'});this.state='disconnected';}},
+      async connect(url,_token,value){calls.push({kind:'connect',url,options:value});await options.connect?.();this.state='connected';}async disconnect(){calls.push({kind:'disconnect'});await options.disconnect?.();this.state='disconnected';}},
   };
   const runtime=compile('./remoteCameraRuntime.ts',{
     '@react-native-async-storage/async-storage':{getItem:async key=>data.get(key)||null,setItem:async(key,value)=>data.set(key,value)},'expo-file-system/legacy':{},'expo-crypto':{randomUUID:()=> 'device'},
@@ -130,6 +130,61 @@ test('REC master usa owner/session/take duráveis e começou somente com timesta
 test('prévia insegura é rejeitada, fontes/room são liberadas, master não recebe STOP',async()=>{
   const h=nativeHarness();await assert.rejects(h.port.port.preview({url:'ws://private.invalid',token:'test',identity:'device'}),/prévia privada/);
   assert.equal(h.calls.filter(call=>call.kind==='connect').length,0);assert.equal(h.calls.filter(call=>call.kind==='stop-native-preview').length,1);assert.equal(h.calls.filter(call=>call.kind==='STOP').length,0);
+});
+test('prévia concorrente compartilha início nativo e só confirma após publicar a pista',async()=>{
+  const entered=deferred(),gate=deferred(),h=nativeHarness({nativePreview:async()=>{entered.resolve();await gate.promise;}});
+  const connection={url:'wss://private.invalid',token:'test',identity:'device'};
+  const first=h.port.port.preview(connection),second=h.port.port.preview(connection);await entered.promise;
+  assert.equal(h.calls.filter(call=>call.kind==='native-preview').length,1);assert.equal((await h.port.port.snapshot()).previewConnection,'disconnected');
+  gate.resolve();await Promise.all([first,second]);assert.equal(h.rooms.length,1);assert.equal(h.calls.filter(call=>call.kind==='publish').length,1);
+  assert.equal((await h.port.port.snapshot()).previewConnection,'connected');await h.port.port.disconnect();
+});
+test('disconnect durante connect cancela tentativa antiga e nova prévia aguarda cleanup sem deadlock',async()=>{
+  const entered=deferred(),gate=deferred();let first=true;
+  const h=nativeHarness({connect:async()=>{if(first){first=false;entered.resolve();await gate.promise;}}});
+  const connection={url:'wss://private.invalid',token:'test',identity:'device'};
+  const opening=h.port.port.preview(connection),rejected=assert.rejects(opening,/prévia privada/);await entered.promise;
+  const closing=h.port.port.disconnect(),replacement=h.port.port.preview(connection);await tick();
+  assert.equal(h.calls.filter(call=>call.kind==='native-preview').length,1);assert.equal((await h.port.port.snapshot()).previewConnection,'disconnected');
+  gate.resolve();await Promise.all([rejected,closing,replacement]);
+  assert.equal(h.rooms.length,2);assert.equal(h.rooms[0].listeners.size,0);assert.equal(h.rooms[1].listeners.size,1);
+  assert.equal(h.calls.filter(call=>call.kind==='stop-native-preview').length,1);assert.equal(h.calls.filter(call=>call.kind==='release-stream').length,1);
+  assert.equal(h.calls.filter(call=>call.kind==='publish').length,1);assert.equal((await h.port.port.snapshot()).previewConnection,'connected');
+  assert.equal(h.calls.filter(call=>call.kind==='STOP'||call.kind==='REC').length,0);await h.port.port.disconnect();
+});
+test('fechar novamente durante cleanup também invalida prévia que aguardava na fila',async()=>{
+  const entered=deferred(),gate=deferred();let block=true;
+  const h=nativeHarness({disconnect:async()=>{if(block){entered.resolve();await gate.promise;}}}),connection={url:'wss://private.invalid',token:'test',identity:'device'};
+  await h.port.port.preview(connection);const closing=h.port.port.disconnect();await entered.promise;
+  const queued=h.port.port.preview(connection),rejected=assert.rejects(queued,/desconectada/),again=h.port.port.disconnect();
+  block=false;gate.resolve();await Promise.all([closing,rejected,again]);assert.equal(h.rooms.length,1);
+  assert.equal(h.calls.filter(call=>call.kind==='stop-native-preview').length,1);assert.equal((await h.port.port.snapshot()).previewConnection,'disconnected');
+});
+test('room conectada sem publish confirmado continua desconectada no snapshot',async()=>{
+  const entered=deferred(),gate=deferred(),h=nativeHarness({publish:async()=>{entered.resolve();await gate.promise;}});
+  const opening=h.port.port.preview({url:'wss://private.invalid',token:'test',identity:'device'});await entered.promise;
+  assert.equal(h.rooms[0].state,'connected');assert.equal((await h.port.port.snapshot()).previewConnection,'disconnected');
+  gate.resolve();await opening;assert.equal((await h.port.port.snapshot()).previewConnection,'connected');await h.port.port.disconnect();
+});
+test('room desconectada é substituída em vez de confirmar sucesso sem vídeo',async()=>{
+  const h=nativeHarness(),connection={url:'wss://private.invalid',token:'test',identity:'device'};await h.port.port.preview(connection);
+  const old=h.rooms[0];old.state='disconnected';assert.equal((await h.port.port.snapshot()).previewConnection,'disconnected');
+  await h.port.port.preview(connection);assert.equal(h.rooms.length,2);assert.equal(old.listeners.size,0);assert.equal(h.rooms[1].listeners.size,1);
+  assert.equal(h.calls.filter(call=>call.kind==='stop-native-preview').length,1);assert.equal(h.calls.filter(call=>call.kind==='publish').length,2);await h.port.port.disconnect();
+});
+test('falha de publish libera apenas a tentativa e próxima conexão pode publicar a mesma captura',async()=>{
+  let fail=true;const h=nativeHarness({publish:async()=>{if(fail)throw Error('Publicação interrompida');}}),connection={url:'wss://private.invalid',token:'test',identity:'device'};
+  await assert.rejects(h.port.port.preview(connection),/prévia privada/);assert.equal((await h.port.port.snapshot()).previewConnection,'disconnected');
+  assert.equal(h.rooms[0].listeners.size,0);assert.equal(h.calls.filter(call=>call.kind==='release-stream').length,1);
+  fail=false;await h.port.port.preview(connection);assert.equal((await h.port.port.snapshot()).previewConnection,'connected');
+  assert.equal(h.calls.filter(call=>call.kind==='native-preview').length,2);assert.equal(h.calls.filter(call=>call.kind==='STOP').length,0);await h.port.port.disconnect();
+});
+test('cancelamento durante início nativo espera término e libera preview sem publicar ou parar master',async()=>{
+  const entered=deferred(),gate=deferred(),h=nativeHarness({nativePreview:async()=>{entered.resolve();await gate.promise;}});
+  const opening=h.port.port.preview({url:'wss://private.invalid',token:'test',identity:'device'}),rejected=assert.rejects(opening,/prévia privada/);await entered.promise;
+  const firstClose=h.port.port.disconnect(),secondClose=h.port.port.disconnect();gate.resolve();await Promise.all([rejected,firstClose,secondClose]);
+  assert.equal(h.calls.filter(call=>call.kind==='stop-native-preview').length,1);assert.equal(h.calls.filter(call=>call.kind==='publish'||call.kind==='STOP'||call.kind==='REC').length,0);
+  assert.equal(h.rooms.length,0);assert.equal((await h.port.port.snapshot()).previewConnection,'disconnected');
 });
 test('scope inválido não configura hardware nem publica; capabilities PRO permanecem snapshot real',async()=>{
   const h=nativeHarness(),snapshot=await h.port.port.snapshot();assert.equal(snapshot.pro.iso,100);assert.equal(snapshot.capabilities.qualityProfiles[0].resolution,'4k');

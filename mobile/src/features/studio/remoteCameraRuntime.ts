@@ -40,20 +40,23 @@ export const remoteDeviceState=(state:StudioCameraState,configuration?:StudioRem
 export async function remoteCameraDeviceId(owner:string){const key=`classfy:remote-camera:device:${owner}`;let id=await AsyncStorage.getItem(key);if(!id){id=randomUUID();await AsyncStorage.setItem(key,id);}return id;}
 export type RemoteNativeEvent={phase:string;operationId:string;startedAtEpochMs?:number;recoveryUri?:string;error?:string};
 export function createRemoteNativePort(owner:string,session:StudioRemoteSession,getTag:()=>number|null,scope:RemoteCameraScope,getAudio?:()=>Record<string,unknown>) {
-  let room:Room|null=null,stream:MediaStream|null=null,track:LocalVideoTrack|null=null,previewTag:number|null=null,disposed=false;
+  type PreviewLease={epoch:number;room:Room|null;stream:MediaStream|null;track:LocalVideoTrack|null;tag:number|null;
+    nativeStarted:boolean;ready:boolean;removeListener:(()=>void)|null;cleanup:Promise<void>|null};
+  let previewLease:PreviewLease|null=null,previewEpoch=0;
+  let previewWork:{epoch:number;promise:Promise<void>}|null=null,disconnectWork:Promise<void>|null=null;
   const waiting=new Map<string,{resolve:(time:number)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>;recovery?:string}>();
   let configuration=session.configuration;
   let configurationConfirmed=false,confirmedGrade:StudioGrade=studioGrade('natural'),confirmedGeneration:number|undefined;
   let configuring=false,focusing=false,nativeReady=false;
   let selectingAudio=false,audioSelectionSupported=false,lastAudio:StudioRemoteAudioInputState|undefined;
   let liveHandler:Parameters<NonNullable<RemoteCameraNative['setLiveConfigurationHandler']>>[0]=null;
-  let removeLiveListener:(()=>void)|null=null;
   const gradeState=(state:StudioCameraState)=>{
+    const room=previewLease?.room;
     lastAudio=state.audioInput;audioSelectionSupported=state.supportsAudioInputSelection===true&&isStudioNativeAudioInputSelectionAvailable();
     nativeReady=configurationConfirmed&&!configuring&&!focusing&&!selectingAudio&&state.proConfirmed!==false&&
       (confirmedGeneration===undefined||state.generation===confirmedGeneration)&&state.imageGradeConfirmed!==false&&(!room||state.remoteGradeConfirmed!==false);
     const actual=remoteDeviceState(state,nativeReady?configuration:undefined);
-    return {...actual,capabilities:{...actual.capabilities,...(liveHandler&&room&&removeLiveListener?{liveControls:1}:{})},
+    return {...actual,capabilities:{...actual.capabilities,...(liveHandler&&previewLease?.ready&&room?.state==='connected'&&previewLease.removeListener?{liveControls:1}:{})},
       imageGrade:state.imageGrade||confirmedGrade,imageGradeConfirmed:nativeReady,configurationConfirmed:nativeReady};
   };
   async function applyGrade(target:number,requested:StudioGrade){
@@ -66,7 +69,18 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
     if(!ack.previewProcessed)throw new Error('A câmera não confirmou a imagem tratada. Aguarde a prévia antes de gravar.');
     confirmedGrade=ack.grade;
   }
-  const check=()=>{assertRemoteCameraScope(scope);if(disposed)throw new Error('A câmera foi desconectada.');};
+  const check=()=>assertRemoteCameraScope(scope);
+  // Only the lease that created a native preview may release its resources.
+  // A new preview waits for this cleanup, including a pending native start.
+  const releasePreview=(owned:PreviewLease):Promise<void>=>{
+    if(owned.cleanup)return owned.cleanup;
+    owned.ready=false;owned.removeListener?.();owned.removeListener=null;
+    owned.cleanup=(async()=>{
+      const room=owned.room;owned.room=null;await room?.disconnect().catch(()=>undefined);
+      if(owned.nativeStarted&&owned.tag!==null)await stopStudioRemoteCameraPreviewAsync(owned.tag).catch(()=>undefined);
+      owned.nativeStarted=false;owned.stream?.release();owned.stream=null;owned.track=null;
+    })();return owned.cleanup;
+  };
   const tag=()=>{check();const value=getTag();if(!value)throw new Error('Aguarde a câmera preparar a imagem.');return value;};
   function requireAudioInput(state:StudioCameraState,inputId:string|null){
     const audio=state.audioInput;
@@ -148,12 +162,12 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
         }
         confirmed=await getStudioNativeCameraCapabilitiesAsync(target);check();
         if(confirmed.proConfirmed===false)throw new Error('Confirme os ajustes físicos antes de gravar.');
-        if(confirmed.imageGradeConfirmed===false||room&&confirmed.remoteGradeConfirmed===false)throw new Error('Aguarde a câmera confirmar o tratamento na prévia antes de gravar.');
+        if(confirmed.imageGradeConfirmed===false||previewLease?.room&&confirmed.remoteGradeConfirmed===false)throw new Error('Aguarde a câmera confirmar o tratamento na prévia antes de gravar.');
         if(next.audioInputId!==undefined)requireAudioInput(confirmed,next.audioInputId);
         configuration={...next,imageGrade:confirmedGrade,...(next.pro?{pro:confirmedPro({...physical,...(zoom!==undefined?{zoom}:{})},confirmed)}:{})};if(point!==undefined)rememberFocus(confirmed);
         confirmedGeneration=confirmed.generation;configurationConfirmed=true;configuring=false;return gradeState(confirmed);
       }catch(cause){configurationConfirmed=false;nativeReady=false;throw cause;}finally{configuring=false;}},
-    async snapshot(){const state=await getStudioNativeCameraCapabilitiesAsync(tag());check();return {...gradeState(state),previewConnection:room?.state||'disconnected',...(getAudio?{audioMonitor:getAudio()}:{} )};},
+    async snapshot(){const state=await getStudioNativeCameraCapabilitiesAsync(tag());check();return {...gradeState(state),previewConnection:previewLease?.ready?previewLease.room?.state||'disconnected':'disconnected',...(getAudio?{audioMonitor:getAudio()}:{} )};},
     async selectAudioInput(inputId){const target=tag();
       if(!isStudioNativeAudioInputSelectionAvailable())throw new Error('Atualize o app Classfy para escolher o microfone do iPhone.');
       if(inputId!==null&&(typeof inputId!=='string'||!inputId.trim()||inputId.length>256))throw new Error('Escolha uma entrada de áudio disponível no iPhone.');
@@ -181,22 +195,32 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
       }).finally(()=>{const pending=waiting.get(takeId);if(pending){clearTimeout(pending.timer);pending.reject(new Error('O take terminou antes de confirmar o início.'));waiting.delete(takeId);}});
       return {started,finished};},
     async stop(takeId){const target=getTag();if(target)await stopStudioNativeCameraRecordingAsync(target,takeId);},
-    async preview(connection){check();if(room)return;
+    async preview(connection){
+      check();if(previewWork?.epoch===previewEpoch)return previewWork.promise;
+      if(previewLease?.ready&&previewLease.room?.state==='connected')return;
+      if(previewLease)void port.disconnect();
+      const epoch=previewEpoch,previousDisconnect=disconnectWork;
+      const owned:PreviewLease={epoch,room:null,stream:null,track:null,tag:null,nativeStarted:false,ready:false,removeListener:null,cleanup:null};
+      const checkOwned=()=>{check();if(previewEpoch!==epoch||previewLease!==owned)throw new Error('A prévia privada foi desconectada.');};
+      let work!:Promise<void>;
+      work=(async()=>{
+      await previousDisconnect;check();if(previewEpoch!==epoch)throw new Error('A prévia privada foi desconectada.');previewLease=owned;
+      try{
       const runtime=sdk();runtime.native.registerGlobals({autoConfigureAudioSession:false});runtime.client.setLogLevel(runtime.client.LogLevel.silent);
       // Explicit exclusive camera route. No audio track/session is acquired.
       NativeModules.WebRTCModule?.audioDeviceModuleSetAutomaticAudioSessionConfiguration?.(null);
-      const target=tag();previewTag=target;const descriptor=await startStudioRemoteCameraPreviewAsync(target);check();
-      const ownedStream=new runtime.rtc.MediaStream(descriptor);stream=ownedStream;const media=ownedStream.getVideoTracks()[0];if(!media)throw new Error('A câmera não forneceu a pista de prévia.');
-      track=new runtime.client.LocalVideoTrack(media as unknown as globalThis.MediaStreamTrack,{},true);
-      const owned=new runtime.client.Room({adaptiveStream:false,dynacast:true,stopLocalTrackOnUnpublish:false});room=owned;
+      const target=tag();owned.tag=target;owned.nativeStarted=true;const descriptor=await startStudioRemoteCameraPreviewAsync(target);checkOwned();
+      const ownedStream=new runtime.rtc.MediaStream(descriptor);owned.stream=ownedStream;const media=ownedStream.getVideoTracks()[0];if(!media)throw new Error('A câmera não forneceu a pista de prévia.');
+      const track=new runtime.client.LocalVideoTrack(media as unknown as globalThis.MediaStreamTrack,{},true);owned.track=track;
+      const room=new runtime.client.Room({adaptiveStream:false,dynacast:true,stopLocalTrackOnUnpublish:false});owned.room=room;
       const expectedController=`studio-controller-${session.id}-${session.controllerId}`;
-      if(runtime.client.RoomEvent?.DataReceived&&typeof owned.on==='function'&&typeof owned.off==='function'&&typeof owned.localParticipant.publishData==='function'){
+      if(runtime.client.RoomEvent?.DataReceived&&typeof room.on==='function'&&typeof room.off==='function'&&typeof room.localParticipant.publishData==='function'){
         const received=(payload:Uint8Array,participant?:RemoteParticipant,_kind?:unknown,topic?:string,_encryptionType?:unknown,participantIdentity?:string)=>{
           // LiveKit supplies the authenticated packet identity even before its
           // RemoteParticipant exists. Neither sender value comes from the JSON.
           if(participant?.identity!==undefined&&participantIdentity!==undefined&&participant.identity!==participantIdentity)return;
           const sender=participant?.identity??participantIdentity;
-          if(topic!==REMOTE_CAMERA_LIVE_CONTROL_TOPIC||sender!==expectedController||!liveHandler||room!==owned||owned.state!=='connected'||payload.byteLength>8192)return;
+          if(topic!==REMOTE_CAMERA_LIVE_CONTROL_TOPIC||sender!==expectedController||!liveHandler||previewLease!==owned||!owned.ready||room.state!=='connected'||payload.byteLength>8192)return;
           let value:{v?:unknown;id?:unknown;patch?:unknown};
           try{check();value=JSON.parse(new TextDecoder().decode(payload));}catch{return;}
           if(!value||typeof value!=='object'||Array.isArray(value)||value.v!==1||!remoteCameraLiveId(value.id)||!validRemoteCameraLivePatch(value.patch)||Object.keys(value).some(key=>!['v','id','patch'].includes(key)))return;
@@ -205,28 +229,38 @@ export function createRemoteNativePort(owner:string,session:StudioRemoteSession,
             let ack:Record<string,unknown>;
             try{const state=await handler(id,patch);check();ack={v:1,id,ok:true,state};}
             catch(cause){ack={v:1,id,ok:false,error:(cause instanceof Error?cause.message:'O iPhone não confirmou esse ajuste.').replace(/(?:https?|wss?|file):\/\/\S+|Bearer\s+\S+|\beyJ[\w-]+\.[\w-]+\.[\w-]+\b/gi,'[dado privado omitido]').slice(0,500)};}
-            try{check();if(room!==owned||owned.state!=='connected'||liveHandler!==handler)return;
-              await owned.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(ack)),{reliable:true,topic:REMOTE_CAMERA_LIVE_ACK_TOPIC,destinationIdentities:[expectedController]});
+            try{checkOwned();if(!owned.ready||room.state!=='connected'||liveHandler!==handler)return;
+              await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(ack)),{reliable:true,topic:REMOTE_CAMERA_LIVE_ACK_TOPIC,destinationIdentities:[expectedController]});
             }catch{/* Durable delivery remains the fallback when RTC closes. */}
           })();
         };
-        owned.on(runtime.client.RoomEvent.DataReceived,received);
-        removeLiveListener=()=>owned.off(runtime.client.RoomEvent.DataReceived,received);
+        room.on(runtime.client.RoomEvent.DataReceived,received);
+        owned.removeListener=()=>room.off(runtime.client.RoomEvent.DataReceived,received);
       }
-      try {if(new URL(connection.url).protocol!=='wss:')throw new Error('A prévia precisa de uma conexão privada segura.');
-        await withLiveDeadline(()=>owned.connect(connection.url,connection.token,{autoSubscribe:false}),scope.signal,30_000);check();if(room!==owned)throw new Error('A conexão mudou.');
-        await owned.localParticipant.publishTrack(track,{source:runtime.client.Track.Source.Camera,videoCodec:'h264',simulcast:false,
+        if(new URL(connection.url).protocol!=='wss:')throw new Error('A prévia precisa de uma conexão privada segura.');
+        await withLiveDeadline(()=>room.connect(connection.url,connection.token,{autoSubscribe:false}),scope.signal,30_000);checkOwned();
+        await room.localParticipant.publishTrack(track,{source:runtime.client.Track.Source.Camera,videoCodec:'h264',simulcast:false,
           // This is a 1080p display proxy; the 4K master stays in MovieFileOutput.
           // Congestion control can reduce resolution rather than queue old frames.
           videoEncoding:{maxBitrate:6_000_000,maxFramerate:30,priority:'high'},
-          degradationPreference:'maintain-framerate',stopMicTrackOnMute:false});check();
-        await applyGrade(target,confirmedGrade);check();
-      }catch {await port.disconnect();throw new Error('Não foi possível conectar a prévia privada. O original permanece no iPhone.');}
+          degradationPreference:'maintain-framerate',stopMicTrackOnMute:false});checkOwned();
+        await applyGrade(target,confirmedGrade);checkOwned();
+        if(room.state!=='connected')throw new Error('A prévia privada perdeu a conexão.');
+        owned.ready=true;
+      }catch {if(previewLease===owned)previewLease=null;await releasePreview(owned);throw new Error('Não foi possível conectar a prévia privada. O original permanece no iPhone.');}
+      })().finally(()=>{if(previewWork?.promise===work)previewWork=null;});
+      previewWork={epoch,promise:work};return work;
     },
     async disconnect(){
-      const owned=room;room=null;removeLiveListener?.();removeLiveListener=null;await owned?.disconnect();track=null;
-      if(previewTag)await stopStudioRemoteCameraPreviewAsync(previewTag).catch(()=>undefined);previewTag=null;stream?.release();stream=null;
+      previewEpoch++;
+      if(disconnectWork)return disconnectWork;
+      const owned=previewLease,pending=previewWork?.promise;previewLease=null;
+      owned?.removeListener?.();if(owned){owned.removeListener=null;owned.ready=false;}
+      let work!:Promise<void>;
+      work=(async()=>{await pending?.catch(()=>undefined);if(owned)await releasePreview(owned);})()
+        .finally(()=>{if(disconnectWork===work)disconnectWork=null;});
       // Restore the installed default only after this video-only room is gone.
+      disconnectWork=work;return work;
     },
   };
   return {port,onRecordingState(event:RemoteNativeEvent){const value=waiting.get(event.operationId);if(!value)return;

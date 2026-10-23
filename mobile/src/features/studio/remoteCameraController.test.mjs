@@ -30,14 +30,14 @@ function harness(patch={}){
   };
   const native={configure:async configuration=>{calls.push({action:'configure',configuration});await patch.configure?.(configuration);if(patch.liveControls)hardware={...hardware,configuration:clone(configuration),configurationConfirmed:true,imageGradeConfirmed:true,pro:clone(configuration.pro||{})};return{width:3840,height:2160,fps:30,recording:false,...structuredClone(hardware)};},
     setLiveConfigurationHandler:handler=>{liveHandler=handler;},
-    snapshot:async()=>{calls.push({action:'snapshot'});await patch.snapshot?.();return {width:3840,height:2160,fps:30,recording:actualRecording,...structuredClone(hardware)};},
+    snapshot:async()=>{calls.push({action:'snapshot'});await patch.snapshot?.();return {width:3840,height:2160,fps:30,recording:actualRecording,previewConnection:'connected',...structuredClone(hardware)};},
     selectAudioInput:async inputId=>{calls.push({action:'select-audio',inputId});await patch.selectAudio?.(inputId);const currentInput=hardware.audioInput?.available.find(input=>input.id===(inputId??'builtin'));
       if(!currentInput)throw Error('Microfone não disponível');hardware={...hardware,audioInput:{...hardware.audioInput,preferredId:inputId,current:currentInput,confirmed:true,selecting:false},configuration:{...session.configuration,audioInputId:inputId}};
       return {width:3840,height:2160,fps:30,recording:false,...structuredClone(hardware)};},
     focus:async point=>{calls.push({action:'focus',point});await patch.focus?.(point);return {width:3840,height:2160,fps:30,recording:actualRecording,focusLocked:point.locked};},
     begin:id=>{calls.push({action:'native-start',id});actualRecording=true;return{started:started.promise,finished:finished.promise};},
     stop:async id=>{calls.push({action:'native-stop',id});actualRecording=false;finished.resolve({uri:`file:///Documents/classfy-studio-remote/owner/${sessionId}/${id}.mov`});},
-    preview:async()=>{calls.push({action:'preview'});},disconnect:async()=>{calls.push({action:'disconnect-preview'});}};
+    preview:async()=>{calls.push({action:'preview'});await patch.preview?.();},disconnect:async()=>{calls.push({action:'disconnect-preview'});await patch.disconnect?.();}};
   const controller=createRemoteCameraController(deps);
   const command=(type,id=type,sequence=1)=>({id,sequence,type,payload:type==='configure'?session.configuration:{takeId},status:'pending'});
   return{controller,calls,writes,started,finished,native,command,
@@ -87,7 +87,7 @@ test('consulta comandos a cada 300ms com um request por ciclo e heartbeat pronto
   for(let i=0;i<10;i++){h.advance(300);await h.controller.poll();}
   const requests=h.calls.filter(call=>['status','heartbeat'].includes(call.action));
   assert.equal(requests.length,11);assert.equal(requests.filter(call=>call.action==='heartbeat').length,2);
-  assert.equal(h.calls.filter(call=>call.action==='snapshot').length,3);
+  assert.equal(h.calls.filter(call=>call.action==='snapshot').length,4); // Initial, confirmed publication and two heartbeats.
   assert.equal(h.controller.getSnapshot().previewConnected,true);await h.controller.dispose();
 });
 test('heartbeat entrega configure pendente e ACK confirmado sem esperar outra telemetria',async()=>{
@@ -254,6 +254,59 @@ test('reconexão da prévia não para o master; teardown interrompe e preserva o
   await h.controller.reconnectPreview();assert.equal(h.calls.filter(call=>call.action==='native-stop').length,0);assert.equal(h.calls.filter(call=>call.action==='native-start').length,1);
   h.invalidate();await h.controller.dispose();assert.equal(h.journal().takes[0].phase,'local_ready');assert.equal(h.journal().takes[0].metadata.bytes,6291457);
   assert.equal(h.calls.filter(call=>call.action==='upload').length,0);assert.equal(h.calls.filter(call=>call.action==='save-local').length,0);
+});
+test('botão e poll reconectam a prévia pelo mesmo trabalho sem duplicar sala ou interromper master',async()=>{
+  const gate=deferred(),entered=deferred();let block=false;
+  const h=harness({request:async action=>{if(block&&action==='connect'){entered.resolve();await gate.promise;}}});await h.ready();h.calls.length=0;
+  h.hardware({previewConnection:'disconnected'});block=true;
+  const manual=h.controller.reconnectPreview();await entered.promise;h.advance(3000);const polling=h.controller.poll();await tick();
+  assert.equal(h.controller.getSnapshot().previewConnected,false);assert.equal(h.calls.filter(call=>call.action==='connect').length,1);
+  h.hardware({previewConnection:'connected'});gate.resolve();await Promise.all([manual,polling]);
+  assert.equal(h.calls.filter(call=>call.action==='disconnect-preview').length,1);assert.equal(h.calls.filter(call=>call.action==='preview').length,1);
+  assert.equal(h.calls.filter(call=>call.action==='native-start'||call.action==='native-stop'||call.action==='upload').length,0);
+  assert.equal(h.controller.getSnapshot().previewConnected,true);await h.controller.dispose();
+});
+test('dispose durante desconexão invalida reconexão pendente antes de reabrir a prévia',async()=>{
+  const gate=deferred(),entered=deferred();let block=false;
+  const h=harness({disconnect:async()=>{if(block){entered.resolve();await gate.promise;}}});await h.ready();h.calls.length=0;block=true;
+  const reconnect=h.controller.reconnectPreview(),rejected=assert.rejects(reconnect,/câmera mudou|conexão mudou/i);await entered.promise;
+  const disposing=h.controller.dispose();gate.resolve();await Promise.all([rejected,disposing]);
+  assert.equal(h.calls.filter(call=>call.action==='preview').length,0);assert.equal(h.calls.filter(call=>call.action==='native-stop').length,0);
+});
+test('preview sem conexão confirmada não vira conectado e pode ser retomado sem repetir gravação',async()=>{
+  const h=harness();await h.ready();h.hardware({previewConnection:'disconnected'});
+  await assert.rejects(h.controller.reconnectPreview(),/não confirmou/);assert.equal(h.controller.getSnapshot().previewConnected,false);
+  h.hardware({previewConnection:'connected'});await h.controller.reconnectPreview();assert.equal(h.controller.getSnapshot().previewConnected,true);
+  assert.equal(h.calls.filter(call=>call.action==='native-start'||call.action==='native-stop').length,0);await h.controller.dispose();
+});
+test('conexão inicial consulta estado publicado antes de liberar a prévia e reconexão não duplica preparo',async()=>{
+  const gate=deferred(),entered=deferred();let block=true;
+  const h=harness({nativeState:{previewConnection:'disconnected'},preview:async()=>{if(block){entered.resolve();await gate.promise;}}});
+  await h.controller.join('opaque-code');const preparing=h.controller.cameraReady(h.native);await entered.promise;await h.controller.reconnectPreview();
+  assert.equal(h.calls.filter(call=>call.action==='connect').length,0);gate.resolve();await preparing;
+  assert.equal(h.controller.getSnapshot().phase,'error');assert.equal(h.controller.getSnapshot().previewConnected,false);
+  block=false;h.hardware({previewConnection:'connected'});await h.controller.reconnectPreview();assert.equal(h.controller.getSnapshot().previewConnected,true);await h.controller.dispose();
+});
+test('preparo antigo concluído depois da troca de porta não publica erro ou reabre a câmera anterior',async()=>{
+  const entered=deferred(),gate=deferred();let block=true;
+  const h=harness({configure:async()=>{if(block){entered.resolve();await gate.promise;}}});await h.controller.join('opaque-code');
+  const old=h.controller.cameraReady(h.native);await entered.promise;await h.controller.disconnect();
+  const states=[],unsubscribe=h.controller.subscribe(value=>states.push(value));block=false;await h.controller.resume(sessionId);
+  const replacement=h.controller.cameraReady({...h.native});gate.resolve();await Promise.all([old,replacement]);
+  assert.equal(states.some(value=>value.phase==='error'||value.error),false);assert.equal(h.controller.getSnapshot().phase,'ready');
+  assert.equal(h.calls.filter(call=>call.action==='preview').length,1);assert.equal(h.calls.some(call=>call.action==='heartbeat'&&call.body.state.error),false);
+  unsubscribe();await h.controller.dispose();
+});
+test('retomar câmera não herda Promise de reconexão anterior nem perde novo trabalho no finally antigo',async()=>{
+  const oldEntered=deferred(),oldGate=deferred(),newEntered=deferred(),newGate=deferred();let holdOld=false,holdNew=false;
+  const h=harness({request:async action=>{if(holdOld&&action==='connect'){holdOld=false;oldEntered.resolve();await oldGate.promise;}},
+    preview:async()=>{if(holdNew){newEntered.resolve();await newGate.promise;}}});await h.ready();holdOld=true;
+  const old=h.controller.reconnectPreview(),rejected=assert.rejects(old,/câmera mudou/);await oldEntered.promise;
+  await h.controller.disconnect();await h.controller.resume(sessionId);await h.controller.cameraReady({...h.native});holdNew=true;
+  const replacement=h.controller.reconnectPreview();await newEntered.promise;oldGate.resolve();await rejected;
+  const connects=h.calls.filter(call=>call.action==='connect').length,duplicate=h.controller.reconnectPreview();await tick();
+  assert.equal(h.calls.filter(call=>call.action==='connect').length,connects);newGate.resolve();await Promise.all([replacement,duplicate]);
+  assert.equal(h.controller.getSnapshot().previewConnected,true);assert.equal(h.controller.getSnapshot().error,null);await h.controller.dispose();
 });
 test('restart recupera arquivo reservado sem repetir REC ou inventar horário de início',async()=>{
   const uri=`file:///Documents/classfy-studio-remote/owner/${sessionId}/${takeId}.mov`;
