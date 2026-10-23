@@ -1,5 +1,5 @@
 import { Room, RoomEvent, Track, type RemoteTrack, type RemoteParticipant, type RemoteTrackPublication } from 'livekit-client';
-import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteEnvelope, StudioRemoteLocalTake, StudioRemoteMetadata, StudioRemoteResponse, StudioRemoteSession, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
+import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteEnvelope, StudioRemoteLocalTake, StudioRemoteMetadata, StudioRemoteRecordingEnd, StudioRemoteResponse, StudioRemoteSession, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
 import { studioGrade } from '../../../../shared/studio/model';
 import type { StudioCaptureController, StudioCaptureState, StudioCaptureVideoPatch } from './capture';
 import { inspectStudioMedia, type StudioMediaMetadata } from './media';
@@ -14,7 +14,11 @@ export type StudioRemoteLocalTakeView = {
 /** Only this versioned capability changes STOP semantics; older apps still transfer. */
 export const studioRemoteLocalStorage = (device?: StudioRemoteDeviceState | null) => device?.capabilities?.localTakeStorage === 1;
 export function studioRemoteLocalTakes(envelope: StudioRemoteEnvelope): StudioRemoteLocalTakeView[] {
-  const result = new Map<string, StudioRemoteLocalTakeView>(envelope.takes.map(take => [take.id, { id: take.id, sessionId: envelope.session.id, metadata: take.metadata, localSaved: false, phase: take.status }]));
+  const result = new Map<string, StudioRemoteLocalTakeView>(envelope.takes.map(take => {
+    const end = take.recordingEnd, raw = end?.sourceMetadata;
+    const durable = !!raw && end?.version === 1 && end.takeId === take.id && end.localTakeStorage === 1 && end.interrupted === true && Number.isSafeInteger(raw.bytes) && raw.bytes > 0 && [raw.duration, raw.width, raw.height, raw.fps].every(value => Number.isFinite(value) && value > 0);
+    return [take.id, { id: take.id, sessionId: envelope.session.id, metadata: take.metadata ?? (durable ? raw! : null), localSaved: durable, ...(durable ? { sourceMetadata: raw } : {}), phase: take.status }];
+  }));
   for (const entry of Array.isArray(envelope.session.deviceState?.localTakes) ? envelope.session.deviceState.localTakes.slice(-24) : []) {
     const m = entry?.metadata;
     if (!entry || typeof entry.id !== 'string' || !entry.id || entry.id.length > 128 || entry.localSaved !== true || !m || !Number.isSafeInteger(m.bytes) || m.bytes <= 0 || ![m.duration, m.width, m.height, m.fps].every(value => typeof value === 'number' && Number.isFinite(value) && value > 0) || typeof m.mime !== 'string' || !['local_ready', 'preparing', 'uploading', 'uploaded', 'error'].includes(entry.phase)) continue;
@@ -25,6 +29,16 @@ export function studioRemoteLocalTakes(envelope: StudioRemoteEnvelope): StudioRe
   }
   return [...result.values()];
 }
+/** A physical end belongs to one take; an old heartbeat can never stop a new REC. */
+export function studioRemoteRecordingEnd(envelope: StudioRemoteEnvelope, takeId: string, startedAtServerMs?: number): StudioRemoteRecordingEnd | null {
+  const end = envelope.takes.find(take => take.id === takeId)?.recordingEnd ?? envelope.session.deviceState?.recordingEnd;
+  if (!end || end.version !== 1 || end.takeId !== takeId || envelope.session.deviceState?.recording !== false || typeof end.interrupted !== 'boolean' ||
+    !Number.isFinite(end.finishedAtServerMs) || !Number.isFinite(end.durationSeconds) || end.durationSeconds < 0 || end.durationSeconds > 86400 ||
+    !['user_stop', 'app_background', 'view_inactive', 'disposed', 'capture_interrupted', 'runtime_error', 'startup_timeout', 'native_finished'].includes(end.reason) ||
+    end.finishedAtServerMs > Date.parse(envelope.serverAt) + 3000 || startedAtServerMs !== undefined && (end.finishedAtServerMs < startedAtServerMs || end.durationSeconds > (end.finishedAtServerMs - startedAtServerMs) / 1000 + 3)) return null;
+  return end;
+}
+const interruptedTakeMessage = (duration: number) => `A gravação foi interrompida no iPhone. ${duration > 0 ? `O trecho capturado de ${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, '0')} foi preservado; confira antes de continuar.` : 'Confira o original no aparelho antes de continuar.'}`;
 export type StudioRemotePreviewDiagnostic = {
   stage: 'recovery-pending' | 'requesting-grant' | 'connecting' | 'room-connected' | 'media-received' | 'media-timeout' | 'subscription-failed' | 'disconnected';
   message: string | null;
@@ -40,6 +54,7 @@ export type StudioRemoteView = {
   pendingTakeId: string | null; error: string | null;
   localFirst?: boolean; localTakes?: StudioRemoteLocalTakeView[]; transferTakeId?: string | null;
   previewDiagnostic?: StudioRemotePreviewDiagnostic | null;
+  recordingEnd?: StudioRemoteRecordingEnd | null;
 };
 export type StudioRemotePreview = { disconnect(): Promise<void>; reconnect?(): Promise<void>; configure?(id: string, patch: Partial<StudioRemoteConfiguration>): Promise<StudioRemoteDeviceState> };
 export type StudioRemotePreviewFactory = (response: StudioRemoteResponse, callbacks: { track(track: MediaStreamTrack | null): void; connection(value: StudioRemoteView['connection']): void; diagnostic?(value: StudioRemotePreviewDiagnostic): void }, signal: AbortSignal) => Promise<StudioRemotePreview>;
@@ -290,7 +305,13 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     if (response.session.deviceState?.error) publishRemote({ error: String(response.session.deviceState.error) });
     if (!confirmed && (response.session.deviceState?.configurationConfirmed === false || response.session.deviceState?.imageGradeConfirmed === false) && !remote.pendingTakeId && !pendingStart) publish({ phase: 'error', pendingRecovery: false, error: 'O iPhone não confirmou os ajustes. Restaure o modo Auto ou ajuste novamente antes de gravar.' });
     if (confirmed && response.session.status === 'ready' && cameraTrack && (state.phase === 'preparing' || state.phase === 'error' && !state.pendingRecovery) && !pendingStart) publish({ phase: 'ready', error: null });
-    if (lastStart && state.phase === 'recording') publish({ elapsed: Math.max(0, (Date.parse(response.serverAt) - lastStart.startedAtServerMs) / 1000) });
+    const physicalEnd = lastStart ? studioRemoteRecordingEnd(response, lastStart.takeId, lastStart.startedAtServerMs) : null;
+    if (physicalEnd && (state.phase === 'recording' || physicalEnd.interrupted && state.phase === 'stopping')) {
+      const confirmedSource = studioRemoteLocalTakes(response).some(take => take.id === physicalEnd.takeId && take.localSaved);
+      const message = physicalEnd.interrupted ? confirmedSource ? interruptedTakeMessage(physicalEnd.durationSeconds) : 'A gravação foi interrompida no iPhone. Aguarde a confirmação do trecho no aparelho antes de continuar.' : 'A gravação terminou no iPhone. Confira o trecho salvo antes de continuar.';
+      publishRemote({ recordingEnd: physicalEnd, error: message });
+      publish({ phase: 'error', elapsed: physicalEnd.durationSeconds, pendingRecovery: true, error: message });
+    } else if (lastStart && state.phase === 'recording') publish({ elapsed: Math.max(0, (Date.parse(response.serverAt) - lastStart.startedAtServerMs) / 1000) });
   };
   const request = async (body: Record<string, unknown>, token = generation, signal?: AbortSignal) => {
     const sentAt = Date.now(), ownedScope = { ...scope(token), ...(signal ? { signal } : {}) };
@@ -399,7 +420,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
         const startedAtServerMs = Number(ack.result?.startedAtServerMs);
         if (takeId !== intent.takeId || !Number.isFinite(startedAtServerMs)) throw new StudioRemoteCameraError('O iPhone não confirmou o início real deste take.', 'invalid_start');
         lastStart = { takeId, startedAtServerMs, result: ack.result ?? {} }; pendingStart = null; cachedMaster = null;
-        pendingResume = null; publishRemote({ pendingTakeId: takeId, ...(!receiveWork ? { transfer: 'idle' as const, transferTakeId: null, transferBytes: undefined, transferTotalBytes: undefined, error: null } : {}) }); persistIntent(); publish({ phase: 'recording', elapsed: 0, file: null, error: null, pendingRecovery: false }); return lastStart;
+        pendingResume = null; publishRemote({ pendingTakeId: takeId, recordingEnd: null, ...(!receiveWork ? { transfer: 'idle' as const, transferTakeId: null, transferBytes: undefined, transferTotalBytes: undefined, error: null } : {}) }); persistIntent(); publish({ phase: 'recording', elapsed: 0, file: null, error: null, pendingRecovery: false }); return lastStart;
       } catch (error) { if (!disposed && token === generation) { publish({ phase: 'error', error: error instanceof Error ? error.message : 'Não foi possível iniciar o take.', pendingRecovery: true }); publishRemote({ error: error instanceof Error ? error.message : 'Confirme o estado da gravação no iPhone.' }); } throw error; }
     })(); startWork = work; void work.finally(() => { if (startWork === work) startWork = null; }).catch(() => undefined); return work;
   };
@@ -415,14 +436,24 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
         await request({ action: 'status', sessionId: envelope!.session.id, afterSequence: 0 }, token);
         if (envelope!.session.activeTakeId && envelope!.session.activeTakeId !== takeId) throw new StudioRemoteCameraError('Outro take está em gravação no iPhone. Finalize pelo app para continuar.');
         const isDurable = () => studioRemoteLocalTakes(envelope!).find(take => take.id === takeId && take.localSaved);
-        if (!isDurable() || envelope!.session.activeTakeId === takeId || ['starting', 'recording', 'stopping'].includes(envelope!.session.status)) await command(pendingStop!.id, 'stop', { takeId }, token);
+        if (!isDurable() || envelope!.session.activeTakeId === takeId || ['starting', 'recording', 'stopping'].includes(envelope!.session.status)) {
+          try { await command(pendingStop!.id, 'stop', { takeId }, token); }
+          catch (error) {
+            // The server can retire a pending STOP after the native writer has
+            // already ended. Only its matching durable receipt permits recovery.
+            if (!isDurable() || envelope!.session.activeTakeId || envelope!.session.status !== 'ready' || !studioRemoteRecordingEnd(envelope!, takeId)?.interrupted) throw error;
+          }
+        }
         const saved = await wait(() => {
           const take = isDurable();
           return take && !envelope!.session.activeTakeId && envelope!.session.status === 'ready' && envelope!.session.deviceState?.recording !== true ? take : undefined;
         }, token, options.commandTimeoutMs ?? 30_000);
         pendingStart = null; pendingStop = null; lastStart = null; cachedMaster = null;
         publishRemote({ pendingTakeId: null, error: null }); persistIntent();
-        publish({ phase: cameraTrack ? 'ready' : 'preparing', elapsed: 0, file: null, pendingRecovery: false, error: null }); return saved;
+        const interrupted = studioRemoteRecordingEnd(envelope!, takeId);
+        const warning = interrupted?.interrupted ? interruptedTakeMessage(interrupted.durationSeconds) : null;
+        publishRemote({ error: warning });
+        publish({ phase: cameraTrack ? 'ready' : 'preparing', elapsed: warning ? interrupted!.durationSeconds : 0, file: null, pendingRecovery: false, error: warning }); return saved;
       } catch (error) {
         if (!disposed && token === generation) publish({ phase: 'error', pendingRecovery: true, error: error instanceof Error ? error.message : 'Confirme no iPhone se o take foi salvo.' });
         throw error;
@@ -654,7 +685,10 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
             if (localSaved && response.session.status === 'ready' && !response.session.activeTakeId && response.session.deviceState?.recording !== true) {
               pendingStart = null; pendingStop = null; pendingResume = null;
               publishRemote({ pendingTakeId: null, connection: 'connecting', error: null }); publish({ phase: 'preparing', pendingRecovery: false, error: null });
-              persistIntent(); await poll(token); return;
+              persistIntent(); await poll(token);
+              const end = studioRemoteRecordingEnd(response, takeId);
+              if (end?.interrupted) { const warning = interruptedTakeMessage(end.durationSeconds); publishRemote({ recordingEnd: end, error: warning }); publish({ error: warning, elapsed: end.durationSeconds }); }
+              return;
             }
             pendingStart = resume.startId ? { id: resume.startId, takeId } : null; pendingStop = resume.stopId ? { id: resume.stopId, takeId } : null; pendingResume = resume.resumeId ? { id: resume.resumeId, takeId } : null;
             console.info('[Classfy Studio] Recuperação pendente', { sessionOpen: response.session.status !== 'closed', originalUploaded: response.takes.some(take => take.id === takeId && take.status === 'uploaded') });
