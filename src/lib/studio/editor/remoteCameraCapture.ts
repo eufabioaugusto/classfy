@@ -726,5 +726,8 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
     subscribe(listener) { listeners.add(listener); listener(snapshot()); return () => listeners.delete(listener); },
     subscribeRemote(listener) { remoteListeners.add(listener); listener(view()); return () => remoteListeners.delete(listener); },
     cancel, dispose() { if (disposed) return; cancel(); disposed = true; listeners.clear(); remoteListeners.clear(); },
-  }; return controller;
+  };
+  // Restore only private metadata. Preview grants and REC still need a gesture.
+  restoreCatalog();
+  return controller;
 }
