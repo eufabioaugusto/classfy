@@ -45,7 +45,7 @@ function nativeView(): StudioRemoteView {
     id: 'native-session', projectId: null, kind: 'aula', title: 'Aula com iPhone', status: 'ready',
     controllerId: 'browser', deviceId: 'phone', sequence: 1, activeTakeId: null,
     configuration: { resolution: '1080p', fps: 30, cameraFacing: 'back', audioInputId: null },
-    deviceState: { width: 1920, height: 1080, fps: 30, capabilities: { audioInputSelection: true },
+    deviceState: { width: 1920, height: 1080, fps: 30, storageAvailableBytes: 6_300_000_000, storageTotalBytes: 128_000_000_000, capabilities: { audioInputSelection: true },
       audioInput: { version: 1, available: [builtin, usb], preferredId: null, current: builtin, confirmed: true, selecting: false, warning: null },
       audioMonitor: { status: 'live', input: builtin, channels: [{ averageDb: -27, peakDb: -9 }] },
     },
@@ -111,7 +111,7 @@ function controlledCapture(withScenes: boolean) {
     getEnvelope: () => ({ session: view.session!, takes: [], commands: [], serverAt: new Date().toISOString() }),
     getServerNow: () => Date.now(), reconnect: vi.fn(async () => {}), discardRemoteRecovery: vi.fn(), unlinkRemote: vi.fn(async () => {}),
   };
-  return { controller, publish, receiveNativeAck, setAudioConfirmed, snapshot: () => state, setSelection: (value: ReturnType<typeof deferred>) => { selection = value; } };
+  return { controller, publish, setStorage: (available: number, total = 128_000_000_000) => { view = { ...view, session: { ...view.session!, deviceSeenAt: new Date().toISOString(), deviceState: { ...view.session!.deviceState, storageAvailableBytes: available, storageTotalBytes: total } } }; publishRemote(); }, receiveNativeAck, setAudioConfirmed, snapshot: () => state, setSelection: (value: ReturnType<typeof deferred>) => { selection = value; } };
 }
 
 let root: Root, host: HTMLDivElement, base: ReturnType<typeof controlledCapture>, scenes: ReturnType<typeof controlledCapture>;
@@ -156,6 +156,37 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Workspace de cenas com a narração real do iPhone', () => {
+  it('armazenamento do iPhone acompanha mic remoto no preparo e atualiza no palco durante REC simples', async () => {
+    await mount(); expect(host.querySelector('.src-storage')).toBeNull(); await click('Meu iPhone · Premium'); await click('Conectar meu iPhone');
+    expect(host.querySelector('.srs-devices .se-recording-capture-meters .src-storage')?.textContent).toContain('6,3 GB livres');
+    expect(host.querySelector('.srs-devices .se-recording-capture-meters .src-audio')).toBeTruthy();
+    await click('Ir para gravação'); expect(host.querySelector('.se-recording-stage-shell .se-recording-capture-meters .src-storage')?.textContent).toContain('6,3 GB livres');
+    await click('Iniciar gravação'); await act(async () => base.publish({ phase: 'recording', elapsed: 12 }));
+    await act(async () => base.setStorage(4_990_000_000));
+    expect(button('Encerrar gravação')).toBeTruthy(); expect(host.querySelector('.src-storage.is-low')?.textContent).toContain('4,9 GB livres'); expect(base.controller.start).toHaveBeenCalledTimes(1);
+    expect(base.controller.stop).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled();
+  });
+  it('cenas mantêm disco do iPhone ao selecionar mic do Mac, sem mudar durante REC nem bloquear aos 5 GB', async () => {
+    await mountScenes(); await selectMicrophone(computerUSB.id);
+    expect(host.querySelector('.srs-devices .se-recording-capture-meters [aria-label="Nível real do microfone"]')).toBeTruthy();
+    expect(host.querySelector('.srs-devices .src-storage')?.textContent).toContain('6,3 GB livres');
+    await act(async () => base.setStorage(4_990_000_000)); await click('Ir para gravação'); expect(button('Iniciar gravação')?.disabled).toBe(false); await click('Iniciar gravação');
+    expect(scenes.controller.start).toHaveBeenCalledTimes(1); expect(host.querySelector('.se-recording-stage-shell .src-storage.is-low')?.textContent).toContain('4,9 GB livres');
+    expect(host.querySelector('[aria-label="Nível real do microfone"]')).toBeTruthy(); expect(host.querySelector('[aria-label="Nível do microfone do iPhone"]')).toBeNull();
+    await act(async () => base.setStorage(3_600_000_000)); expect(host.querySelector('.src-storage')?.textContent).toContain('3,6 GB livres'); expect(button('Encerrar gravação')).toBeTruthy();
+    expect(scenes.controller.stop).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled();
+  });
+  it('status de conexão sobe acima do chip quando a entrada do computador fica indisponível', async () => {
+    await mountScenes(); await selectMicrophone(computerUSB.id); await click('Ir para gravação');
+    await act(async () => scenes.publish({ input: null }));
+    expect(host.querySelector('.se-recording-capture-meters .src-storage')).toBeTruthy(); expect(host.querySelector('.se-recording-capture-meters .src-audio, .se-recording-capture-meters .se-recording-monitor')).toBeNull();
+    expect(host.querySelector('.se-recording-stage-shell .src-status.src-status--above-meter')).toBeTruthy();
+  });
+  it('câmera do computador não mostra armazenamento remoto mesmo com telemetria disponível no controller', async () => {
+    await mount(); await click('Ativar câmera'); expect(host.querySelector('.src-storage')).toBeNull();
+    await click('Ir para gravação'); expect(host.querySelector('.src-storage')).toBeNull();
+  });
+
   it('completa a tela das cenas remotas e entra no palco com ajustes sem REC nem reabrir o iPhone', async () => {
     await mountScenes(); const picker = deferred(), program = host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')!.srcObject;
     await act(async () => scenes.publish({ scenes: { ...scenes.snapshot().scenes!, screenReady: false, screenName: undefined, preparingScreen: false } }));

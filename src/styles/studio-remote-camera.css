@@ -16,3 +16,24 @@
 
 /* Slider drafts stay readable while the iPhone confirms a queued adjustment. */
 .src-control{gap:7px;margin:22px 0}.src-control>span{align-items:center}.src-control>span>label{color:#c6becb}.src-control output{font-size:12px;font-weight:600;white-space:nowrap}.src-control.is-draft output{color:#ffd2dc}.src-control input[type=range]{display:block;min-width:0;margin:2px 0;height:24px;cursor:ew-resize;touch-action:pan-y}.src-control input[type=range]:focus-visible{outline:2px solid #ef708c;outline-offset:3px;border-radius:4px}.src-control-bounds{display:flex;justify-content:space-between;gap:10px;color:#827b8d;font-size:9px;font-variant-numeric:tabular-nums}.src-control-receipt{display:flex;align-items:center;gap:5px;min-height:14px;color:#968d9f;font-size:9px;line-height:1.5;font-variant-numeric:tabular-nums}.src-control-receipt.is-pending{color:#d9b28a}.src-control-error{color:#efa0b2;font-size:10px;line-height:1.5}.src-control.is-failed .src-control-receipt{color:#efa0b2}.src-control input[type=range]:disabled{cursor:default}
+
+/* Camera disk and narration share one responsive overlay, even with Mac audio. */
+.se-recording-capture-meters{position:absolute;z-index:16;left:20px;bottom:20px;display:grid;grid-template-columns:minmax(0,1fr);align-items:end;gap:8px;width:min(425px,calc(100% - 40px));pointer-events:none}
+.se-recording-capture-meters:has(>.src-storage):has(>.src-audio,.se-recording-monitor){grid-template-columns:minmax(0,1fr) minmax(118px,175px)}
+.se-recording-capture-meters>.src-audio,.se-recording-capture-meters>.se-recording-monitor{position:relative;inset:auto;width:auto;min-width:0;max-width:100%;margin:0}
+.se-recording-capture-meters>.src-audio{pointer-events:auto}
+.se-recording-capture-meters>.src-storage:only-child{width:min(175px,100%)}
+.src-storage{display:grid;align-content:center;gap:7px;min-width:0;min-height:59px;padding:9px 11px;border:1px solid #ffffff1b;border-radius:11px;background:#0c0d11e0;color:#e6e3e9}
+.src-storage-heading{display:flex;align-items:center;gap:8px;min-width:0}
+.src-storage-heading>svg{flex:none;color:#b4bec6}
+.src-storage-heading>span{display:grid;gap:3px;min-width:0}
+.src-storage-heading small{font-size:9px;line-height:1.2;color:#aaa4af;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.src-storage-heading strong{font-size:11px;line-height:1.3;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.src-storage-meter{height:4px;border-radius:4px;background:#ffffff1a;overflow:hidden}
+.src-storage-meter>i{display:block;height:100%;border-radius:inherit;background:#7baa9c}
+.src-storage.is-low{border-color:#ee60754d;color:#ff9dab}
+.src-storage.is-low .src-storage-heading>svg,.src-storage.is-low small{color:#f18b9a}
+.src-storage.is-low .src-storage-meter>i{background:#f36f83}
+.src-storage.is-unavailable{color:#aaa5b0}
+.src-storage-notice{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:620px){.se-recording-capture-meters{left:12px;bottom:12px;width:calc(100% - 24px);gap:7px}.src-storage{padding:8px 9px;min-height:54px;border-radius:9px}.src-storage-heading{gap:6px}.src-storage-heading strong{font-size:10px}}

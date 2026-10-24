@@ -40,6 +40,8 @@ export type StudioRemoteDeviceState = {
   configuration?: StudioRemoteConfiguration;
   width?: number; height?: number; fps?: number;
   recording?: boolean; deviceName?: string;
+  /** Physical storage reported by the paired iPhone, in decimal bytes. */
+  storageAvailableBytes?: number; storageTotalBytes?: number;
   recordingEnd?: StudioRemoteRecordingEnd;
   capabilities?: Record<string, unknown>; pro?: Record<string, unknown>;
   audioInput?: StudioRemoteAudioInput;
