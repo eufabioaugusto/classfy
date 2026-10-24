@@ -147,6 +147,20 @@ export function monitorState(value: unknown): JsonObject {
 }
 export function validateRequest(value: unknown): { action: string; params: JsonObject } {
   const source = object(value); const action = String(source.action ?? ''); const params: JsonObject = {};
+  if (action === 'thumbnail_put' || action === 'thumbnail_get') {
+    params.sessionId = uuid(source.sessionId); params.takeId = uuid(source.takeId); params.clientId = uuid(source.clientId);
+    const role = action === 'thumbnail_put' ? 'device' : 'controller';
+    if (source.role !== role) throw new CameraError('studio_camera_invalid_request');
+    params.role = role;
+    if (action === 'thumbnail_put') {
+      const thumbnail = object(source.thumbnail);
+      if (thumbnail.version !== 1 || thumbnail.mime !== 'image/jpeg' || typeof thumbnail.base64 !== 'string' || thumbnail.base64.length > 21848 ||
+          !Number.isSafeInteger(thumbnail.width) || Number(thumbnail.width) < 1 || Number(thumbnail.width) > 320 ||
+          !Number.isSafeInteger(thumbnail.height) || Number(thumbnail.height) < 1 || Number(thumbnail.height) > 320) throw new CameraError('studio_camera_invalid_thumbnail');
+      params.thumbnail = { version: 1, mime: 'image/jpeg', width: thumbnail.width, height: thumbnail.height, base64: thumbnail.base64 };
+    }
+    return { action, params };
+  }
   if (action.startsWith('monitor-')) {
     if (!['monitor-create', 'monitor-discover', 'monitor-connect', 'monitor-heartbeat', 'monitor-close'].includes(action))
       throw new CameraError('studio_camera_unknown_action');
@@ -246,6 +260,9 @@ export function storageEndpoint(supabaseUrl: string): string {
   return url.toString();
 }
 export const errors: Record<string, { status: number; message: string }> = {
+  studio_camera_invalid_thumbnail: { status: 400, message: 'A miniatura deste take não pôde ser validada.' },
+  studio_camera_thumbnail_unavailable: { status: 404, message: 'A miniatura deste take ainda não está disponível.' },
+  studio_camera_thumbnail_conflict: { status: 409, message: 'Este take já possui outra miniatura confirmada.' },
   studio_camera_premium_required: { status: 403, message: 'A câmera remota faz parte do Premium.' },
   studio_camera_creator_required: { status: 403, message: 'Este recurso está disponível para creators aprovados.' },
   studio_camera_not_found: { status: 404, message: 'Conexão não encontrada.' },

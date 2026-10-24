@@ -1,5 +1,5 @@
 import { Room, RoomEvent, Track, type RemoteTrack, type RemoteParticipant, type RemoteTrackPublication } from 'livekit-client';
-import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteEnvelope, StudioRemoteLocalTake, StudioRemoteMetadata, StudioRemoteRecordingEnd, StudioRemoteResponse, StudioRemoteSession, StudioRemoteTake } from '../../../../shared/studio/remoteCamera';
+import type { StudioRemoteCommand, StudioRemoteConfiguration, StudioRemoteDeviceState, StudioRemoteEnvelope, StudioRemoteLocalTake, StudioRemoteMetadata, StudioRemoteRecordingEnd, StudioRemoteResponse, StudioRemoteSession, StudioRemoteTake, StudioRemoteThumbnailDescriptor } from '../../../../shared/studio/remoteCamera';
 import { studioGrade } from '../../../../shared/studio/model';
 import type { StudioCaptureController, StudioCaptureState, StudioCaptureVideoPatch } from './capture';
 import { inspectStudioMedia, type StudioMediaMetadata } from './media';
@@ -9,7 +9,12 @@ export type StudioRemoteStart = { takeId: string; startedAtServerMs: number; res
 export type StudioRemoteMaster = { file: File; take: StudioRemoteTake; session: StudioRemoteSession; metadata: StudioMediaMetadata };
 export type StudioRemoteLocalTakeView = {
   id: string; metadata: StudioRemoteMetadata | null; localSaved: boolean; sessionId?: string; sourceMetadata?: StudioRemoteMetadata;
-  phase: StudioRemoteLocalTake['phase'] | StudioRemoteTake['status']; error?: string;
+  phase: StudioRemoteLocalTake['phase'] | StudioRemoteTake['status']; error?: string; thumbnail?: StudioRemoteThumbnailDescriptor | null;
+};
+const remoteThumbnailDescriptor = (value: unknown): StudioRemoteThumbnailDescriptor | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const t = value as StudioRemoteThumbnailDescriptor;
+  return t.version === 1 && typeof t.hash === 'string' && /^[a-f0-9]{64}$/.test(t.hash) && t.mime === 'image/jpeg' && Number.isSafeInteger(t.bytes) && t.bytes > 0 && t.bytes <= 16384 && [t.width, t.height].every(side => Number.isSafeInteger(side) && side > 0 && side <= 320) ? { version: 1, hash: t.hash, bytes: t.bytes, mime: 'image/jpeg', width: t.width, height: t.height } : null;
 };
 /** Only this versioned capability changes STOP semantics; older apps still transfer. */
 export const studioRemoteLocalStorage = (device?: StudioRemoteDeviceState | null) => device?.capabilities?.localTakeStorage === 1;
@@ -17,7 +22,7 @@ export function studioRemoteLocalTakes(envelope: StudioRemoteEnvelope): StudioRe
   const result = new Map<string, StudioRemoteLocalTakeView>(envelope.takes.map(take => {
     const end = take.recordingEnd, raw = end?.sourceMetadata;
     const durable = !!raw && end?.version === 1 && end.takeId === take.id && end.localTakeStorage === 1 && end.interrupted === true && Number.isSafeInteger(raw.bytes) && raw.bytes > 0 && [raw.duration, raw.width, raw.height, raw.fps].every(value => Number.isFinite(value) && value > 0);
-    return [take.id, { id: take.id, sessionId: envelope.session.id, metadata: take.metadata ?? (durable ? raw! : null), localSaved: durable, ...(durable ? { sourceMetadata: raw } : {}), phase: take.status }];
+    return [take.id, { id: take.id, sessionId: envelope.session.id, metadata: take.metadata ?? (durable ? raw! : null), localSaved: durable, ...(durable ? { sourceMetadata: raw } : {}), phase: take.status, ...(take.thumbnail === null ? { thumbnail: null } : remoteThumbnailDescriptor(take.thumbnail) ? { thumbnail: remoteThumbnailDescriptor(take.thumbnail) } : {}) }];
   }));
   for (const entry of Array.isArray(envelope.session.deviceState?.localTakes) ? envelope.session.deviceState.localTakes.slice(-24) : []) {
     const m = entry?.metadata;
@@ -25,7 +30,7 @@ export function studioRemoteLocalTakes(envelope: StudioRemoteEnvelope): StudioRe
     const server = envelope.takes.find(take => take.id === entry.id);
     // Uploaded authority and its final metadata belong to the server. Raw
     // metadata remains useful before grading/upload has ever been requested.
-    result.set(entry.id, { id: entry.id, sessionId: envelope.session.id, sourceMetadata: m, metadata: server?.status === 'uploaded' && server.metadata ? server.metadata : m, localSaved: true, phase: server?.status === 'uploaded' ? 'uploaded' : entry.phase, ...(typeof entry.error === 'string' && entry.error ? { error: entry.error.slice(0, 300) } : {}) });
+    result.set(entry.id, { id: entry.id, sessionId: envelope.session.id, sourceMetadata: m, metadata: server?.status === 'uploaded' && server.metadata ? server.metadata : m, localSaved: true, phase: server?.status === 'uploaded' ? 'uploaded' : entry.phase, ...(result.get(entry.id)?.thumbnail !== undefined ? { thumbnail: result.get(entry.id)!.thumbnail } : {}), ...(typeof entry.error === 'string' && entry.error ? { error: entry.error.slice(0, 300) } : {}) });
   }
   return [...result.values()];
 }
@@ -274,7 +279,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       for (const take of entries.slice(-100)) {
         const metadata = take?.metadata;
         if (!take || typeof take.id !== 'string' || !take.id || typeof take.sessionId !== 'string' || !take.sessionId || !['local_ready', 'preparing', 'uploading', 'uploaded', 'error', 'failed'].includes(take.phase) || !metadata || !Number.isSafeInteger(metadata.bytes) || metadata.bytes <= 0 || ![metadata.duration, metadata.width, metadata.height, metadata.fps].every(value => typeof value === 'number' && Number.isFinite(value) && value > 0) || typeof metadata.mime !== 'string') continue;
-        durableTakes.set(take.id, { id: take.id, sessionId: take.sessionId, metadata, ...(take.sourceMetadata && Number.isSafeInteger(take.sourceMetadata.bytes) && take.sourceMetadata.bytes > 0 && [take.sourceMetadata.duration, take.sourceMetadata.width, take.sourceMetadata.height, take.sourceMetadata.fps].every(value => typeof value === 'number' && Number.isFinite(value) && value > 0) && typeof take.sourceMetadata.mime === 'string' ? { sourceMetadata: take.sourceMetadata } : {}), localSaved: take.localSaved === true, phase: take.phase });
+        durableTakes.set(take.id, { id: take.id, sessionId: take.sessionId, metadata, ...(take.sourceMetadata && Number.isSafeInteger(take.sourceMetadata.bytes) && take.sourceMetadata.bytes > 0 && [take.sourceMetadata.duration, take.sourceMetadata.width, take.sourceMetadata.height, take.sourceMetadata.fps].every(value => typeof value === 'number' && Number.isFinite(value) && value > 0) && typeof take.sourceMetadata.mime === 'string' ? { sourceMetadata: take.sourceMetadata } : {}), localSaved: take.localSaved === true, phase: take.phase, ...(take.thumbnail === null ? { thumbnail: null } : remoteThumbnailDescriptor(take.thumbnail) ? { thumbnail: remoteThumbnailDescriptor(take.thumbnail) } : {}) });
       }
     } catch { /* Untrusted/malformed browser metadata cannot start a capture. */ }
     publishRemote({ localTakes: [...durableTakes.values()] });
@@ -289,7 +294,7 @@ export function createStudioRemoteCapture(options: { owner: string; kind: 'aula'
       envelope.session.status === 'closed' && response.session.status !== 'closed' ||
       envelope.commands.some(previous => previous.status !== 'pending' && response.commands.some(next => next.id === previous.id && next.status === 'pending'))
     )) return;
-    for (const take of studioRemoteLocalTakes(response)) { const previous = durableTakes.get(take.id); durableTakes.set(take.id, previous?.localSaved && !take.localSaved ? { ...take, localSaved: true, sourceMetadata: previous.sourceMetadata, metadata: take.metadata ?? previous.metadata } : take); }
+    for (const incoming of studioRemoteLocalTakes(response)) { const previous = durableTakes.get(incoming.id), take = incoming.thumbnail === undefined && previous?.thumbnail ? { ...incoming, thumbnail: previous.thumbnail } : incoming; durableTakes.set(take.id, previous?.localSaved && !take.localSaved ? { ...take, localSaved: true, sourceMetadata: previous.sourceMetadata, metadata: take.metadata ?? previous.metadata } : take); }
     persistCatalog();
     envelope = response;
     if (liveReceipt && response.session.deviceState?.liveConfigurationId === liveReceipt.id && response.session.deviceState.configurationConfirmed === true) liveReceipt.state = response.session.deviceState;

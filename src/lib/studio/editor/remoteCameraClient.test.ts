@@ -47,6 +47,35 @@ describe('cliente da câmera remota privada', () => {
     const client = createStudioRemoteClient('owner'); io.invoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify({ code: 'premium_required', message: 'Este recurso faz parte do Premium.' }), { status: 403 }) } });
     await expect(client.request({ action: 'create' })).rejects.toMatchObject({ code: 'premium_required', message: 'Este recurso faz parte do Premium.' });
   });
+  it('obtém só a miniatura privada do take, com escopo de conta, sem iniciar transferência do original', async () => {
+    const thumbnail = { version: 1, mime: 'image/jpeg', bytes: 1200, width: 256, height: 144, hash: 'a'.repeat(64),
+      url: 'https://fixture.supabase.co/storage/v1/object/sign/studio-camera-thumbnails/owner/session/take/v1.jpg?token=fixture', expiresAt: new Date(Date.now() + 300_000).toISOString() };
+    io.invoke.mockResolvedValue({ data: { thumbnail, serverAt: new Date().toISOString() }, error: null });
+    const client = createStudioRemoteClient('owner');
+    expect(await client.thumbnail!('session', 'take', 'browser')).toEqual(thumbnail);
+    expect(io.invoke).toHaveBeenCalledWith('studio-camera', expect.objectContaining({ body: { action: 'thumbnail_get', sessionId: 'session', takeId: 'take', role: 'controller', clientId: 'browser' } }));
+    expect(fetcher).not.toHaveBeenCalled();
+    // The normal camera protocol must remain strict about its complete envelope.
+    await expect(client.request({ action: 'status' })).rejects.toMatchObject({ code: 'invalid_response' });
+    io.invoke.mockResolvedValue({ data: { thumbnail: null }, error: null }); expect(await client.thumbnail!('session', 'take', 'browser')).toBeNull();
+  });
+  it.each([
+    { url: 'https://outside.example/storage/v1/object/sign/studio-camera-thumbnails/owner/session/take/v1.jpg' },
+    { url: 'https://fixture.supabase.co/storage/v1/object/public/studio-camera-thumbnails/owner/session/take/v1.jpg' },
+    { url: 'https://fixture.supabase.co/storage/v1/object/sign/studio-camera-thumbnails/other/session/take/v1.jpg' },
+    { url: 'https://fixture.supabase.co/storage/v1/object/sign/studio-camera-thumbnails/owner/session/other/v1.jpg' },
+    { mime: 'image/svg+xml' }, { bytes: 16385 }, { width: 321 }, { hash: 'invalid' },
+  ])('recusa miniatura fora do contrato privado: %j', async patch => {
+    const thumbnail = { version: 1, mime: 'image/jpeg', bytes: 1200, width: 256, height: 144, hash: 'a'.repeat(64),
+      url: 'https://fixture.supabase.co/storage/v1/object/sign/studio-camera-thumbnails/owner/session/take/v1.jpg?token=fixture', expiresAt: new Date(Date.now() + 300_000).toISOString(), ...patch };
+    io.invoke.mockResolvedValue({ data: { thumbnail }, error: null });
+    await expect(createStudioRemoteClient('owner').thumbnail!('session', 'take', 'browser')).rejects.toMatchObject({ code: 'invalid_thumbnail' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('descarta miniatura que chegou depois de trocar a conta', async () => {
+    io.invoke.mockImplementation(async () => { io.owner = 'other'; return { data: { thumbnail: null }, error: null }; });
+    await expect(createStudioRemoteClient('owner').thumbnail!('session', 'take', 'browser')).rejects.toMatchObject({ code: 'account_changed' });
+  });
   it('grava multipart sequencial no disco e solicita páginas quando necessário', async () => {
     const handle = opfs(), client = createStudioRemoteClient('owner'); fetcher.mockImplementation(async (target: string) => response(target.includes('part-0') ? 'ABCD' : target.includes('part-1') ? 'EFGH' : 'IJKL'));
     const first: StudioRemoteDownload = { parts: [{ url: url(0), index: 0, bytes: 4 }, { url: url(1), index: 1, bytes: 4 }], bytes: 12, mime: 'video/mp4', totalParts: 3, nextPartIndex: 2, expiresAt: new Date(Date.now() + 120_000).toISOString() };

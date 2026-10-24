@@ -1,6 +1,7 @@
 import { AccessToken, TrackSource, RoomServiceClient, type VideoGrant } from 'npm:livekit-server-sdk@2.19.1';
 import { corsHeaders, json, requireUser } from '../_shared/video/http.ts';
 import { BUCKET, CHUNK_BYTES, CameraError, UUID, generatePairingCode, pairingHash, publicError, storageEndpoint, validateRequest, type JsonObject } from './protocol.ts';
+import { handleThumbnail } from './thumbnails.ts';
 
 function rtcConfig() {
   const url = Deno.env.get('LIVEKIT_URL'); const key = Deno.env.get('LIVEKIT_API_KEY'); const secret = Deno.env.get('LIVEKIT_API_SECRET');
@@ -57,6 +58,7 @@ export async function handleCameraRequest(req: Request): Promise<Response> {
     if (new TextEncoder().encode(input).byteLength > 32768) throw new CameraError('studio_camera_invalid_request', 413);
     let parsed: unknown; try { parsed = JSON.parse(input); } catch { throw new CameraError('studio_camera_invalid_request'); }
     const { action, params } = validateRequest(parsed);
+    if (action === 'thumbnail_put' || action === 'thumbnail_get') return json(await handleThumbnail(client, user.id, action, params));
     let code: string | undefined;
     if (action === 'create') { rtcConfig(); code = generatePairingCode(); params.pairingHash = await pairingHash(code); }
     if (action === 'join') { rtcConfig(); params.pairingHash = await pairingHash(String(params.code)); delete params.code; }

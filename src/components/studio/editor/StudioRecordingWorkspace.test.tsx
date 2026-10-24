@@ -1,4 +1,5 @@
 import { StrictMode, act } from 'react';
+import { File as BytesFile } from 'node:buffer';
 import { createRoot, type Root } from 'react-dom/client';
 import { BrowserRouter, MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -180,7 +181,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
       return { subscribe(listener) { listener(state); return () => {}; }, subscribeRemote(listener) { listener(remote); return () => {}; }, prepare, start, reconnect, getEnvelope: () => null, cancel() {}, dispose() {}, getMicrophoneTrack: () => null } as unknown as StudioRemoteCaptureController;
     });
     await act(async () => root.render(<MemoryRouter><StudioRecordingWorkspace owner={owner} projectId={previous.id} canUseScenes /></MemoryRouter>));
-    expect(button('Importar original recebido')?.disabled).toBe(false); expect(host.textContent).toContain('Importe um original recebido do iPhone');
+    expect(button('Importar original recebido')?.disabled).toBe(false); expect(host.textContent).toContain('Já recebeu um arquivo do iPhone?');
     const received = new File(['original-received-offline'], 'AirDrop original.mov', { type: 'video/quicktime' });
     io.inspect.mockResolvedValueOnce({ kind: 'video', duration: 777, hasAudio: true, width: 3840, height: 2160, frameRate: 30, mimeType: received.type, warnings: [] });
     await click('Importar original recebido');
@@ -192,6 +193,9 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(io.create).toHaveBeenCalledOnce(); expect(prepare).not.toHaveBeenCalled(); expect(start).not.toHaveBeenCalled(); expect(reconnect).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
   });
   it('STOP local mantém câmera, novo REC sobrevive ao recebimento anterior e AirDrop adiciona outro take sem substituir', async () => {
+    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const persist = deferred<void>(), originalSave = io.save.getMockImplementation()!;
+    io.save.mockImplementation(async (...args) => { await persist.promise; return originalSave(...args); });
     const firstId = '50000000-0000-4000-8000-000000000001', secondId = '50000000-0000-4000-8000-000000000002';
     const file = new File(['phone-original'], 'iPhone.mp4', { type: 'video/mp4' }), receiving = deferred<any>();
     const raw = { bytes: file.size, mime: file.type, width: 1920, height: 1080, fps: 30, duration: 2 };
@@ -219,18 +223,23 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await act(async () => root.render(<MemoryRouter><Route /></MemoryRouter>));
     await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); await startTake(); await click('Encerrar gravação');
     expect(finish).toHaveBeenCalledOnce(); expect(legacyStop).not.toHaveBeenCalled(); expect(receive).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled();
-    expect(host.textContent).toContain('Salvo no iPhone'); expect(button('Iniciar gravação')?.disabled).toBe(false);
-    await click('Enviar ao computador'); await click('Iniciar gravação'); expect(activeTake).toBe(secondId);
+    expect(host.textContent).toContain('No iPhone'); expect(button('Iniciar gravação')?.disabled).toBe(false);
+    await click('Baixar take 1'); expect(download).not.toHaveBeenCalled(); await click('Iniciar gravação'); expect(activeTake).toBe(secondId);
     const cancelsBefore = cancel.mock.calls.length, sourcesBefore = remoteIO.create.mock.calls.length;
     await act(async () => receiving.resolve({ file, take: { id: firstId }, metadata: raw, session: remoteIO.create.mock.results.at(-1)!.value.getEnvelope().session }));
+    expect(io.save).toHaveBeenCalledOnce(); expect(download).not.toHaveBeenCalled();
+    await act(async () => persist.resolve());
     expect(host.querySelector('[aria-label="Gravação em andamento"]')).toBeTruthy(); expect(activeTake).toBe(secondId);
     expect(cancel).toHaveBeenCalledTimes(cancelsBefore); expect(remoteIO.create).toHaveBeenCalledTimes(sourcesBefore); expect(host.querySelector<HTMLVideoElement>('video[aria-label="Prévia da gravação"]')?.srcObject).toBe(stream);
     expect(io.put.mock.calls.find(call => call[2] === `remote-${firstId}`)?.[3]).toBe(file); expect(host.querySelectorAll('.se-recording-recovery')).toHaveLength(0);
+    expect(download).toHaveBeenCalledOnce(); expect(URL.createObjectURL).toHaveBeenCalledWith(file); expect(host.textContent).toContain('No projeto');
+    const writesAfterDownload = io.put.mock.calls.length;
+    await click('Baixar take 1'); expect(download).toHaveBeenCalledTimes(2); expect(receive).toHaveBeenCalledOnce(); expect(io.put).toHaveBeenCalledTimes(writesAfterDownload);
     await click('Encerrar gravação'); expect(finish).toHaveBeenCalledTimes(2); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1);
     // A graded archived receipt has other final bytes; AirDrop still carries raw.
     const previousDevice = remoteIO.create.mock.results.at(-1)!.value.getEnvelope().session.deviceState;
     const archived = previousDevice.localTakes.pop(); archived.metadata = { ...raw, bytes: raw.bytes + 1000 }; archived.sessionId = 'archived-session';
-    await click('Importar original recebido do take 2');
+    await click('Mais opções do take 2'); await click('Importar original recebido do take 2');
     const importInput = host.querySelector<HTMLInputElement>('input[type="file"]')!, secondFile = new File(['other-original'], 'AirDrop.mov', { type: 'video/quicktime' });
     expect(secondFile.size).toBe(file.size);
     await act(async () => { Object.defineProperty(importInput, 'files', { configurable: true, value: [secondFile] }); importInput.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -240,6 +249,34 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     owner = 'different-owner'; await act(async () => root.render(<MemoryRouter><Route /></MemoryRouter>));
     await act(async () => { Object.defineProperty(importInput, 'files', { configurable: true, value: [secondFile] }); importInput.dispatchEvent(new Event('change', { bubbles: true })); });
     expect(io.put).toHaveBeenCalledTimes(writes);
+  });
+  it.each(['save-failed', 'account-changed'] as const)('Baixar não oferece arquivo antes da associação durável: %s', async failure => {
+    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const id = '50000000-0000-4000-8000-000000000009', file = new BytesFile(['original'], 'iPhone.mp4', { type: 'video/mp4' }) as unknown as File;
+    const receiveGate = deferred<void>(), receive = vi.fn(async () => { await receiveGate.promise; return { file }; });
+    const metadata = { bytes: file.size, mime: file.type, width: 1920, height: 1080, fps: 30, duration: 2 };
+    remoteIO.create.mockImplementation(() => {
+      const listeners = new Set<(value: StudioCaptureState) => void>();
+      let state = { phase: 'idle', stream: null, elapsed: 0, file: null, error: null, input: null, camera: null, devices: { cameras: [], microphones: [] }, levels: [], microphoneEnabled: true } as StudioCaptureState;
+      const remote = { connection: 'connected', transfer: 'idle', pendingTakeId: null, error: null, pairing: null, localFirst: true,
+        session: { id: 'session', deviceId: 'phone', status: 'ready' }, localTakes: [{ id, localSaved: true, metadata, phase: 'local_ready', sessionId: 'session' }] } as StudioRemoteView;
+      return { subscribe(listener) { listeners.add(listener); listener(state); return () => listeners.delete(listener); }, subscribeRemote(listener) { listener(remote); return () => {}; },
+        async prepare() { state = { ...state, phase: 'ready', stream: new Stream([new Track('video', 'remote', 'iPhone')]) as unknown as MediaStream }; listeners.forEach(listener => listener(state)); },
+        receiveRemoteTake: receive, getMicrophoneTrack: () => null, getEnvelope: () => ({ session: remote.session }), cancel() {}, dispose() { listeners.clear(); } } as unknown as StudioRemoteCaptureController;
+    });
+    const render = () => <MemoryRouter><StudioRecordingWorkspace owner={owner} canUseScenes /></MemoryRouter>;
+    await act(async () => root.render(render())); await click('Meu iPhone · Premium'); await click('Conectar meu iPhone');
+    if (failure === 'save-failed') io.save.mockRejectedValueOnce(Error('Sem espaço para salvar o projeto'));
+    await click('Baixar take 1'); expect(download).not.toHaveBeenCalled();
+    if (failure === 'account-changed') { owner = 'another-account'; await act(async () => root.render(render())); }
+    await act(async () => receiveGate.resolve());
+    expect(download).not.toHaveBeenCalled();
+    if (failure === 'save-failed') {
+      expect(host.textContent).toContain('Sem espaço para salvar o projeto');
+      await click('Baixar take 1'); expect(io.save).toHaveBeenCalledTimes(2); expect(host.textContent).not.toContain('Sem espaço para salvar o projeto'); expect(download).toHaveBeenCalledOnce();
+      expect([...projects.values()].flatMap(project => project.takes)).toHaveLength(1);
+      expect(io.create).toHaveBeenCalledOnce();
+    } else { expect(io.put).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); }
   });
   it.each(['save', 'discard'] as const)('take pendente restaurado na preparação oferece %s sem REC e sai do bloqueio de conexão', async action => {
     const start = vi.fn(), discardRecovery = vi.fn(), file = new File(['uploaded-original'], 'iPhone.mp4', { type: 'video/mp4' });

@@ -15,7 +15,9 @@ import { useStudioConfirmation } from './useStudioConfirmation';
 import { StudioTakePlayer, type StudioTakePlayerHandle } from './StudioTakePlayer';
 import { StudioSceneControls } from './StudioSceneControls';
 import { useStudioSceneDirector } from './useStudioSceneDirector';
-import { createStudioRemoteCapture, studioRemoteAudioReady, type StudioRemoteCaptureController, type StudioRemoteView } from '@/lib/studio/editor/remoteCameraCapture';
+import { createStudioRemoteCapture, studioRemoteAudioReady, studioRemoteControllerId, type StudioRemoteCaptureController, type StudioRemoteView } from '@/lib/studio/editor/remoteCameraCapture';
+import { createStudioRemoteClient } from '@/lib/studio/editor/remoteCameraClient';
+import { downloadStudioOriginal } from '@/lib/studio/editor/originalDownload';
 import { createStudioRemoteSceneCapture, studioRemoteMicrophoneId } from '@/lib/studio/editor/remoteSceneCapture';
 import { StudioRemoteCameraPairing, StudioRemoteCameraStatus, studioRemoteTransferLabel } from './StudioRemoteCameraPairing';
 import { StudioRemoteCameraControls, type StudioRemoteToolsTab } from './StudioRemoteCameraControls';
@@ -80,6 +82,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
   const remoteCapture = useRef<StudioRemoteCaptureController | null>(null);
   const [remoteState, setRemoteState] = useState<StudioRemoteView | null>(null), remoteSnapshot = useRef<StudioRemoteView | null>(null);
   const [remoteSaving, setRemoteSaving] = useState<string | null>(null), remoteSaveWork = useRef<Promise<void> | null>(null);
+  const phoneDownloadWork = useRef<Promise<void> | null>(null);
   const [localSegmentSaved, setLocalSegmentSaved] = useState(false);
   const importOriginalInput = useRef<HTMLInputElement>(null), importRemoteContext = useRef<{ takeId?: string; token: number; owner: string; session: RecordingSession | null; capture: StudioCaptureController | null }>();
   const [project, setProject] = useState<StudioProject | null>(null), [loading, setLoading] = useState(!!projectId);
@@ -119,7 +122,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     // The first durable save replaces only the URL query. Keep the same session,
     // File receipts and controller when that project id comes back as a prop.
     if (session.current?.current()?.id === projectId && projectSnapshot.current?.ownerId === owner) return;
-    const token = ++epoch.current; cancelConfirmation(); confirmationOperation.current = null; capture.current?.cancel(); candidate.current = null; attempted.current = new WeakSet(); exitIntent.current = false; exitWork.current = null; mutationWork.current = null; deviceWork.current = null; screenWork.current = null; saveBusy.current = false; remoteSaveWork.current = null; importRemoteContext.current = undefined;
+    const token = ++epoch.current; cancelConfirmation(); confirmationOperation.current = null; capture.current?.cancel(); candidate.current = null; attempted.current = new WeakSet(); exitIntent.current = false; exitWork.current = null; mutationWork.current = null; deviceWork.current = null; screenWork.current = null; saveBusy.current = false; remoteSaveWork.current = null; phoneDownloadWork.current = null; importRemoteContext.current = undefined;
     const savedSelection = !projectId ? readStudioRecordingSelection(owner, canUseScenes, studioScenesSupport().supported) : null;
     const seedKind = initialKind ?? savedSelection?.kind ?? 'aula';
     selectionTouched.current = false;
@@ -236,21 +239,51 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
       selectionTouched.current = true; projectSnapshot.current = saved; setProject(saved); setSelectedTake(saved.takes.at(-1)?.id);
       remoteCapture.current?.persistRemoteContext?.();
       saveStudioRecordingSelection(owner, { kind: saved.kind, mode: 'remote', remoteScenes }, saved.id);
-      setNotice('Original salvo no computador. A cópia no iPhone está preservada.');
+      setNotice('Original adicionado ao projeto. A cópia no iPhone está preservada.');
       const params = new URLSearchParams(latest.current.location.search); params.set('project', saved.id); params.set('kind', saved.kind);
       navigate({ pathname: '/studio/record', search: `?${params}` }, { replace: true });
     })(); remoteSaveWork.current = work;
     void work.finally(() => { if (remoteSaveWork.current === work) { remoteSaveWork.current = null; if (current()) setRemoteSaving(null); } }).catch(() => undefined);
     return work;
   };
-  const receivePhoneOriginal = (takeId: string) => {
+  const downloadPhoneOriginal = (takeId: string) => {
     const owned = remoteCapture.current, token = epoch.current;
-    if (!owned?.receiveRemoteTake || remoteSaveWork.current || confirmationOperation.current || exitIntent.current) return;
+    if (phoneDownloadWork.current || remoteSaveWork.current || confirmationOperation.current || exitIntent.current) return;
+    const current = () => live(token) && remoteCapture.current === owned && !exitIntent.current;
     setError(null);
-    void owned.receiveRemoteTake(takeId).then(master => { if (live(token) && remoteCapture.current === owned) return savePhoneOriginal(master.file, takeId); }).catch(cause => report(cause, token));
+    const work = (async () => {
+      const project = projectSnapshot.current, asset = project?.editing?.assets.find(value => value.id === `remote-${takeId}`);
+      if (project && asset) {
+        const file = await getAsset(owner, project.id, asset.id);
+        if (!current()) return;
+        if (!file) throw new Error('O arquivo deste take não está disponível neste navegador. Receba o original do iPhone novamente.');
+        downloadStudioOriginal(file, asset.name); return;
+      }
+      if (!owned?.receiveRemoteTake) throw new Error('Conecte o iPhone para baixar este original ou importe o arquivo recebido.');
+      const master = await owned.receiveRemoteTake(takeId);
+      if (!current()) return;
+      // Confirm the project write before offering the same bytes as a download.
+      await savePhoneOriginal(master.file, takeId);
+      if (!current()) return;
+      downloadStudioOriginal(master.file, master.file.name);
+      setNotice('Original no projeto e download iniciado. A cópia no iPhone está preservada.');
+    })(); phoneDownloadWork.current = work;
+    void work.catch(cause => report(cause, token)).finally(() => { if (phoneDownloadWork.current === work) phoneDownloadWork.current = null; });
   };
+  const getPhoneThumbnail = useCallback(async (takeId: string, sessionId: string) => {
+    const token = epoch.current;
+    const current = () => mounted.current && token === epoch.current && currentOwner.current === owner;
+    const project = projectSnapshot.current;
+    if (project?.editing?.assets.some(asset => asset.id === `remote-${takeId}`)) {
+      const blob = await getAsset(owner, project.id, `remote-${takeId}:thumbnail`);
+      if (!current()) return null;
+      if (blob) return URL.createObjectURL(blob);
+    }
+    const result = await createStudioRemoteClient(owner).thumbnail?.(sessionId, takeId, studioRemoteControllerId(owner), { isCurrent: current });
+    return current() ? result?.url ?? null : null;
+  }, [owner]);
   const importPhoneOriginal = (takeId?: string) => {
-    if (remoteSaveWork.current || confirmationOperation.current || exitIntent.current) return;
+    if (phoneDownloadWork.current || remoteSaveWork.current || confirmationOperation.current || exitIntent.current) return;
     importRemoteContext.current = { takeId, token: epoch.current, owner, session: session.current, capture: capture.current }; importOriginalInput.current?.click();
   };
   const acceptPhoneOriginal = async (file?: File) => {
@@ -278,7 +311,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     attempted.current.add(captureState.file); void saveRef.current(captureState.file);
   }, [captureState.phase, captureState.file]);
 
-  const hasRisk = (ignoreOptionalTransfer = false) => !!remoteSaveWork.current || !ignoreOptionalTransfer && !!remoteSnapshot.current && !['idle', 'complete', 'retry'].includes(remoteSnapshot.current.transfer) || !!confirmationOperation.current || countdownRef.current !== null || ['preparing', 'recording', 'stopping'].includes(captureSnapshot.current.phase) || saveBusy.current || !!deviceWork.current || !!screenWork.current || captureSnapshot.current.scenes?.preparingScreen === true || !!candidate.current && !candidate.current.saved || !!captureSnapshot.current.file || captureSnapshot.current.pendingRecovery === true;
+  const hasRisk = (ignoreOptionalTransfer = false) => !!remoteSaveWork.current || !ignoreOptionalTransfer && (!!phoneDownloadWork.current || !!remoteSnapshot.current && !['idle', 'complete', 'retry'].includes(remoteSnapshot.current.transfer)) || !!confirmationOperation.current || countdownRef.current !== null || ['preparing', 'recording', 'stopping'].includes(captureSnapshot.current.phase) || saveBusy.current || !!deviceWork.current || !!screenWork.current || captureSnapshot.current.scenes?.preparingScreen === true || !!candidate.current && !candidate.current.saved || !!captureSnapshot.current.file || captureSnapshot.current.pendingRecovery === true;
   const saveRecoveredRemote = async (file: File, source?: StudioRemoteSceneRecoveredSource) => {
     if (!mounted.current || hasRisk() || exitIntent.current) throw new Error('Salve ou descarte o take atual antes de recuperar outra gravação.');
     const token = epoch.current, formatChanged = !!source && source.kind !== latest.current.kind;
@@ -656,7 +689,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     </div>
     {hasScenes && captureState.scenes && <StudioSceneControls state={captureState.scenes} disabled={occupied || pendingFile || !ready} recording={false} onScene={selectScene} onPrepareScreen={prepareScreen} onConfigure={configureScene} />}
   </>;
-  const phoneOriginals = isRemote && remoteState && !hasScenes ? <StudioRemoteLocalTakes state={remoteState} savedIds={new Set(project?.takes.filter(take => take.assetId?.startsWith('remote-')).map(take => take.assetId!.slice('remote-'.length)) ?? [])} savingId={remoteSaving} disabled={leaving || confirmationPending || captureState.phase === 'stopping'} recording={recording} onSend={receivePhoneOriginal} onImport={importPhoneOriginal} /> : null;
+  const phoneOriginals = isRemote && remoteState && !hasScenes ? <StudioRemoteLocalTakes owner={owner} state={remoteState} savedIds={new Set(project?.editing?.assets.filter(asset => asset.id.startsWith('remote-')).map(asset => asset.id.slice('remote-'.length)) ?? [])} savingId={remoteSaving} disabled={leaving || confirmationPending || captureState.phase === 'stopping'} recording={recording} onDownload={downloadPhoneOriginal} onImport={importPhoneOriginal} getThumbnail={getPhoneThumbnail} /> : null;
   const setupWorking = captureState.phase === 'preparing' || changingDevice || captureState.scenes?.preparingScreen === true;
   const setupCTA = premiumLoading ? 'Confirmando seu plano…' : remoteScreenRequired ? 'Compartilhar tela' : ready ? 'Ir para gravação' : setupWorking ? isRemote ? 'Conectando iPhone…' : 'Preparando prévia…' : mode === 'camera' && kind !== 'podcast' ? 'Ativar câmera' : captureCTA;
   const setupContext = remoteScreenRequired ? 'Seu iPhone está pronto. Compartilhe a tela para completar a cena.' : ready && !remoteAudioReady ? 'Confirme o microfone do iPhone para gravar.' : setupWorking ? changingDevice ? 'Ajustando o enquadramento…' : mode === 'screen' ? 'Escolha uma tela ou aba no navegador.' : isRemote ? 'Abra a câmera remota no app Classfy.' : 'Autorize o acesso para conferir a prévia.' : undefined;
