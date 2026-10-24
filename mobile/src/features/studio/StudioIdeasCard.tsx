@@ -7,6 +7,7 @@ import { SheetCloseButton, SheetModal as NativeSheetModal, sheetStyles } from '@
 import { useAuth } from '@/features/auth/authContext';
 import { colors } from '@/theme/colors';
 import { useStudioIdeas } from './useStudioIdeas';
+import { studioEntrySizes, studioEntryStyles } from './studioEntryStyles';
 import { validateStudioIdeaDraft, type StudioIdeaDraft, type StudioIdeaKind } from './studioIdeas';
 
 const formats = [{ kind: 'aula', label: 'Aula', icon: Video }, { kind: 'short', label: 'Short', icon: Film }, { kind: 'podcast', label: 'Podcast', icon: Mic }] as const;
@@ -98,10 +99,10 @@ export function StudioIdeasCard({ active, disabled = false, onUseScript, onSheet
       accessibilityHint="Veja suas ideias, contexto e roteiros."
       accessibilityState={{ disabled: disabled || ideas.busy, busy: ideas.loading || ideas.busy, expanded: ideas.visible }}
       disabled={disabled || ideas.busy} onPress={ideas.open}
-      style={({ pressed }) => [s.entry, disabled && s.disabled, pressed && s.pressed]}>
-      <View style={s.avatar}><ClassyAvatar size={30} /></View>
-      <View style={s.entryCopy}><Text style={s.entryTitle}>Classy para criar</Text><Text style={s.entryHint}>Ideias e roteiros para você</Text></View>
-      {ideas.loading || ideas.busy ? <ActivityIndicator size="small" color={colors.muted} /> : <ChevronRight size={17} color={colors.muted} />}
+      style={({ pressed }) => [studioEntryStyles.row, disabled && s.disabled, pressed && s.pressed]}>
+      <View style={[studioEntryStyles.icon, s.avatar]}><ClassyAvatar size={studioEntrySizes.glyph} /></View>
+      <View style={studioEntryStyles.copy}><Text style={studioEntryStyles.title}>Classy para criar</Text><Text style={studioEntryStyles.hint}>Ideias e roteiros para você</Text></View>
+      <View style={studioEntryStyles.accessory}>{ideas.loading || ideas.busy ? <ActivityIndicator size="small" color={colors.muted} /> : <ChevronRight size={studioEntrySizes.chevron} color={colors.muted} />}</View>
     </Pressable>
     <NativeSheetModal visible={ideas.visible} onRequestClose={close} onDismiss={dismissed}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={sheetStyles.backdrop}>
@@ -164,9 +165,7 @@ export function StudioIdeasCard({ active, disabled = false, onUseScript, onSheet
 }
 const s = StyleSheet.create({
   flex: { flex: 1, gap: 5 }, row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  entry: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface },
-  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#211A27', alignItems: 'center', justifyContent: 'center' },
-  entryCopy: { flex: 1, minWidth: 0, gap: 3 }, entryTitle: { color: colors.textSecondary, fontSize: 14, lineHeight: 19, fontWeight: '600' }, entryHint: { color: colors.muted, fontSize: 12, lineHeight: 17 },
+  avatar: { backgroundColor: '#211A27' },
   ideaNumber: { color: brand, fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }, ideaTitle: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '600', letterSpacing: -0.2 }, ideaMeta: { color: '#CE98A5', fontSize: 11, lineHeight: 17 },
   loading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 18, minHeight: 44 },
   sheet: { alignSelf: 'center' }, sheetHeader: { paddingTop: 0 }, sheetBrand: { flexDirection: 'row', alignItems: 'center', gap: 9, flexShrink: 1 }, sheetBrandLabel: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' }, sheetScroll: { flexShrink: 1 }, sheetContent: { paddingHorizontal: 22, paddingTop: 10, gap: 17 }, sheetTitle: { color: colors.text, fontSize: 25, lineHeight: 30, fontWeight: '600', letterSpacing: -0.7 }, hint: { color: colors.muted, fontSize: 13, lineHeight: 20 }, pickedTitle: { color: colors.text, fontSize: 18, lineHeight: 25, fontWeight: '600' }, summary: { color: colors.textSecondary, fontSize: 13, lineHeight: 21 },

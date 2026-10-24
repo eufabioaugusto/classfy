@@ -6,6 +6,9 @@ import * as model from './model.ts';
 const source = ts.transpileModule(readFileSync(new URL('../../../app/studio/index.tsx', import.meta.url), 'utf8'), { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
 } }).outputText;
+const entrySource = ts.transpileModule(readFileSync(new URL('./studioEntryStyles.ts', import.meta.url), 'utf8'), { compilerOptions: {
+  module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
+} }).outputText;
 function harness(projects = []) {
   let owner = 'owner', error = projects.length ? null : 'A lista precisa de recuperação.', dirty = true, cursor = 0, effects = [], tree, recoverCalls = 0, resolveRecovery, rejectRecovery, focused = true, native = true, canPublish = true;
   const pushes = [], creations = [];
@@ -58,6 +61,9 @@ function harness(projects = []) {
     '@/features/studio/StudioIdeasCard': { StudioIdeasCard: 'ideas-card' },
     '../../modules/classfy-studio-media': { isStudioMediaAvailable: () => native },
   };
+  const entryModule = { exports: {} };
+  new Function('require', 'module', 'exports', entrySource)(name => { assert.ok(name in dependencies, name); return dependencies[name]; }, entryModule, entryModule.exports);
+  dependencies['@/features/studio/studioEntryStyles'] = entryModule.exports;
   const module = { exports: {} }; new Function('require', 'module', 'exports', source)(name => { assert.ok(name in dependencies, name); return dependencies[name]; }, module, module.exports);
   const render = () => { cursor = 0; effects = []; dirty = false; tree = module.exports.default(); for (const effect of effects) { slots[effect.i]?.cleanup?.(); slots[effect.i] = { deps: effect.deps, cleanup: effect.callback() }; } };
   const pump = async () => { for (let i = 0; i < 30; i++) { if (dirty) render(); await new Promise(resolve => setImmediate(resolve)); if (!dirty) return; } throw new Error('Workspace did not settle'); };

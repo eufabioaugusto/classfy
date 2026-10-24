@@ -19,6 +19,7 @@ import { importStudioMedia } from '@/features/studio/media';
 import { compileStudioRecipe, formatStudioDuration, studioFormats, studioSeconds, studioStateLabel, type StudioKind, type StudioProject } from '@/features/studio/model';
 import { StudioAccess, studioStyles } from '@/features/studio/StudioUI';
 import { StudioIdeasCard } from '@/features/studio/StudioIdeasCard';
+import { studioEntrySizes, studioEntryStyles } from '@/features/studio/studioEntryStyles';
 import type { StudioIdeaDraft } from '@/features/studio/studioIdeas';
 import { performStudioSnapFeedback } from '@/features/studio/snapFeedback';
 import { isStudioMediaAvailable } from '../../modules/classfy-studio-media';
@@ -322,8 +323,8 @@ export default function StudioScreen() {
       <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 108 }}>
         <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10 }}>
           <Pressable accessibilityRole="button" accessibilityLabel="Conectar iPhone ao computador" disabled={busy} onPress={()=>{if(canInteract())router.push('/studio/remote-camera');}}
-            style={{minHeight:54,borderRadius:16,padding:14,marginBottom:12,backgroundColor:'#24121A',flexDirection:'row',alignItems:'center',gap:10}}>
-            <Camera size={20} color={colors.accent}/><View style={{flex:1}}><Text style={{color:colors.text,fontWeight:'600'}}>Conectar ao computador</Text><Text style={{color:colors.muted,fontSize:12,marginTop:3}}>Câmera iPhone · Premium</Text></View><ChevronRight size={18} color={colors.muted}/>
+            style={({ pressed }) => [studioEntryStyles.row, { marginBottom: 12, backgroundColor: '#24121A' }, busy && { opacity: 0.5 }, pressed && { opacity: 0.75 }]}>
+            <View style={studioEntryStyles.icon}><Camera size={studioEntrySizes.glyph} color={colors.accent}/></View><View style={studioEntryStyles.copy}><Text style={[studioEntryStyles.title, { color: colors.text }]}>Conectar ao computador</Text><Text style={studioEntryStyles.hint}>Câmera iPhone · Premium</Text></View><View style={studioEntryStyles.accessory}><ChevronRight size={studioEntrySizes.chevron} color={colors.muted}/></View>
           </Pressable>
           <StudioIdeasCard key={user?.id} active={isFocused && canPublish && !loading && !!user?.id}
             disabled={recovering || !!workspaceAction || loading || !!error || launching && !ideaHandoff.current}
