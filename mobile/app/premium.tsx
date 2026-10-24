@@ -10,12 +10,11 @@ import {
   View,
 } from 'react-native';
 import { useRouter, useNavigation } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Crown, Check, X } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Check, X, CircleCheck, Info, ShieldCheck, ChevronUp, ChevronDown, RotateCcw } from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
+import { PlanCrown } from '@/components/PlanCrown';
+import { dataTheme as t } from '@/theme/data';
 import { useAuth } from '@/features/auth/authContext';
 import { useStoreBilling } from '@/features/billing/useStoreBilling';
 import { BillingMessageDialog } from '@/features/billing/BillingMessageDialog';
@@ -35,7 +34,6 @@ export default function PremiumScreen() {
   const billing = useStoreBilling();
   const router = useRouter();
   const navigation = useNavigation();
-  const insets = useSafeAreaInsets();
 
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
 
@@ -95,7 +93,7 @@ export default function PremiumScreen() {
     const isCurrent = currentPlan === plan;
     const isLoading = billing.purchasingPlan === plan;
     const unavailable = !existingSubscription && Boolean(user) && (billing.status !== 'ready' || !product);
-    const planColor = isPremium ? colors.accent : '#f59e0b'; // Premium = Red, Pro = Yellow
+    const planColor = t.accent;
 
     const features = isPremium
       ? [
@@ -116,27 +114,13 @@ export default function PremiumScreen() {
         ];
 
     return (
-      <View style={[styles.planCard, isPremium ? styles.premiumCardBorder : styles.proCardBorder]}>
-        {isPremium ? (
-          <LinearGradient
-            colors={['rgba(226,29,72,0.12)', 'rgba(0,0,0,0.8)']}
-            style={StyleSheet.absoluteFillObject}
-          />
-        ) : (
-          <LinearGradient
-            colors={['rgba(245,158,11,0.06)', 'rgba(0,0,0,0.8)']}
-            style={StyleSheet.absoluteFillObject}
-          />
-        )}
-
+      <View style={[styles.planCard, isCurrent && styles.currentPlanCardBorder]}>
         <View style={styles.planHeader}>
           <View style={styles.planTitleContainer}>
-            <Text style={[styles.planTitle, { color: planColor }]}>
-              {planTitle}
-            </Text>
+            <View style={styles.planIdentity}><PlanCrown plan={plan} size={20} /><Text style={styles.planTitle}>{planTitle}</Text></View>
             {isPremium && (
               <View style={styles.popularBadge}>
-                <Text style={styles.popularBadgeText}>RECOMENDADO</Text>
+                <Text style={styles.popularBadgeText}>Recomendado</Text>
               </View>
             )}
           </View>
@@ -151,7 +135,8 @@ export default function PremiumScreen() {
             <View key={idx} style={styles.featureItem}>
               <Check
                 size={16}
-                color={planColor}
+                color={t.secondary}
+                strokeWidth={t.stroke}
                 style={styles.featureIcon}
               />
               <Text style={styles.featureText}>{feature}</Text>
@@ -165,14 +150,14 @@ export default function PremiumScreen() {
           disabled={Boolean(billing.operation) || unavailable}
           style={({ pressed }) => [
             styles.subscribeBtn,
-            { backgroundColor: planColor },
+            isPremium ? { backgroundColor: planColor } : styles.secondarySubscribeBtn,
             isCurrent && styles.currentPlanBtn,
             unavailable && { opacity: 0.45 },
             pressed && { opacity: 0.8 },
           ]}
         >
           {isLoading ? (
-            <ActivityIndicator size="small" color="#000" />
+            <ActivityIndicator size="small" color={t.ink} />
           ) : (
             <Text style={[styles.subscribeBtnText, isCurrent && styles.currentPlanBtnText]}>
               {existingSubscription ? (isCurrent ? 'Gerenciar assinatura' : 'Alterar plano na conta da compra') : unavailable ? 'Em preparação' : `Assinar ${isPremium ? 'Premium' : 'Pro'}`}
@@ -186,19 +171,12 @@ export default function PremiumScreen() {
   return (
     <AppScreen scroll={false} edgeToEdge>
       {/* Header Bar */}
-      <NavigationHeader title="Classfy Premium" back />
+      <NavigationHeader title="Planos" back />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Hero Section */}
         <View style={styles.heroSection}>
-          <LinearGradient
-            colors={['rgba(226,29,72,0.15)', 'transparent']}
-            style={styles.heroGradient}
-          />
-          <View style={styles.crownContainer}>
-            <Crown size={32} color={colors.accent} />
-          </View>
-          <Text style={styles.heroTitle}>Eleve seu aprendizado</Text>
+          <Text style={styles.heroTitle}>Seu próximo passo</Text>
           <Text style={styles.heroSubtitle}>
             Estude com a inteligência do Classfy IA copiloto, sem anúncios e com certificados oficiais.
           </Text>
@@ -206,9 +184,10 @@ export default function PremiumScreen() {
           {/* Current Plan Indicator */}
           <View style={styles.statusIndicator}>
             <Text style={styles.statusLabel}>Seu plano atual:</Text>
-            <View style={[styles.statusBadge, currentPlan !== 'free' && styles.statusBadgeActive]}>
-              <Text style={[styles.statusBadgeText, currentPlan !== 'free' && styles.statusBadgeTextActive]}>
-                {currentPlan === 'free' ? 'Classfy Gratuito' : currentPlan === 'pro' ? 'Classfy Pro 🚀' : 'Classfy Premium 🌟'}
+            <View style={styles.statusBadge}>
+              {currentPlan !== 'free' ? <PlanCrown plan={currentPlan} size={14} /> : null}
+              <Text style={styles.statusBadgeText}>
+                {currentPlan === 'free' ? 'Classfy Gratuito' : currentPlan === 'pro' ? 'Classfy Pro' : 'Classfy Premium'}
               </Text>
             </View>
           </View>
@@ -217,15 +196,15 @@ export default function PremiumScreen() {
         <View style={styles.billingStatus}>
           {existingSubscription ? (
             <>
-              <Ionicons name="checkmark-circle-outline" size={22} color={colors.free} />
+              <CircleCheck size={22} strokeWidth={t.stroke} color={t.positive} />
               <Text style={styles.billingStatusText}>{currentStore ? `Sua assinatura é gerenciada ${currentStore === 'apple' ? 'pela App Store' : 'pelo Google Play'}.` : 'Sua assinatura contratada fora do app continua válida aqui. Você pode gerenciá-la na sua conta pelo navegador.'}</Text>
             </>
           ) : billing.status === 'loading' ? (
-            <><ActivityIndicator color={colors.accent} /><Text style={styles.billingStatusText}>Consultando os planos disponíveis na loja…</Text></>
+            <><ActivityIndicator color={t.secondary} /><Text style={styles.billingStatusText}>Consultando os planos disponíveis na loja…</Text></>
           ) : billing.reason ? (
-            <><Ionicons name="information-circle-outline" size={22} color={colors.muted} /><Text style={styles.billingStatusText}>{billing.reason}</Text></>
+            <><Info size={22} strokeWidth={t.stroke} color={t.muted} /><Text style={styles.billingStatusText}>{billing.reason}</Text></>
           ) : (
-            <><Ionicons name="shield-checkmark-outline" size={22} color={colors.accent} /><Text style={styles.billingStatusText}>Assinatura mensal com pagamento e renovação pela {storeName}.</Text></>
+            <><ShieldCheck size={22} strokeWidth={t.stroke} color={t.secondary} /><Text style={styles.billingStatusText}>Assinatura mensal com pagamento e renovação pela {storeName}.</Text></>
           )}
           {billing.status === 'error' && <Pressable accessibilityRole="button" onPress={billing.retry}><Text style={styles.billingLink}>Tentar novamente</Text></Pressable>}
         </View>
@@ -242,33 +221,33 @@ export default function PremiumScreen() {
           <View style={styles.compareTable}>
             <View style={[styles.tableRow, styles.tableHeaderRow]}>
               <Text style={[styles.tableCol, styles.tableColLeft, styles.tableHeaderCol]}>Recurso</Text>
-              <Text style={[styles.tableCol, styles.tableHeaderCol, { color: '#f59e0b' }]}>Pro</Text>
-              <Text style={[styles.tableCol, styles.tableHeaderCol, { color: colors.accent }]}>Premium</Text>
+              <Text style={[styles.tableCol, styles.tableHeaderCol]}>Pro</Text>
+              <Text style={[styles.tableCol, styles.tableHeaderCol, { color: t.secondary }]}>Premium</Text>
             </View>
 
             <View style={styles.tableRow}>
               <Text style={[styles.tableCol, styles.tableColLeft]}>Vídeos sem anúncios</Text>
               <View style={styles.tableColCell}>
-                <Check size={14} color="#f59e0b" />
+                <Check size={14} color={t.secondary} />
               </View>
               <View style={styles.tableColCell}>
-                <Check size={14} color={colors.accent} />
+                <Check size={14} color={t.secondary} />
               </View>
             </View>
             <View style={styles.tableRow}>
               <Text style={[styles.tableCol, styles.tableColLeft]}>Estudos com a Classy</Text>
               <Text style={styles.tableCol}>Até 50</Text>
-              <Text style={[styles.tableCol, { color: colors.accent }]}>Ilimitado</Text>
+              <Text style={[styles.tableCol, { color: t.secondary }]}>Ilimitado</Text>
             </View>
             <View style={styles.tableRow}>
               <Text style={[styles.tableCol, styles.tableColLeft]}>Mensagens por estudo</Text>
               <Text style={styles.tableCol}>Até 30</Text>
-              <Text style={[styles.tableCol, { color: colors.accent }]}>Ilimitadas</Text>
+              <Text style={[styles.tableCol, { color: t.secondary }]}>Ilimitadas</Text>
             </View>
             <View style={styles.tableRow}>
               <Text style={[styles.tableCol, styles.tableColLeft]}>Downloads offline</Text>
               <Text style={styles.tableCol}>Áudio</Text>
-              <Text style={[styles.tableCol, { color: colors.accent }]}>Vídeo & Áudio</Text>
+              <Text style={[styles.tableCol, { color: t.secondary }]}>Vídeo & Áudio</Text>
             </View>
             <View style={styles.tableRow}>
               <Text style={[styles.tableCol, styles.tableColLeft]}>Cursos & Certificados</Text>
@@ -276,7 +255,7 @@ export default function PremiumScreen() {
                 <X size={14} color={colors.mutedDim} />
               </View>
               <View style={styles.tableColCell}>
-                <Check size={14} color={colors.accent} />
+                <Check size={14} color={t.secondary} />
               </View>
             </View>
             <View style={styles.tableRow}>
@@ -285,7 +264,7 @@ export default function PremiumScreen() {
                 <X size={14} color={colors.mutedDim} />
               </View>
               <View style={styles.tableColCell}>
-                <Check size={14} color={colors.accent} />
+                <Check size={14} color={t.secondary} />
               </View>
             </View>
           </View>
@@ -301,11 +280,7 @@ export default function PremiumScreen() {
                 <View key={index} style={styles.faqItem}>
                   <Pressable onPress={() => toggleFaq(index)} style={styles.faqHeader}>
                     <Text style={styles.faqQuestion}>{faq.question}</Text>
-                    <Ionicons
-                      name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                      size={18}
-                      color={colors.muted}
-                    />
+                    {isExpanded ? <ChevronUp size={18} strokeWidth={t.stroke} color={t.muted} /> : <ChevronDown size={18} strokeWidth={t.stroke} color={t.muted} />}
                   </Pressable>
                   {isExpanded && (
                     <View style={styles.faqAnswerContainer}>
@@ -320,14 +295,14 @@ export default function PremiumScreen() {
 
         <View style={styles.billingActions}>
           <Pressable accessibilityRole="button" disabled={Boolean(billing.operation)} onPress={() => user ? void billing.restore() : router.push('/auth/sign-in')} style={styles.restoreButton}>
-            {billing.operation === 'restore' ? <ActivityIndicator size="small" color={colors.text} /> : <Ionicons name="refresh-outline" size={18} color={colors.text} />}
+            {billing.operation === 'restore' ? <ActivityIndicator size="small" color={colors.text} /> : <RotateCcw size={18} strokeWidth={t.stroke} color={t.ink} />}
             <Text style={styles.restoreText}>Restaurar compras</Text>
           </Pressable>
           {existingSubscription && <Pressable accessibilityRole="button" disabled={Boolean(billing.operation)} onPress={() => void billing.manage()}><Text style={styles.billingLink}>Gerenciar assinatura</Text></Pressable>}
         </View>
 
         <View style={styles.disclaimerSection}>
-          <Ionicons name="shield-checkmark" size={16} color={colors.muted} />
+          <ShieldCheck size={16} strokeWidth={t.stroke} color={t.muted} />
           <Text style={styles.disclaimerText}>
             A confirmação do valor e das condições ocorre na loja antes de concluir. A renovação é automática até o cancelamento nas configurações da sua assinatura.
           </Text>
@@ -371,9 +346,9 @@ const styles = StyleSheet.create({
     paddingBottom: 60,
   },
   heroSection: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
+    paddingTop: spacing.md,
     paddingBottom: spacing.lg,
     position: 'relative',
   },
@@ -399,25 +374,26 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 22,
     fontWeight: typography.weightBold,
-    textAlign: 'center',
-    marginBottom: spacing.xs,
+    textAlign: 'left',
+    marginBottom: spacing.sm,
   },
   heroSubtitle: {
     color: colors.muted,
-    fontSize: 12,
-    textAlign: 'center',
-    lineHeight: 18,
-    paddingHorizontal: spacing.sm,
+    fontSize: 14,
+    textAlign: 'left',
+    lineHeight: 21,
     marginBottom: spacing.md,
   },
   statusIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: t.surface,
+    borderColor: t.border,
     borderWidth: 1,
-    borderRadius: radius.pill,
-    paddingVertical: 4,
+    borderRadius: t.controlRadius,
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingVertical: 12,
     paddingHorizontal: spacing.md,
   },
   statusLabel: {
@@ -425,9 +401,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginRight: 6,
   },
-  statusBadge: {
-    borderRadius: radius.sm,
-  },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statusBadgeText: {
     color: colors.text,
     fontSize: 11,
@@ -447,19 +421,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   planCard: {
-    backgroundColor: '#111',
-    borderRadius: radius.lg,
+    backgroundColor: t.surface,
+    borderRadius: t.cardRadius,
     borderWidth: 1,
     padding: spacing.xl,
     overflow: 'hidden',
     position: 'relative',
   },
-  premiumCardBorder: {
-    borderColor: 'rgba(226,29,72,0.25)',
-  },
-  proCardBorder: {
-    borderColor: 'rgba(245,158,11,0.25)',
-  },
+  currentPlanCardBorder: { borderColor: t.accent },
+  secondarySubscribeBtn: { backgroundColor: t.raised, borderColor: t.border, borderWidth: 1 },
+  planIdentity: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
   planHeader: {
     marginBottom: spacing.lg,
   },
@@ -467,31 +438,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 12,
+    gap: 8,
+    flexWrap: 'wrap',
   },
   planTitle: {
+    color: t.ink,
+    flexShrink: 1,
     fontSize: 18,
     fontWeight: typography.weightBold,
   },
   popularBadge: {
-    backgroundColor: colors.accent,
-    borderRadius: radius.xs,
+    backgroundColor: t.raised,
+    borderRadius: t.controlRadius,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
   popularBadgeText: {
     color: '#FFF',
-    fontSize: 8,
-    fontWeight: '900',
+    fontSize: 11,
+    fontWeight: '600',
   },
   priceRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
+    flexWrap: 'wrap',
   },
   price: {
     color: colors.text,
-    fontSize: 26,
-    fontWeight: typography.weightBold,
+    fontSize: 30,
+    fontWeight: typography.weightSemibold,
+    fontVariant: ['tabular-nums'],
   },
   pricePeriod: {
     color: colors.muted,
@@ -520,11 +497,15 @@ const styles = StyleSheet.create({
   },
   featureText: {
     color: colors.text,
-    fontSize: 12.5,
+    fontSize: 14,
+    lineHeight: 21,
+    flex: 1,
   },
   subscribeBtn: {
-    height: 44,
-    borderRadius: radius.md,
+    minHeight: 48,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: t.controlRadius,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -547,15 +528,15 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 15,
-    fontWeight: typography.weightBold,
+    fontSize: 18,
+    fontWeight: typography.weightSemibold,
     marginBottom: spacing.md,
   },
   compareTable: {
-    backgroundColor: '#111',
-    borderRadius: radius.lg,
+    backgroundColor: t.surface,
+    borderRadius: t.cardRadius,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.03)',
+    borderColor: t.border,
     overflow: 'hidden',
   },
   tableRow: {
@@ -597,10 +578,10 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   faqItem: {
-    backgroundColor: '#111',
+    backgroundColor: t.surface,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.03)',
+    borderColor: t.border,
     overflow: 'hidden',
   },
   faqHeader: {
@@ -611,8 +592,9 @@ const styles = StyleSheet.create({
   },
   faqQuestion: {
     color: colors.text,
-    fontSize: 12,
-    fontWeight: typography.weightBold,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: typography.weightSemibold,
     flex: 1,
     paddingRight: spacing.sm,
   },
@@ -625,8 +607,8 @@ const styles = StyleSheet.create({
   },
   faqAnswer: {
     color: colors.muted,
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 20,
   },
   disclaimerSection: {
     flexDirection: 'row',

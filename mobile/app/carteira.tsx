@@ -2,7 +2,6 @@ import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,38 +9,26 @@ import {
   TextInput,
   View,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import {
-  Wallet,
-  TrendingUp,
-  DollarSign,
-  History,
-  CheckCircle,
-  Clock,
-  XCircle,
-  AlertCircle,
-  ArrowUpRight,
-  ArrowDownRight,
-  Calendar,
-  ArrowLeft,
-} from 'lucide-react-native';
+import { ArrowUpRight, CheckCircle, Clock, XCircle, AlertCircle, Activity, Wallet } from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
 import { useAuth } from '@/features/auth/authContext';
 import { supabase } from '@/lib/supabase';
-import { colors } from '@/theme/colors';
-import { radius } from '@/theme/radius';
+import { parseMoneyInput } from '@/features/wallet/moneyInput';
+import { DataAction, DataCard, DataIcon, DataMetric, DataRow, DataSection } from '@/components/data/DataUI';
+import { dataStyles, dataTheme as t } from '@/theme/data';
 import { spacing } from '@/theme/spacing';
-import { typography } from '@/theme/typography';
 
 export default function CarteiraScreen() {
   const { user } = useAuth();
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
+  const { width, fontScale } = useWindowDimensions();
+  const compact = width < 380 || fontScale > 1.15;
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [wallet, setWallet] = useState<any>(null);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [pixKey, setPixKey] = useState('');
@@ -67,6 +54,7 @@ export default function CarteiraScreen() {
   const fetchData = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const [walletRes, configRes, withdrawalsRes, rewardsRes] = await Promise.all([
         supabase.from('wallets').select('*').eq('user_id', user?.id).single(),
         supabase
@@ -130,6 +118,7 @@ export default function CarteiraScreen() {
       }
     } catch (error: any) {
       console.error('Error fetching wallet data:', error);
+      setLoadError('Não foi possível carregar os dados da carteira.');
       Alert.alert('Erro', 'Não foi possível carregar os dados da carteira.');
     } finally {
       setLoading(false);
@@ -138,7 +127,7 @@ export default function CarteiraScreen() {
 
   const handleWithdraw = async () => {
     setSubmitting(true);
-    const amount = parseFloat(withdrawAmount);
+    const amount = parseMoneyInput(withdrawAmount);
 
     if (!amount || amount <= 0) {
       Alert.alert('Erro', 'Por favor, insira um valor de saque válido.');
@@ -175,6 +164,7 @@ export default function CarteiraScreen() {
       Alert.alert('Sucesso', 'Sua solicitação de saque foi enviada e está em análise!');
       setWithdrawAmount('');
       setPixKey('');
+      setWithdrawOpen(false);
       await fetchData();
     } catch (error: any) {
       console.error('Error requesting withdrawal:', error);
@@ -188,13 +178,13 @@ export default function CarteiraScreen() {
     switch (status) {
       case 'paid':
       case 'approved':
-        return <CheckCircle size={14} color="#22c55e" />;
+        return <CheckCircle size={14} strokeWidth={t.stroke} color={t.secondary} />;
       case 'pending':
-        return <Clock size={14} color="#eab308" />;
+        return <Clock size={14} strokeWidth={t.stroke} color={t.secondary} />;
       case 'rejected':
-        return <XCircle size={14} color="#ef4444" />;
+        return <XCircle size={14} strokeWidth={t.stroke} color={t.danger} />;
       default:
-        return <AlertCircle size={14} color={colors.muted} />;
+        return <AlertCircle size={14} strokeWidth={t.stroke} color={t.muted} />;
     }
   };
 
@@ -203,9 +193,9 @@ export default function CarteiraScreen() {
       case 'paid':
         return 'Pago';
       case 'approved':
-        return 'Aprovado (legado)';
+        return 'Aprovado';
       case 'pending':
-        return 'Pendente';
+        return 'Em análise';
       case 'rejected':
         return 'Rejeitado';
       default:
@@ -252,188 +242,181 @@ export default function CarteiraScreen() {
     }
   };
 
-  return (
-    <AppScreen edgeToEdge={true} scroll={false}>
-      {/* Header */}
-      <NavigationHeader title="Carteira" back />
+  const formatMoney = (value: unknown) => Number(value || 0).toLocaleString('pt-BR', {
+    style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+  const formatPoints = (value: number) => value.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+  const availableBalance = Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0);
 
-      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+  return (
+    <AppScreen edgeToEdge scroll={false} backgroundColor={t.canvas}>
+      <NavigationHeader title="Carteira" back />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={dataStyles.screen}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         {loading ? (
           <LoadingPlaceholder variant="dashboard" inset={false} />
+        ) : loadError ? (
+          <DataCard style={styles.stateCard}>
+            <DataIcon icon={AlertCircle} />
+            <Text accessibilityRole="header" style={dataStyles.sectionTitle}>Carteira indisponível</Text>
+            <Text accessibilityRole="alert" style={dataStyles.body}>{loadError}</Text>
+            <DataAction label="Tentar novamente" variant="secondary" onPress={() => void fetchData()} />
+          </DataCard>
+        ) : !user || !wallet ? (
+          <DataCard style={styles.stateCard}>
+            <DataIcon icon={Wallet} />
+            <Text style={dataStyles.sectionTitle}>Sua carteira</Text>
+            <Text style={dataStyles.body}>Entre na sua conta para consultar seu saldo e suas movimentações.</Text>
+          </DataCard>
         ) : (
           <>
-            {/* Solicitar Saque Card */}
-            <View style={styles.withdrawCard}>
-              <View style={styles.withdrawHeader}>
-                <View style={styles.withdrawTitleBlock}>
-                  <Wallet size={20} color="#ef4444" style={{ marginRight: 8 }} />
-                  <Text style={styles.withdrawTitle}>Solicitar Saque</Text>
-                </View>
-                <Text style={styles.withdrawMin}>Mínimo: R$ {minWithdrawalAmount.toFixed(2)}</Text>
+            <DataCard style={styles.balanceCard}>
+              <View style={styles.balanceHeading}>
+                <Text style={styles.balanceLabel}>Saldo disponível</Text>
+                <Text style={styles.currencyLabel}>BRL</Text>
               </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Valor do Saque (R$)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="0,00"
-                  placeholderTextColor="rgba(255,255,255,0.3)"
-                  keyboardType="numeric"
-                  value={withdrawAmount}
-                  onChangeText={setWithdrawAmount}
-                />
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Chave PIX</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="CPF, E-mail ou Telefone"
-                  placeholderTextColor="rgba(255,255,255,0.3)"
-                  value={pixKey}
-                  onChangeText={setPixKey}
-                />
-              </View>
-
-              <Pressable
-                onPress={handleWithdraw}
+              <Text style={[styles.balanceValue, compact && styles.balanceValueCompact]}>{formatMoney(availableBalance)}</Text>
+              <Text style={dataStyles.label}>Disponível para solicitar saque</Text>
+              <DataAction
+                label={withdrawOpen ? 'Fechar solicitação' : 'Solicitar saque'}
+                icon={withdrawOpen ? undefined : ArrowUpRight}
+                variant={withdrawOpen ? 'secondary' : 'primary'}
                 disabled={submitting}
-                style={[styles.withdrawBtn, submitting && styles.btnDisabled]}
-              >
-                {submitting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.withdrawBtnText}>Solicitar Saque</Text>
-                )}
-              </Pressable>
+                onPress={() => setWithdrawOpen(!withdrawOpen)}
+              />
+
+              {withdrawOpen ? (
+                <View style={styles.withdrawForm}>
+                  <View style={styles.formHeading}>
+                    <Text style={styles.formTitle}>Saque via Pix</Text>
+                    <Text style={dataStyles.label}>Mínimo de {formatMoney(minWithdrawalAmount)}</Text>
+                  </View>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>Valor do saque (R$)</Text>
+                    <TextInput
+                      accessibilityLabel="Valor do saque em reais"
+                      style={dataStyles.input}
+                      placeholder="0,00"
+                      placeholderTextColor={t.subtle}
+                      keyboardType="decimal-pad"
+                      value={withdrawAmount}
+                      editable={!submitting}
+                      onChangeText={setWithdrawAmount}
+                    />
+                  </View>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>Chave Pix</Text>
+                    <TextInput
+                      accessibilityLabel="Chave Pix"
+                      style={dataStyles.input}
+                      placeholder="CPF, e-mail, telefone ou chave aleatória"
+                      placeholderTextColor={t.subtle}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!submitting}
+                      value={pixKey}
+                      onChangeText={setPixKey}
+                    />
+                  </View>
+                  <DataAction label="Enviar solicitação" busy={submitting} onPress={() => void handleWithdraw()} />
+                  <Text style={dataStyles.label}>O pedido será analisado antes do pagamento.</Text>
+                </View>
+              ) : null}
+            </DataCard>
+
+            <View style={[styles.balanceDetails, compact && styles.stack]}>
+              <DataCard style={styles.balanceDetail}>
+                <DataMetric label="Aguardando liberação" value={formatMoney(wallet.pending_balance)} hint="Ainda indisponível para saque" />
+              </DataCard>
+              <DataCard style={styles.balanceDetail}>
+                <DataMetric label="Reservado" value={formatMoney(wallet.reserved_balance)} hint="Em solicitações de saque" />
+              </DataCard>
             </View>
 
-            {/* Balances Row */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.balancesContainer}>
-              <View style={[styles.balanceItem, { borderColor: 'rgba(34,197,94,0.3)' }]}>
-                <Text style={styles.balanceLabel}>Saldo Disponível</Text>
-                <Text style={[styles.balanceValue, { color: '#22c55e' }]}>
-                  R$ {(Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0)).toFixed(2)}
-                </Text>
-                <Text style={styles.balanceSub}>Para saque</Text>
+            <DataSection title="Resumo financeiro">
+              <DataCard style={styles.ledgerCard}>
+                <DataRow title="Total gerado na carteira" value={formatMoney(wallet.total_earned)} />
+                <DataRow title="Total sacado" value={formatMoney(wallet.total_withdrawn)} last />
+              </DataCard>
+            </DataSection>
+
+            <DataSection title="Extrato">
+              <View accessibilityRole="tablist" style={styles.tabs}>
+                {(['saques', 'ganhos'] as const).map((tab) => (
+                  <Pressable
+                    key={tab}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: activeTab === tab }}
+                    onPress={() => setActiveTab(tab)}
+                    style={[styles.tab, activeTab === tab && styles.tabActive]}
+                  >
+                    <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab === 'saques' ? 'Saques' : 'Points'}</Text>
+                  </Pressable>
+                ))}
               </View>
 
-              <View style={[styles.balanceItem, { borderColor: 'rgba(234,179,8,0.3)' }]}>
-                <Text style={[styles.balanceLabel, { color: '#eab308' }]}>Em Maturação</Text>
-                <Text style={[styles.balanceValue, { color: '#eab308' }]}>
-                  R$ {Number(wallet?.pending_balance || 0).toFixed(2)}
-                </Text>
-                <Text style={styles.balanceSub}>Sendo liberado</Text>
-              </View>
-
-              <View style={styles.balanceItem}>
-                <Text style={styles.balanceLabel}>Total Ganho</Text>
-                <Text style={styles.balanceValue}>
-                  R$ {wallet?.total_earned?.toFixed(2) || '0.00'}
-                </Text>
-                <Text style={styles.balanceSub}>Acumulado</Text>
-              </View>
-
-              <View style={styles.balanceItem}>
-                <Text style={styles.balanceLabel}>Total Sacado</Text>
-                <Text style={styles.balanceValue}>
-                  R$ {wallet?.total_withdrawn?.toFixed(2) || '0.00'}
-                </Text>
-                <Text style={styles.balanceSub}>Saques feitos</Text>
-              </View>
-
-              <View style={styles.balanceItem}>
-                <Text style={styles.balanceLabel}>Este Mês</Text>
-                <Text style={[styles.balanceValue, { color: colors.accent }]}>
-                  {Math.floor(stats.thisMonth)} pts
-                </Text>
-                <Text style={styles.balanceSub}>Points acumulados</Text>
-              </View>
-            </ScrollView>
-
-            {/* Stats Cards */}
-            <View style={styles.statsContainer}>
-              <View style={styles.statCard}>
-                <Text style={styles.statLabel}>Últimos 7 dias</Text>
-                <Text style={styles.statValue}>{Math.floor(stats.last7Days)} pts</Text>
-                <Text style={styles.statSub}>Na última semana</Text>
-              </View>
-
-              <View style={styles.statCard}>
-                <Text style={styles.statLabel}>Últimos 30 dias</Text>
-                <Text style={styles.statValue}>{Math.floor(stats.last30Days)} pts</Text>
-                <Text style={styles.statSub}>No último mês</Text>
-              </View>
-            </View>
-
-            {/* History Tabs */}
-            <View style={styles.tabsContainer}>
-              <Pressable
-                onPress={() => setActiveTab('saques')}
-                style={[styles.tabBtn, activeTab === 'saques' && styles.tabBtnActive]}
-              >
-                <History size={16} color={activeTab === 'saques' ? colors.accent : colors.muted} style={{ marginRight: 6 }} />
-                <Text style={[styles.tabText, activeTab === 'saques' && styles.tabTextActive]}>Saques</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => setActiveTab('ganhos')}
-                style={[styles.tabBtn, activeTab === 'ganhos' && styles.tabBtnActive]}
-              >
-                <TrendingUp size={16} color={activeTab === 'ganhos' ? colors.accent : colors.muted} style={{ marginRight: 6 }} />
-                <Text style={[styles.tabText, activeTab === 'ganhos' && styles.tabTextActive]}>Ganhos</Text>
-              </Pressable>
-            </View>
-
-            {/* Tab Contents */}
-            {activeTab === 'saques' ? (
-              <View style={styles.listContainer}>
-                {withdrawHistory.length === 0 ? (
-                  <Text style={styles.emptyText}>Nenhuma solicitação de saque ainda</Text>
-                ) : (
-                  withdrawHistory.map((item) => (
-                    <View key={item.id} style={styles.historyItem}>
-                      <View style={styles.historyRow}>
-                        <Text style={styles.historyAmount}>R$ {item.amount.toFixed(2)}</Text>
-                        <View style={styles.statusBlock}>
+              {activeTab === 'saques' ? (
+                <DataCard style={styles.ledgerCard}>
+                  {withdrawHistory.length === 0 ? (
+                    <View style={styles.emptyState}>
+                      <Text style={styles.emptyTitle}>Nenhum saque solicitado</Text>
+                      <Text style={dataStyles.label}>Seus pedidos e o status de cada pagamento aparecerão aqui.</Text>
+                    </View>
+                  ) : withdrawHistory.map((item, index) => (
+                    <View key={item.id} style={[styles.ledgerItem, index < withdrawHistory.length - 1 && styles.ledgerDivider]}>
+                      <View style={[styles.ledgerHeading, compact && styles.stack]}>
+                        <Text style={styles.ledgerAmount}>{formatMoney(item.amount)}</Text>
+                        <View style={styles.status}>
                           {getStatusIcon(item.status)}
-                          <Text style={[styles.statusText, { marginLeft: 4 }]}>
-                            {getStatusText(item.status)}
-                          </Text>
+                          <Text style={[styles.statusText, item.status === 'rejected' && styles.rejected]}>{getStatusText(item.status)}</Text>
                         </View>
                       </View>
-                      <Text style={styles.historyPix} numberOfLines={1}>PIX: {item.pix_key}</Text>
-                      <Text style={styles.historyDate}>{formatDate(item.created_at)}</Text>
+                      <Text style={dataStyles.label}>Pix · {item.pix_key}</Text>
+                      <Text style={styles.date}>{formatDate(item.created_at)}</Text>
                     </View>
-                  ))
-                )}
-              </View>
-            ) : (
-              <View style={styles.listContainer}>
-                {rewardHistory.length === 0 ? (
-                  <Text style={styles.emptyText}>Nenhum ganho registrado ainda</Text>
-                ) : (
-                  rewardHistory.map((item) => (
-                    <View key={item.id} style={styles.earningItem}>
-                      <View style={styles.earningLeft}>
-                        <View style={styles.earningIconBg}>
-                          <DollarSign size={14} color={colors.accent} />
-                        </View>
-                        <View style={styles.earningCopy}>
-                          <Text style={styles.earningTitle} numberOfLines={1}>
-                            {getActionLabel(item.action_key)}
-                          </Text>
-                          <Text style={styles.earningDate}>{formatDate(item.created_at)}</Text>
-                        </View>
-                      </View>
-                      <View style={styles.earningRight}>
-                        <Text style={styles.earningPoints}>+{Number(item.points || 0).toFixed(1)} Points</Text>
+                  ))}
+                </DataCard>
+              ) : (
+                <View style={styles.pointsContent}>
+                  <Text style={dataStyles.label}>Points são recompensas de participação. Este extrato não representa valores em reais.</Text>
+                  <DataCard style={styles.pointsSummary}>
+                    <View style={styles.pointsHeading}>
+                      <DataIcon icon={Activity} />
+                      <View style={styles.flexCopy}>
+                        <Text style={styles.emptyTitle}>Points neste mês</Text>
+                        <Text style={styles.pointsValue}>{formatPoints(Math.floor(stats.thisMonth))}</Text>
                       </View>
                     </View>
-                  ))
-                )}
-              </View>
-            )}
+                    <View style={dataStyles.divider} />
+                    <View style={[styles.pointsPeriods, compact && styles.stack]}>
+                      <DataMetric label="Últimos 7 dias" value={formatPoints(Math.floor(stats.last7Days))} style={styles.period} />
+                      <DataMetric label="Últimos 30 dias" value={formatPoints(Math.floor(stats.last30Days))} style={styles.period} />
+                    </View>
+                    <Text style={dataStyles.label}>Resumo dos últimos {rewardHistory.length} registros disponíveis.</Text>
+                  </DataCard>
+                  <DataCard style={styles.ledgerCard}>
+                    {rewardHistory.length === 0 ? (
+                      <View style={styles.emptyState}>
+                        <Text style={styles.emptyTitle}>Nenhum Point registrado</Text>
+                        <Text style={dataStyles.label}>Suas recompensas de participação aparecerão aqui.</Text>
+                      </View>
+                    ) : rewardHistory.map((item, index) => (
+                      <View key={item.id} style={[styles.ledgerItem, index < rewardHistory.length - 1 && styles.ledgerDivider]}>
+                        <View style={[styles.ledgerHeading, compact && styles.stack]}>
+                          <Text style={styles.rewardTitle}>{getActionLabel(item.action_key)}</Text>
+                          <Text style={styles.rewardValue}>{Number(item.points || 0) > 0 ? '+' : ''}{Number(item.points || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Points</Text>
+                        </View>
+                        <Text style={styles.date}>{formatDate(item.created_at)}</Text>
+                      </View>
+                    ))}
+                  </DataCard>
+                </View>
+              )}
+            </DataSection>
           </>
         )}
       </ScrollView>
@@ -442,269 +425,45 @@ export default function CarteiraScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  backBtn: {
-    padding: spacing.xs,
-  },
-  headerTitle: {
-    color: colors.text,
-    fontSize: typography.bodyLarge,
-    fontWeight: typography.weightBlack,
-  },
-  scrollContainer: {
-    padding: spacing.lg,
-    paddingBottom: spacing.section * 2,
-  },
-  loader: {
-    marginVertical: spacing.xxl,
-    alignItems: 'center',
-  },
-  withdrawCard: {
-    backgroundColor: '#18181b',
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-  withdrawHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  withdrawTitleBlock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  withdrawTitle: {
-    color: colors.text,
-    fontSize: typography.bodyLarge,
-    fontWeight: typography.weightBlack,
-  },
-  withdrawMin: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  formGroup: {
-    marginBottom: spacing.md,
-  },
-  label: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: '#27272a',
-    borderRadius: radius.md,
-    color: colors.text,
-    fontSize: typography.bodySmall,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-  },
-  withdrawBtn: {
-    backgroundColor: '#ef4444',
-    borderRadius: radius.md,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: spacing.sm,
-  },
-  btnDisabled: {
-    opacity: 0.5,
-  },
-  withdrawBtnText: {
-    color: '#fff',
-    fontSize: typography.bodySmall,
-    fontWeight: typography.weightBlack,
-  },
-  balancesContainer: {
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-    paddingRight: spacing.lg,
-  },
-  balanceItem: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    minWidth: 130,
-  },
-  balanceLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  balanceValue: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: typography.weightBlack,
-  },
-  balanceSub: {
-    color: colors.mutedDim,
-    fontSize: 10,
-    marginTop: 2,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.md,
-  },
-  statLabel: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  statValue: {
-    color: colors.accent,
-    fontSize: 22,
-    fontWeight: typography.weightBlack,
-  },
-  statSub: {
-    color: colors.muted,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  tabsContainer: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderRadius: radius.md,
-    padding: 3,
-    marginBottom: spacing.md,
-  },
-  tabBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: radius.sm,
-  },
-  tabBtnActive: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  tabText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  tabTextActive: {
-    color: colors.accent,
-  },
-  listContainer: {
-    gap: spacing.sm,
-  },
-  emptyText: {
-    color: colors.muted,
-    fontSize: typography.bodySmall,
-    textAlign: 'center',
-    paddingVertical: spacing.xl,
-  },
-  historyItem: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: 4,
-  },
-  historyRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  historyAmount: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: typography.weightBlack,
-  },
-  statusBlock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusText: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  historyPix: {
-    color: colors.muted,
-    fontSize: 11,
-  },
-  historyDate: {
-    color: colors.mutedDim,
-    fontSize: 10,
-  },
-  earningItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.md,
-  },
-  earningLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    minWidth: 0,
-  },
-  earningIconBg: {
-    padding: spacing.xs,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    marginRight: spacing.md,
-  },
-  earningCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  earningTitle: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  earningDate: {
-    color: colors.muted,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  earningRight: {
-    alignItems: 'flex-end',
-    marginLeft: spacing.sm,
-  },
-  earningPoints: {
-    color: '#22c55e',
-    fontSize: 14,
-    fontWeight: typography.weightBlack,
-  },
-  earningXp: {
-    color: colors.muted,
-    fontSize: 11,
-    marginTop: 2,
-  },
+  scroll: { flex: 1 },
+  stateCard: { gap: spacing.md },
+  balanceCard: { padding: spacing.xl, borderRadius: t.panelRadius, gap: spacing.md },
+  balanceHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
+  balanceLabel: { color: t.secondary, fontSize: 14, fontWeight: '500', flex: 1 },
+  currencyLabel: { color: t.muted, fontSize: 11, letterSpacing: 1, fontWeight: '600' },
+  balanceValue: { color: t.ink, fontSize: 36, fontWeight: '600', letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  balanceValueCompact: { fontSize: 30 },
+  balanceDetails: { flexDirection: 'row', gap: spacing.md },
+  balanceDetail: { flex: 1, minWidth: 0 },
+  stack: { flexDirection: 'column', alignItems: 'stretch' },
+  withdrawForm: { gap: spacing.lg, paddingTop: spacing.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border },
+  formHeading: { gap: spacing.xs },
+  formTitle: { color: t.ink, fontSize: 16, fontWeight: '600' },
+  formGroup: { gap: spacing.sm },
+  fieldLabel: { color: t.secondary, fontSize: 13, fontWeight: '500' },
+  ledgerCard: { paddingVertical: 0 },
+  ledgerItem: { paddingVertical: spacing.lg, gap: spacing.sm },
+  ledgerDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border },
+  ledgerHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
+  ledgerAmount: { color: t.ink, fontSize: 18, fontWeight: '600', fontVariant: ['tabular-nums'], flexShrink: 1 },
+  status: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexShrink: 1 },
+  statusText: { color: t.secondary, fontSize: 12, fontWeight: '500', flexShrink: 1 },
+  rejected: { color: t.danger },
+  date: { color: t.muted, fontSize: 12, fontVariant: ['tabular-nums'] },
+  tabs: { flexDirection: 'row', borderRadius: t.controlRadius, padding: spacing.xs, backgroundColor: t.raised, gap: spacing.xs },
+  tab: { flex: 1, minHeight: 44, borderRadius: t.controlRadius - 2, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.sm, paddingVertical: spacing.sm },
+  tabActive: { backgroundColor: t.strong },
+  tabText: { color: t.muted, fontSize: 14, fontWeight: '500' },
+  tabTextActive: { color: t.ink },
+  emptyState: { paddingVertical: spacing.xl, gap: spacing.sm },
+  emptyTitle: { color: t.ink, fontSize: 14, fontWeight: '500' },
+  pointsContent: { gap: spacing.md },
+  pointsSummary: { gap: spacing.lg },
+  pointsHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  flexCopy: { flex: 1, minWidth: 0, gap: spacing.xs },
+  pointsValue: { color: t.ink, fontSize: 28, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  pointsPeriods: { flexDirection: 'row', gap: spacing.lg },
+  period: { flex: 1, minWidth: 0 },
+  rewardTitle: { color: t.ink, fontSize: 14, fontWeight: '500', flex: 1, minWidth: 0 },
+  rewardValue: { color: t.secondary, fontSize: 13, fontVariant: ['tabular-nums'], flexShrink: 1 },
 });

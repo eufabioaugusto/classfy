@@ -12,16 +12,14 @@ import {
 } from 'react-native';
 import { useRouter, useNavigation } from 'expo-router';
 import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Heart, Search, Video, X } from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
 import { useAuth } from '@/features/auth/authContext';
 import { supabase } from '@/lib/supabase';
-import { colors } from '@/theme/colors';
-import { radius } from '@/theme/radius';
+import { DataCard } from '@/components/data/DataUI';
+import { dataTheme as t } from '@/theme/data';
 import { spacing } from '@/theme/spacing';
-import { typography } from '@/theme/typography';
 
 interface FavoriteItem {
   content_id: string;
@@ -43,7 +41,6 @@ export default function FavoritesScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const navigation = useNavigation();
-  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<FavoriteItem[]>([]);
@@ -148,41 +145,34 @@ export default function FavoritesScreen() {
 
   const getContentTypeLabel = (type: string) => {
     switch (type) {
-      case 'podcast': return 'PODCAST';
-      case 'short': return 'SHORT';
-      case 'curso': return 'CURSO';
-      default: return 'AULA';
+      case 'podcast': return 'Podcast';
+      case 'short': return 'Short';
+      case 'curso': return 'Curso';
+      default: return 'Aula';
     }
   };
 
-  const getContentTypeColor = (type: string) => {
-    switch (type) {
-      case 'podcast': return colors.accent; // Rose/Red
-      case 'short': return colors.accent; // Rose/Red
-      case 'curso': return colors.amber || '#f59e0b';
-      default: return colors.accent; // Rose/Red
-    }
-  };
 
   return (
     <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Favoritos" back />}>
       {/* Custom Navigation Header */}
-      <View style={[styles.header, { paddingHorizontal: 24, paddingTop: 12 }]}>
+      <View style={styles.header}>
 
         {/* Search Bar within Header */}
         <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={18} color={colors.muted} style={{ marginRight: spacing.xs }} />
+          <Search size={18} strokeWidth={t.stroke} color={t.muted} />
           <TextInput
+            accessibilityLabel="Buscar na biblioteca"
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="Pesquisar nos favoritos..."
-            placeholderTextColor={colors.muted}
+            placeholderTextColor={t.subtle}
             style={styles.searchInput}
             autoCapitalize="none"
           />
           {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={18} color={colors.muted} />
+            <Pressable accessibilityRole="button" accessibilityLabel="Limpar busca" hitSlop={8} onPress={() => setSearchQuery('')}>
+              <X size={18} strokeWidth={t.stroke} color={t.muted} />
             </Pressable>
           )}
         </View>
@@ -201,11 +191,10 @@ export default function FavoritesScreen() {
             renderItem={({ item }) => {
               if (!item.contents) return null;
               const badgeLabel = getContentTypeLabel(item.contents.content_type);
-              const badgeColor = getContentTypeColor(item.contents.content_type);
               const creatorName = item.contents.profiles?.display_name || 'Classfy Creator';
 
               return (
-                <View style={styles.card}>
+                <DataCard style={styles.card}>
                   <Pressable 
                     style={styles.cardMain} 
                     onPress={() => router.push(`/watch/${item.content_id}`)}
@@ -214,7 +203,7 @@ export default function FavoritesScreen() {
                       <Image source={{ uri: item.contents.thumbnail_url }} style={styles.thumbnail} />
                     ) : (
                       <View style={styles.thumbnailPlaceholder}>
-                        <Ionicons name="videocam-outline" size={24} color={colors.mutedDim} />
+                        <Video size={22} strokeWidth={t.stroke} color={t.subtle} />
                       </View>
                     )}
                     <View style={styles.meta}>
@@ -226,8 +215,8 @@ export default function FavoritesScreen() {
 
                       {/* Type Badge */}
                       <View style={styles.row}>
-                        <View style={[styles.typeBadge, { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: badgeColor, borderWidth: 1 }]}>
-                          <Text style={[styles.typeBadgeText, { color: badgeColor }]}>{badgeLabel}</Text>
+                        <View style={styles.typeBadge}>
+                          <Text style={styles.typeBadgeText}>{badgeLabel}</Text>
                         </View>
                       </View>
                     </View>
@@ -235,20 +224,23 @@ export default function FavoritesScreen() {
 
                   {/* Heart / Unfavorite button */}
                   <Pressable 
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remover ${item.contents.title} dos favoritos`}
+                    accessibilityState={{ selected: true }}
                     onPress={() => confirmRemoveFavorite(item.content_id)} 
                     style={styles.optionsBtn}
                   >
-                    <Ionicons name="heart" size={22} color="#ec4899" />
+                    <Heart size={20} strokeWidth={t.stroke} color={t.ink} fill={t.ink} />
                   </Pressable>
-                </View>
+                </DataCard>
               );
             }}
           />
         ) : (
           <View style={styles.centerContainer}>
-            <Ionicons name="heart-outline" size={48} color={colors.mutedDim} style={{ marginBottom: spacing.md }} />
+            <Heart size={32} strokeWidth={t.stroke} color={t.subtle} style={{ marginBottom: spacing.md }} />
             <Text style={styles.emptyTitle}>
-              {searchQuery ? 'Nenhum resultado encontrado' : 'Nenhum Favorito'}
+              {searchQuery ? 'Nenhum resultado encontrado' : 'Nenhum favorito'}
             </Text>
             <Text style={styles.emptySubtitle}>
               {searchQuery 
@@ -263,132 +255,28 @@ export default function FavoritesScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.03)',
-    gap: spacing.md,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  backBtn: {
-    padding: 4,
-    marginLeft: -4,
-  },
-  headerTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: typography.weightBold,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.sm,
-    height: 38,
-  },
-  searchInput: {
-    color: colors.text,
-    flex: 1,
-    fontSize: 13,
-    height: '100%',
-  },
-  container: {
-    flex: 1,
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-  },
-  emptyTitle: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: typography.weightBold,
-    marginBottom: spacing.xs,
-  },
-  emptySubtitle: {
-    color: colors.muted,
-    fontSize: 12,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  listContent: {
-    padding: spacing.lg,
-    paddingBottom: 40,
-    gap: spacing.md,
-  },
-  card: {
-    flexDirection: 'row',
-    backgroundColor: '#111',
-    borderColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: spacing.sm,
-    alignItems: 'center',
-  },
-  cardMain: {
-    flex: 1,
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  thumbnail: {
-    width: 100,
-    aspectRatio: 16 / 9,
-    borderRadius: radius.md,
-    backgroundColor: colors.background,
-  },
-  thumbnailPlaceholder: {
-    width: 100,
-    aspectRatio: 16 / 9,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  meta: {
-    flex: 1,
-    justifyContent: 'center',
-    gap: 3,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: typography.weightBold,
-  },
-  creator: {
-    color: colors.muted,
-    fontSize: 10,
-  },
-  description: {
-    color: colors.muted,
-    fontSize: 10,
-    marginTop: 1,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginTop: 2,
-  },
-  typeBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: radius.xs,
-  },
-  typeBadgeText: {
-    fontSize: 8,
-    fontWeight: '800',
-  },
-  optionsBtn: {
-    padding: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.lg },
+  clearBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  searchBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: t.surface, borderWidth: 1, borderColor: t.border, borderRadius: t.controlRadius, paddingHorizontal: spacing.md, minHeight: 44 },
+  searchInput: { color: t.ink, flex: 1, fontSize: 15, minHeight: 44, paddingVertical: spacing.sm },
+  container: { flex: 1 },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.xxl },
+  emptyTitle: { color: t.ink, fontSize: 17, fontWeight: '600', marginBottom: spacing.sm, textAlign: 'center' },
+  emptySubtitle: { color: t.muted, fontSize: 14, textAlign: 'center', lineHeight: 21 },
+  listContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.section * 2, gap: spacing.md },
+  card: { flexDirection: 'row', padding: spacing.sm, alignItems: 'center', gap: spacing.xs },
+  cardMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 88 },
+  thumbnail: { width: 104, aspectRatio: 16 / 9, borderRadius: t.controlRadius, backgroundColor: t.raised },
+  thumbnailPlaceholder: { width: 104, aspectRatio: 16 / 9, borderRadius: t.controlRadius, backgroundColor: t.raised, justifyContent: 'center', alignItems: 'center' },
+  meta: { flex: 1, minWidth: 0, justifyContent: 'center', gap: spacing.xs },
+  title: { color: t.ink, fontSize: 14, lineHeight: 19, fontWeight: '600' },
+  creator: { color: t.muted, fontSize: 12, lineHeight: 17 },
+  description: { color: t.subtle, fontSize: 12, lineHeight: 17 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+  typeBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: t.raised },
+  typeBadgeText: { color: t.secondary, fontSize: 11, fontWeight: '500', lineHeight: 15 },
+  percentText: { color: t.muted, fontSize: 11, lineHeight: 16, fontVariant: ['tabular-nums'] },
+  progressTrack: { height: 3, backgroundColor: t.strong, borderRadius: 2, overflow: 'hidden', marginTop: spacing.xs, width: '100%' },
+  progressFill: { height: '100%' },
+  optionsBtn: { width: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
 });

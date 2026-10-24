@@ -1,50 +1,16 @@
-import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
-import { controls } from '@/theme/controls';
-import React, { useEffect, useState, useCallback } from 'react';
-import {
-  DeviceEventEmitter,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  Alert,
-  Image,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import React, { useState, useCallback } from 'react';
+import { DeviceEventEmitter, Pressable, StyleSheet, Text, View, Image } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { REWARDS_CHANGED } from '@/features/rewards/events';
-import {
-  Trophy,
-  Zap,
-  Flame,
-  Target,
-  DollarSign,
-  Award,
-  Heart,
-  Bookmark,
-  MessageSquare,
-  TrendingUp,
-  AlertTriangle,
-  Play,
-  Crown,
-  Medal,
-  User,
-  Star,
-  Video,
-  Eye,
-  BarChart3,
-  ChevronRight,
-} from 'lucide-react-native';
-
+import { Award, Heart, Bookmark, MessageSquare, TrendingUp, Play, User, Video, Eye, BarChart3, BookOpen, Wallet, CalendarDays, LockKeyhole, Check, Users } from 'lucide-react-native';
 import { AppScreen } from '@/components/AppScreen';
 import { HomeHeader } from '@/components/HomeHeader';
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
+import { DataAction, DataCard, DataIcon, DataMetric, DataRow, DataSection } from '@/components/data/DataUI';
+import { REWARDS_CHANGED } from '@/features/rewards/events';
 import { useAuth } from '@/features/auth/authContext';
 import { supabase } from '@/lib/supabase';
-import { colors } from '@/theme/colors';
-import { radius } from '@/theme/radius';
+import { dataStyles, dataTheme as t } from '@/theme/data';
 import { spacing } from '@/theme/spacing';
-import { typography } from '@/theme/typography';
 
 interface LeaderboardEntry {
   user_id: string;
@@ -91,7 +57,6 @@ interface RewardStats {
 export default function RewardsScreen() {
   const { user, profile } = useAuth();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<RewardStats | null>(null);
@@ -272,818 +237,192 @@ export default function RewardsScreen() {
     }
   };
 
-  const getRankIcon = (index: number) => {
-    if (index === 0) return <Crown size={16} color={colors.accent} />;
-    if (index === 1) return <Medal size={16} color={colors.muted} />;
-    if (index === 2) return <Medal size={16} color="#c5a059" />;
-    return <Text style={styles.rankNum}>{index + 1}</Text>;
-  };
-
   const unlockedMilestones = milestones.filter(m => m.isClaimed);
   const lockedMilestones = milestones.filter(m => !m.isClaimed);
+  const shownMilestones = badgesTab === 'unlocked' ? unlockedMilestones : lockedMilestones;
   const isCreator = profile?.creator_status === 'approved';
+  const money = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const month = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+  const renderLeader = (entry: LeaderboardEntry, rank: number, last: boolean) => {
+    const isCurrentUser = entry.user_id === user?.id;
+    return (
+      <View key={entry.user_id} style={[styles.leaderRow, !last && styles.rowDivider, isCurrentUser && styles.leaderRowCurrent]}>
+        <Text style={[styles.rank, isCurrentUser && styles.activeText]}>{rank}</Text>
+        <View style={styles.avatar}>
+          {entry.avatar_url ? <Image source={{ uri: entry.avatar_url }} style={styles.avatarImage} /> : <User size={16} strokeWidth={t.stroke} color={t.muted} />}
+        </View>
+        <View style={styles.leaderCopy}>
+          <Text style={styles.leaderName} numberOfLines={2}>{entry.display_name}</Text>
+          {isCurrentUser ? <Text style={styles.youLabel}>Você</Text> : null}
+        </View>
+        <View style={styles.leaderPoints}>
+          <Text style={styles.leaderValue}>{Math.floor(entry.cycle_points).toLocaleString('pt-BR')}</Text>
+          <Text style={styles.smallLabel}>Points</Text>
+        </View>
+      </View>
+    );
+  };
 
   return (
     <AppScreen header={<HomeHeader />}>
-      {/* Title Section */}
-      <View style={styles.welcomeBlock}>
-        <Text style={styles.kicker}>Sua evolução</Text>
-        <Text style={styles.welcomeTitle}>Progresso e recompensas</Text>
-        <Text style={styles.welcomeSubtitle}>
-          Acompanhe seu aprendizado, conquistas e Points.
-        </Text>
-      </View>
-
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Ver progresso dos estudos e conquistas"
-        style={({ pressed }) => [styles.metricCard, pressed && { opacity: 0.7 }]}
-        onPress={() => router.push('/profile-progress')}
-      >
-        <View style={styles.cardHeaderRow}>
-          <View style={styles.cardHeaderLeft}>
-            <TrendingUp size={20} strokeWidth={1.65} color={colors.text} style={{ marginRight: 10 }} />
-            <Text style={styles.cardTitle}>Meu aprendizado</Text>
-          </View>
-          <ChevronRight size={18} color={colors.muted} />
+      <View style={styles.page}>
+        <View style={styles.heading}>
+          <Text accessibilityRole="header" style={styles.title}>Progresso</Text>
+          <Text style={dataStyles.body}>Seu aprendizado, Points e conquistas.</Text>
         </View>
-        <Text style={styles.welcomeSubtitle}>Veja seus estudos, evolução e conquistas.</Text>
-      </Pressable>
-
-      {user ? (
-          loading ? (
-            <LoadingPlaceholder variant="dashboard" inset={false} />
-          ) : stats ? (
-            <>
-              {/* Pontos do ciclo; o valor em reais so existe apos o fechamento */}
-              <View style={styles.poolCard}>
-                <View style={styles.poolHeader}>
-                  <Zap size={16} color={colors.accent} />
-                  <Text style={styles.poolLabel}>Pool de Participação Mensal</Text>
-                </View>
-                <Text style={styles.poolShare}>
-                  {stats.cyclePoints.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Points
-                </Text>
-                <Text style={styles.poolDescription}>
-                  O valor em reais será confirmado no fechamento mensal do ciclo.
-                </Text>
+        {!user ? (
+          <DataCard style={styles.emptyCard}>
+            <DataIcon icon={TrendingUp} size={24} />
+            <Text style={styles.cardTitle}>Acompanhe sua evolução</Text>
+            <Text style={dataStyles.body}>Entre para visualizar seus estudos, conquistas e recompensas.</Text>
+            <DataAction label="Entrar na Classfy" onPress={() => router.push('/auth/sign-in')} />
+          </DataCard>
+        ) : loading ? (
+          <LoadingPlaceholder variant="dashboard" inset={false} />
+        ) : stats ? (
+          <>
+            <DataCard style={styles.cycleCard}>
+              <View style={styles.cardHeading}>
+                <Text style={dataStyles.label}>Ciclo mensal</Text>
+                <Text style={styles.month}>{month}</Text>
               </View>
-
-              {/* Monthly Leaderboard / Ranking Section */}
-              <View style={styles.metricCard}>
-                <View style={styles.cardHeaderRow}>
-                  <View style={styles.cardHeaderLeft}>
-                    <Trophy size={18} color={colors.accent} style={{ marginRight: 8 }} />
-                    <Text style={styles.cardTitle}>Ranking Mensal</Text>
-                  </View>
-                  {userRank && (
-                    <View style={styles.userRankBadge}>
-                      <Text style={styles.userRankText}>Você: #{userRank}</Text>
-                    </View>
-                  )}
+              <DataMetric label="Seus Points neste ciclo" value={stats.cyclePoints.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} large />
+              <Text style={dataStyles.label}>Sua participação no mês. O valor em reais é confirmado no fechamento do ciclo.</Text>
+              <View style={styles.levelBlock}>
+                <View style={styles.cardHeading}>
+                  <Text style={styles.cardTitle}>Nível {stats.level}</Text>
+                  <Text style={styles.accumulated}>{stats.totalPoints.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Points acumulados</Text>
                 </View>
-
-                <View style={styles.leadersList}>
-                  {leaders.slice(0, 5).map((entry, index) => {
-                    const isCurrentUser = entry.user_id === user.id;
-                    return (
-                      <View
-                        key={entry.user_id}
-                        style={[styles.leaderRow, isCurrentUser && styles.leaderRowCurrent]}
-                      >
-                        <View style={styles.leaderLeft}>
-                          <View style={styles.rankIconBg}>{getRankIcon(index)}</View>
-                          <View style={styles.leaderAvatar}>
-                            {entry.avatar_url ? (
-                              <Image source={{ uri: entry.avatar_url }} style={styles.avatarImg} />
-                            ) : (
-                              <User size={14} color={colors.muted} />
-                            )}
-                          </View>
-                          <Text
-                            numberOfLines={1}
-                            style={[styles.leaderName, isCurrentUser && styles.leaderNameCurrent]}
-                          >
-                            {entry.display_name}
-                            {isCurrentUser && ' (você)'}
-                          </Text>
-                        </View>
-                        <View style={styles.leaderRight}>
-                          <Text style={styles.leaderPoints}>{Math.floor(entry.cycle_points)}</Text>
-                          <Text style={styles.leaderPointsUnit}>Points</Text>
-                        </View>
-                      </View>
-                    );
-                  })}
-
-                  {userOutsideTop && (
-                    <>
-                      <Text style={styles.dividerText}>•••</Text>
-                      <View style={[styles.leaderRow, styles.leaderRowCurrent]}>
-                        <View style={styles.leaderLeft}>
-                          <View style={styles.rankIconBg}>
-                            <Text style={styles.rankNumActive}>{userOutsideTop.rank}</Text>
-                          </View>
-                          <View style={styles.leaderAvatar}>
-                            {userOutsideTop.avatar_url ? (
-                              <Image source={{ uri: userOutsideTop.avatar_url }} style={styles.avatarImg} />
-                            ) : (
-                              <User size={14} color={colors.muted} />
-                            )}
-                          </View>
-                          <Text numberOfLines={1} style={[styles.leaderName, styles.leaderNameCurrent]}>
-                            {userOutsideTop.display_name} (você)
-                          </Text>
-                        </View>
-                        <View style={styles.leaderRight}>
-                          <Text style={styles.leaderPoints}>{Math.floor(userOutsideTop.cycle_points)}</Text>
-                          <Text style={styles.leaderPointsUnit}>Points</Text>
-                        </View>
-                      </View>
-                    </>
-                  )}
-                </View>
+                <View accessibilityRole="progressbar" accessibilityLabel={`Progresso para o nível ${stats.level + 1}`} accessibilityValue={{ min: 0, max: 100, now: Math.round(stats.progressPercent) }} style={styles.progressTrack}><View style={[styles.progressFill, { width: `${stats.progressPercent}%` }]} /></View>
+                <Text style={dataStyles.label}>Faltam {stats.pointsToNextLevel.toLocaleString('pt-BR')} Points para o nível {stats.level + 1}.</Text>
               </View>
+            </DataCard>
 
-              {/* Progressao de nivel pelos Points de usuario */}
-              <View style={styles.metricCard}>
-                <View style={styles.cardHeaderRow}>
-                  <View style={styles.cardHeaderLeft}>
-                    <Trophy size={18} color={colors.accent} style={{ marginRight: 8 }} />
-                    <Text style={styles.cardTitle}>Nível {stats.level}</Text>
-                  </View>
-                  <Text style={styles.pointsLabel}>
-                    {stats.totalPoints.toLocaleString()} Points
-                  </Text>
-                </View>
+            <DataCard style={styles.shortcutCard}>
+              <DataRow icon={BookOpen} title="Meu aprendizado" subtitle="Retome seus estudos e acompanhe suas conquistas" onPress={() => router.push('/profile-progress')} />
+              <DataRow icon={Wallet} title="Minha carteira" subtitle={`Total gerado: ${money(stats.totalEarned)}`} value={<Text style={styles.balance}>{money(stats.balance)}</Text>} onPress={() => router.push('/carteira')} last />
+            </DataCard>
 
-                <View style={styles.pointsProgressBg}>
-                  <View style={[styles.pointsProgressFill, { width: `${stats.progressPercent}%` }]} />
-                </View>
-                <Text style={styles.pointsSubtext}>
-                  Faltam {stats.pointsToNextLevel.toLocaleString('pt-BR')} Points para o Nível {stats.level + 1}
-                </Text>
-              </View>
+            <DataSection title="Ranking do mês" subtitle="Points acumulados neste ciclo" action={userRank ? <Text style={styles.rankLabel}>Você: #{userRank}</Text> : undefined}>
+              <DataCard style={styles.rankingCard}>
+                {leaders.length > 0 ? leaders.slice(0, 5).map((entry, index, list) => renderLeader(entry, index + 1, index === list.length - 1 && !userOutsideTop)) : <Text style={styles.emptyText}>O ranking aparece quando o ciclo recebe as primeiras participações.</Text>}
+                {userOutsideTop ? <><Text style={styles.rankingEllipsis}>···</Text>{renderLeader(userOutsideTop, userOutsideTop.rank!, true)}</> : null}
+              </DataCard>
+            </DataSection>
 
-              {/* Cash Available & Lifetime balance */}
-              <Pressable style={styles.balanceCard} onPress={() => router.push('/carteira')}>
-                <View style={styles.balanceHeader}>
-                  <View>
-                    <Text style={styles.balanceTitle}>Saldo Disponível</Text>
-                    <Text style={styles.balanceAmount}>
-                      R$ {stats.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </Text>
-                  </View>
-                  <ChevronRight size={20} color="#22c55e" />
+            <DataSection title="Sua constância">
+              <DataCard style={styles.streakCard}>
+                <View style={styles.metricsRow}>
+                  <DataMetric label="Sequência atual" value={`${stats.currentStreak} dias`} style={styles.metric} />
+                  <DataMetric label="Melhor sequência" value={`${stats.longestStreak} dias`} style={styles.metric} />
                 </View>
-                <View style={styles.balanceFooter}>
-                  <Text style={styles.lifetimeText}>Total ganho acumulado:</Text>
-                  <Text style={styles.lifetimeAmount}>
-                    R$ {stats.totalEarned.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </Text>
+                <View style={styles.streakFooter}>
+                  <CalendarDays size={17} strokeWidth={t.stroke} color={t.muted} />
+                  <Text style={styles.streakText}>Próxima recompensa em {Math.max(0, 7 - (stats.currentStreak % 7))} dias.</Text>
                 </View>
-              </Pressable>
+              </DataCard>
+            </DataSection>
 
-              {/* Streak Card */}
-              <View style={styles.metricCard}>
-                <View style={styles.streakHeader}>
-                  <Flame size={18} color="#f97316" style={{ marginRight: 8 }} />
-                  <Text style={styles.cardTitle}>Sequência de Login</Text>
-                </View>
-                <View style={styles.streakGrid}>
-                  <View style={styles.streakCol}>
-                    <Text style={styles.streakVal}>{stats.currentStreak} dias</Text>
-                    <Text style={styles.streakLbl}>Sequência Atual</Text>
-                  </View>
-                  <View style={styles.streakCol}>
-                    <Text style={styles.streakVal}>{stats.longestStreak} dias</Text>
-                    <Text style={styles.streakLbl}>Melhor Sequência</Text>
-                  </View>
-                </View>
-                <View style={styles.streakReminder}>
-                  <Target size={14} color="#f97316" style={{ marginRight: 6 }} />
-                  <Text style={styles.streakReminderText}>
-                    Próxima recompensa em <Text style={{ fontWeight: 'bold' }}>{Math.max(0, 7 - (stats.currentStreak % 7))} dias</Text>
-                  </Text>
-                </View>
-              </View>
-
-              {/* Badges / Conquistas Card */}
-              <View style={styles.metricCard}>
-                <View style={styles.cardHeaderRow}>
-                  <View style={styles.cardHeaderLeft}>
-                    <Award size={18} color={colors.accent} style={{ marginRight: 8 }} />
-                    <Text style={styles.cardTitle}>Conquistas</Text>
-                  </View>
-                </View>
-
-                {/* Sub Tabs unlocked vs locked */}
-                <View style={styles.badgesTabRow}>
-                  <Pressable
-                    onPress={() => setBadgesTab('unlocked')}
-                    style={[styles.badgeTabBtn, badgesTab === 'unlocked' && styles.badgeTabBtnActive]}
-                  >
-                    <Text style={[styles.badgeTabText, badgesTab === 'unlocked' && styles.badgeTabTextActive]}>
-                      Desbloqueadas ({unlockedMilestones.length})
-                    </Text>
+            <DataSection title="Conquistas" subtitle={`${unlockedMilestones.length} de ${milestones.length} alcançadas`}>
+              <View style={styles.tabs} accessibilityRole="tablist">
+                {([{ key: 'unlocked', label: `Alcançadas (${unlockedMilestones.length})` }, { key: 'locked', label: `Em andamento (${lockedMilestones.length})` }] as const).map((tab) => (
+                  <Pressable key={tab.key} accessibilityRole="tab" accessibilityState={{ selected: badgesTab === tab.key }} onPress={() => setBadgesTab(tab.key)} style={[styles.tab, badgesTab === tab.key && styles.tabActive]}>
+                    <Text style={[styles.tabText, badgesTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
                   </Pressable>
-                  <Pressable
-                    onPress={() => setBadgesTab('locked')}
-                    style={[styles.badgeTabBtn, badgesTab === 'locked' && styles.badgeTabBtnActive]}
-                  >
-                    <Text style={[styles.badgeTabText, badgesTab === 'locked' && styles.badgeTabTextActive]}>
-                      Bloqueadas ({lockedMilestones.length})
-                    </Text>
-                  </Pressable>
-                </View>
-
-                {/* Grid list of badges */}
-                <View style={styles.badgesGrid}>
-                  {badgesTab === 'unlocked' ? (
-                    unlockedMilestones.length === 0 ? (
-                      <Text style={styles.emptyBadgesText}>Nenhuma conquista desbloqueada ainda</Text>
-                    ) : (
-                      unlockedMilestones.map((m) => (
-                        <View key={m.id} style={styles.badgeItem}>
-                          <View style={styles.badgeIconBg}>
-                            <Award size={24} color={colors.accent} />
-                          </View>
-                          <Text style={styles.badgeLabel} numberOfLines={1}>{m.title}</Text>
-                          <Text style={styles.badgeValueText}>Meta atingida</Text>
-                        </View>
-                      ))
-                    )
-                  ) : (
-                    lockedMilestones.length === 0 ? (
-                      <Text style={styles.emptyBadgesText}>Todas as conquistas foram desbloqueadas!</Text>
-                    ) : (
-                      lockedMilestones.slice(0, 8).map((m) => (
-                        <View key={m.id} style={[styles.badgeItem, styles.badgeItemLocked]}>
-                          <View style={styles.badgeIconBgLocked}>
-                            <Award size={24} color={colors.mutedDim} />
-                          </View>
-                          <Text style={styles.badgeLabelLocked} numberOfLines={1}>{m.title}</Text>
-                          <Text style={styles.badgeValueTextLocked}>{m.percentComplete}%</Text>
-                        </View>
-                      ))
-                    )
-                  )}
-                </View>
+                ))}
               </View>
+              <DataCard style={styles.achievementsCard}>
+                {shownMilestones.length === 0 ? <Text style={styles.emptyText}>{badgesTab === 'unlocked' ? 'Suas conquistas alcançadas aparecerão aqui.' : 'Todas as conquistas foram alcançadas.'}</Text> : shownMilestones.map((milestone, index) => (
+                  <View key={milestone.id} style={[styles.achievementRow, index < shownMilestones.length - 1 && styles.rowDivider]}>
+                    <DataIcon icon={milestone.isClaimed ? Award : LockKeyhole} />
+                    <View style={styles.achievementCopy}>
+                      <Text style={styles.cardTitle}>{milestone.title}</Text>
+                      {milestone.description ? <Text style={dataStyles.label}>{milestone.description}</Text> : null}
+                      <View style={styles.achievementStatus}>
+                        {milestone.isClaimed ? <Check size={14} strokeWidth={t.stroke} color={t.secondary} /> : null}
+                        <Text style={styles.smallLabel}>{milestone.isClaimed ? 'Meta atingida' : `${milestone.percentComplete}% da meta`}</Text>
+                      </View>
+                      {!milestone.isClaimed ? <View accessibilityRole="progressbar" accessibilityLabel={`Progresso de ${milestone.title}`} accessibilityValue={{ min: 0, max: 100, now: milestone.percentComplete }} style={styles.smallProgressTrack}><View style={[styles.progressFill, { width: `${milestone.percentComplete}%` }]} /></View> : null}
+                    </View>
+                  </View>
+                ))}
+              </DataCard>
+            </DataSection>
 
-              {/* Engagement Stats Grid */}
-              <View style={styles.engagementSection}>
-                <Text style={styles.engagementTitle}>Engajamento e Atividade</Text>
-                <View style={styles.gridContainer}>
-                  <View style={styles.gridItem}>
-                    <Heart size={16} color="#ec4899" style={{ marginBottom: 6 }} />
-                    <Text style={styles.gridValText}>{stats.engagementStats.likes}</Text>
-                    <Text style={styles.gridLabelText}>Curtidas</Text>
-                  </View>
-                  <View style={styles.gridItem}>
-                    <Bookmark size={16} color="#3b82f6" style={{ marginBottom: 6 }} />
-                    <Text style={styles.gridValText}>{stats.engagementStats.saves}</Text>
-                    <Text style={styles.gridLabelText}>Salvos</Text>
-                  </View>
-                  <View style={styles.gridItem}>
-                    <MessageSquare size={16} color="#a855f7" style={{ marginBottom: 6 }} />
-                    <Text style={styles.gridValText}>{stats.engagementStats.comments}</Text>
-                    <Text style={styles.gridLabelText}>Comentários</Text>
-                  </View>
-                  <View style={styles.gridItem}>
-                    <Play size={16} color="#22c55e" style={{ marginBottom: 6 }} />
-                    <Text style={styles.gridValText}>{stats.engagementStats.completedContents}</Text>
-                    <Text style={styles.gridLabelText}>Aulas 100%</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Creator Section */}
-              {isCreator && (
-                <View style={styles.engagementSection}>
-                  <Text style={styles.engagementTitle}>Dados do Criador</Text>
-                  <View style={styles.gridContainer}>
-                    <View style={styles.gridItem}>
-                      <Video size={16} color={colors.accent} style={{ marginBottom: 6 }} />
-                      <Text style={styles.gridValText}>{milestones.find(m => m.milestone_type === 'contents')?.currentValue || 0}</Text>
-                      <Text style={styles.gridLabelText}>Conteúdos</Text>
-                    </View>
-                    <View style={styles.gridItem}>
-                      <Eye size={16} color={colors.textSecondary} style={{ marginBottom: 6 }} />
-                      <Text style={styles.gridValText}>{milestones.find(m => m.milestone_type === 'views')?.currentValue || 0}</Text>
-                      <Text style={styles.gridLabelText}>Visualizações</Text>
-                    </View>
-                    <View style={styles.gridItem}>
-                      <Star size={16} color="#eab308" style={{ marginBottom: 6 }} />
-                      <Text style={styles.gridValText}>{milestones.find(m => m.milestone_type === 'followers')?.currentValue || 0}</Text>
-                      <Text style={styles.gridLabelText}>Seguidores</Text>
-                    </View>
-                    <View style={styles.gridItem}>
-                      <BarChart3 size={16} color="#06b6d4" style={{ marginBottom: 6 }} />
-                      <Text style={styles.gridValText}>{milestones.find(m => m.milestone_type === 'engagement')?.currentValue || 0}%</Text>
-                      <Text style={styles.gridLabelText}>Engajamento</Text>
-                    </View>
-                  </View>
-                </View>
-              )}
-
-              {/* History Button CTA */}
-              <Pressable
-                style={({ pressed }) => [
-                  styles.historyBtn,
-                  pressed && styles.historyBtnPressed
-                ]}
-                onPress={() => router.push('/carteira')}
-              >
-                <Award size={16} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={styles.historyBtnText}>Ir para Minha Carteira</Text>
-              </Pressable>
-            </>
-          ) : (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>Nenhum dado de recompensa disponível.</Text>
-            </View>
-          )
+            <DataSection title="Sua atividade">
+              <DataCard style={styles.activityCard}>
+                <DataRow icon={Heart} title="Curtidas" value={stats.engagementStats.likes.toLocaleString('pt-BR')} />
+                <DataRow icon={Bookmark} title="Conteúdos salvos" value={stats.engagementStats.saves.toLocaleString('pt-BR')} />
+                <DataRow icon={MessageSquare} title="Comentários" value={stats.engagementStats.comments.toLocaleString('pt-BR')} />
+                <DataRow icon={Play} title="Conteúdos concluídos" value={stats.engagementStats.completedContents.toLocaleString('pt-BR')} last />
+              </DataCard>
+            </DataSection>
+            {isCreator ? (
+              <DataSection title="Como criador">
+                <DataCard style={styles.activityCard}>
+                  <DataRow icon={Video} title="Conteúdos" value={(milestones.find(m => m.milestone_type === 'contents')?.currentValue || 0).toLocaleString('pt-BR')} />
+                  <DataRow icon={Eye} title="Visualizações" value={(milestones.find(m => m.milestone_type === 'views')?.currentValue || 0).toLocaleString('pt-BR')} />
+                  <DataRow icon={Users} title="Seguidores" value={(milestones.find(m => m.milestone_type === 'followers')?.currentValue || 0).toLocaleString('pt-BR')} />
+                  <DataRow icon={BarChart3} title="Engajamento" value={`${milestones.find(m => m.milestone_type === 'engagement')?.currentValue || 0}%`} last />
+                </DataCard>
+              </DataSection>
+            ) : null}
+          </>
         ) : (
-          // Auth Notice
-          <View style={styles.authNotice}>
-            <AlertTriangle size={32} color={colors.accent} style={{ marginBottom: spacing.sm }} />
-            <Text style={styles.authNoticeTitle}>Recompensas Bloqueadas</Text>
-            <Text style={styles.authNoticeBody}>
-              Faça login no aplicativo para visualizar seu nível de engajamento, login streaks e saldo da carteira econômica.
-            </Text>
-            <Pressable
-              style={({ pressed }) => [styles.authBtnBanner, pressed && styles.authBtnPressed]}
-              onPress={() => router.push('/auth/sign-in')}
-            >
-              <Text style={styles.authBtnText}>Fazer Login</Text>
-            </Pressable>
-          </View>
+          <DataCard><Text style={dataStyles.body}>Nenhum dado de recompensa disponível.</Text></DataCard>
         )}
+      </View>
     </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    flex: 1,
-  },
-  welcomeBlock: {
-    marginVertical: spacing.md,
-  },
-  kicker: {
-    color: colors.lime,
-    fontSize: 11,
-    fontWeight: typography.weightBold,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-  welcomeTitle: {
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: typography.weightBold,
-    marginBottom: 6,
-  },
-  welcomeSubtitle: {
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  loadingWrapper: {
-    paddingVertical: spacing.xxl,
-    alignItems: 'center',
-  },
-  poolCard: {
-    backgroundColor: 'rgba(239, 68, 68, 0.05)',
-    borderColor: 'rgba(239, 68, 68, 0.15)',
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  poolHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: 6,
-  },
-  poolLabel: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: typography.weightBold,
-    textTransform: 'uppercase',
-  },
-  poolShare: {
-    color: colors.text,
-    fontSize: 32,
-    fontWeight: typography.weightBold,
-    marginBottom: 4,
-  },
-  poolDescription: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  metricCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  cardHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  cardTitle: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: typography.weightBold,
-  },
-  pointsLabel: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: typography.weightBold,
-  },
-  pointsProgressBg: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: radius.pill,
-    height: 8,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-  },
-  pointsProgressFill: {
-    backgroundColor: colors.accent,
-    height: '100%',
-  },
-  pointsSubtext: {
-    color: colors.muted,
-    fontSize: 11,
-  },
-  balanceCard: {
-    backgroundColor: 'rgba(34, 197, 94, 0.05)',
-    borderColor: 'rgba(34, 197, 94, 0.15)',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  balanceHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  balanceTitle: {
-    color: colors.muted,
-    fontSize: 11,
-    textTransform: 'uppercase',
-    fontWeight: typography.weightBold,
-  },
-  balanceAmount: {
-    color: '#22c55e',
-    fontSize: 28,
-    fontWeight: typography.weightBold,
-    marginTop: 2,
-  },
-  balanceFooter: {
-    borderTopColor: 'rgba(255, 255, 255, 0.05)',
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  lifetimeText: {
-    color: colors.muted,
-    fontSize: 11,
-  },
-  lifetimeAmount: {
-    color: colors.text,
-    fontSize: 11,
-    fontWeight: typography.weightBold,
-  },
-  streakHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  streakGrid: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  streakCol: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    borderRadius: radius.sm,
-    padding: spacing.sm,
-  },
-  streakVal: {
-    color: '#f97316',
-    fontSize: 16,
-    fontWeight: typography.weightBold,
-    marginBottom: 2,
-  },
-  streakLbl: {
-    color: colors.muted,
-    fontSize: 10,
-  },
-  streakReminder: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(249, 115, 22, 0.08)',
-    borderColor: 'rgba(249, 115, 22, 0.18)',
-    borderWidth: 1,
-    borderRadius: radius.sm,
-    padding: spacing.sm,
-    marginTop: spacing.md,
-  },
-  streakReminderText: {
-    color: colors.textSecondary,
-    fontSize: 11,
-  },
-  engagementSection: {
-    marginVertical: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  engagementTitle: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: typography.weightBold,
-    marginBottom: spacing.md,
-  },
-  gridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  gridItem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flex: 1,
-    minWidth: '44%',
-    padding: spacing.md,
-  },
-  gridValText: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: typography.weightBold,
-    marginBottom: 2,
-  },
-  gridLabelText: {
-    color: colors.muted,
-    fontSize: 10,
-    fontWeight: typography.weightMedium,
-  },
-  historyBtn: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.md,
-    marginBottom: spacing.xxl * 1.5,
-  },
-  historyBtnPressed: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  historyBtnText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: typography.weightBold,
-  },
-  emptyCard: {
-    padding: spacing.xxl,
-    alignItems: 'center',
-  },
-  emptyText: {
-    color: colors.muted,
-    fontSize: 13,
-  },
-  authNotice: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.01)',
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.xl,
-    marginTop: spacing.xl,
-  },
-  authNoticeTitle: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: typography.weightBold,
-    marginBottom: spacing.xs,
-  },
-  authNoticeBody: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
-    marginBottom: spacing.lg,
-  },
-  authBtnBanner: {
-    backgroundColor: colors.accent,
-    borderRadius: controls.buttonRadius,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
-  },
-  authBtnText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: typography.weightBold,
-  },
-  authBtnPressed: {
-    opacity: 0.8,
-  },
-  userRankBadge: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-  },
-  userRankText: {
-    color: colors.accent,
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  leadersList: {
-    gap: spacing.xs,
-  },
-  leaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.sm,
-    borderRadius: radius.sm,
-    backgroundColor: 'rgba(255,255,255,0.02)',
-  },
-  leaderRowCurrent: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderColor: colors.accent,
-    borderWidth: 1,
-  },
-  leaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    minWidth: 0,
-  },
-  rankIconBg: {
-    width: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rankNum: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  rankNumActive: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  leaderAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: spacing.sm,
-    overflow: 'hidden',
-  },
-  avatarImg: {
-    width: '100%',
-    height: '100%',
-  },
-  leaderName: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    fontWeight: '700',
-    flex: 1,
-    minWidth: 0,
-  },
-  leaderNameCurrent: {
-    color: colors.accent,
-  },
-  leaderRight: {
-    alignItems: 'flex-end',
-  },
-  leaderPoints: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  leaderPointsUnit: {
-    color: colors.muted,
-    fontSize: 9,
-  },
-  dividerText: {
-    color: colors.mutedDim,
-    textAlign: 'center',
-    marginVertical: spacing.xs,
-    fontSize: 12,
-  },
-  badgesTabRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-    marginBottom: spacing.md,
-  },
-  badgeTabBtn: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  badgeTabBtnActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: colors.accent,
-  },
-  badgeTabText: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  badgeTabTextActive: {
-    color: colors.accent,
-  },
-  badgesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-    justifyContent: 'flex-start',
-  },
-  badgeItem: {
-    width: '28%',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.sm,
-  },
-  badgeItemLocked: {
-    opacity: 0.5,
-  },
-  badgeIconBg: {
-    width: 42,
-    height: 42,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  badgeIconBgLocked: {
-    width: 42,
-    height: 42,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  badgeLabel: {
-    color: colors.text,
-    fontSize: 10,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  badgeLabelLocked: {
-    color: colors.muted,
-    fontSize: 10,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  badgeValueText: {
-    color: '#22c55e',
-    fontSize: 9,
-    marginTop: 2,
-  },
-  badgeValueTextLocked: {
-    color: colors.mutedDim,
-    fontSize: 9,
-    marginTop: 2,
-  },
-  emptyBadgesText: {
-    color: colors.muted,
-    fontSize: 12,
-    textAlign: 'center',
-    width: '100%',
-    paddingVertical: spacing.md,
-  },
+  page: { gap: spacing.xxl, paddingBottom: spacing.xxl },
+  heading: { gap: spacing.sm, paddingTop: spacing.sm },
+  title: { color: t.ink, fontSize: 28, fontWeight: '600', letterSpacing: -0.7 },
+  cycleCard: { gap: spacing.lg },
+  cardHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.sm },
+  month: { color: t.secondary, fontSize: 12 },
+  cardTitle: { color: t.ink, fontSize: 14, lineHeight: 20, fontWeight: '500', flexShrink: 1 },
+  accumulated: { color: t.muted, fontSize: 12, fontVariant: ['tabular-nums'], flexShrink: 1 },
+  levelBlock: { gap: spacing.md, paddingTop: spacing.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border },
+  progressTrack: { height: 6, borderRadius: 3, backgroundColor: t.strong, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: t.accent, borderRadius: 3 },
+  shortcutCard: { paddingVertical: 0 },
+  balance: { color: t.positive, fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'], flexShrink: 1, textAlign: 'right', maxWidth: '45%' },
+  rankingCard: { paddingVertical: 0, overflow: 'hidden' },
+  rankLabel: { color: t.secondary, fontSize: 12, fontVariant: ['tabular-nums'], flexShrink: 1 },
+  leaderRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.lg, minHeight: 68 },
+  leaderRowCurrent: { backgroundColor: t.raised },
+  rank: { color: t.muted, minWidth: 20, textAlign: 'center', fontSize: 13, fontVariant: ['tabular-nums'] },
+  activeText: { color: t.accent },
+  avatar: { width: 32, height: 32, borderRadius: 16, overflow: 'hidden', backgroundColor: t.raised, alignItems: 'center', justifyContent: 'center' },
+  avatarImage: { width: '100%', height: '100%' },
+  leaderCopy: { flex: 1, minWidth: 0, gap: spacing.xs },
+  leaderName: { color: t.ink, fontSize: 14, lineHeight: 20, fontWeight: '500' },
+  youLabel: { color: t.muted, fontSize: 11 },
+  leaderPoints: { alignItems: 'flex-end', flexShrink: 1, maxWidth: '35%', minWidth: 0, gap: 2 },
+  leaderValue: { color: t.ink, fontSize: 14, fontWeight: '600', fontVariant: ['tabular-nums'], textAlign: 'right' },
+  smallLabel: { color: t.muted, fontSize: 12, lineHeight: 18 },
+  rankingEllipsis: { color: t.subtle, textAlign: 'center', paddingVertical: spacing.sm },
+  metricsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
+  metric: { flex: 1, flexBasis: 108 },
+  streakCard: { gap: spacing.lg },
+  streakFooter: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border, paddingTop: spacing.lg },
+  streakText: { color: t.muted, fontSize: 13, lineHeight: 19, flex: 1 },
+  tabs: { flexDirection: 'row', gap: spacing.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border },
+  tab: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xs, paddingVertical: spacing.md, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  tabActive: { borderBottomColor: t.accent },
+  tabText: { color: t.muted, fontSize: 13, lineHeight: 18, fontWeight: '500', textAlign: 'center' },
+  tabTextActive: { color: t.ink },
+  achievementsCard: { paddingVertical: 0 },
+  achievementRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, paddingVertical: spacing.lg },
+  achievementCopy: { flex: 1, minWidth: 0, gap: spacing.sm },
+  achievementStatus: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  smallProgressTrack: { height: 4, borderRadius: 2, backgroundColor: t.strong, overflow: 'hidden' },
+  activityCard: { paddingVertical: 0 },
+  rowDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border },
+  emptyCard: { gap: spacing.lg },
+  emptyText: { color: t.muted, fontSize: 14, lineHeight: 21, paddingVertical: spacing.lg },
 });

@@ -10,17 +10,15 @@ import {
   View,
   Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { ArrowLeft, Bell, CheckSquare } from 'lucide-react-native';
+import { Award, Bell, CheckCheck, Settings, Video } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppScreen } from '@/components/AppScreen';
 import { useAuth } from '@/features/auth/authContext';
 import { supabase } from '@/lib/supabase';
-import { colors } from '@/theme/colors';
-import { radius } from '@/theme/radius';
+import { DataIcon } from '@/components/data/DataUI';
+import { dataTheme as t } from '@/theme/data';
 import { spacing } from '@/theme/spacing';
-import { typography } from '@/theme/typography';
 
 interface Notification {
   id: string;
@@ -34,7 +32,6 @@ interface Notification {
 
 export default function NotificationsScreen() {
   const { user } = useAuth();
-  const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
@@ -134,14 +131,10 @@ export default function NotificationsScreen() {
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
-      case 'reward':
-        return '🎁';
-      case 'creator':
-        return '🎬';
-      case 'admin':
-        return '⚙️';
-      default:
-        return '📢';
+      case 'reward': return Award;
+      case 'creator': return Video;
+      case 'admin': return Settings;
+      default: return Bell;
     }
   };
 
@@ -162,15 +155,15 @@ export default function NotificationsScreen() {
   const renderNotificationItem = ({ item }: { item: Notification }) => {
     return (
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${item.is_read ? 'Lida' : 'Não lida'}: ${item.title}. ${item.message}`}
         onPress={() => !item.is_read && markAsRead(item.id)}
         style={[
           styles.itemContainer,
           !item.is_read ? styles.itemUnread : styles.itemRead,
         ]}
       >
-        <View style={styles.iconWrap}>
-          <Text style={styles.iconText}>{getNotificationIcon(item.type)}</Text>
-        </View>
+        <DataIcon icon={getNotificationIcon(item.type)} />
 
         <View style={styles.contentWrap}>
           <View style={styles.headerRow}>
@@ -205,18 +198,21 @@ export default function NotificationsScreen() {
         right={
           unreadCount > 0 && (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Marcar todas como lidas"
+              accessibilityState={{ disabled: markingAll, busy: markingAll }}
               onPress={markAllAsRead}
               disabled={markingAll}
               style={styles.markAllBtn}
             >
               {markingAll ? (
-                <ActivityIndicator size="small" color={colors.accent} />
+                <ActivityIndicator size="small" color={t.secondary} />
               ) : (
                 <>
-                  <CheckSquare
-                    size={14}
-                    color={colors.accent}
-                    style={{ marginRight: 4 }}
+                  <CheckCheck
+                    size={18}
+                    strokeWidth={t.stroke}
+                    color={t.secondary}
                   />
                   <Text style={styles.markAllText}>Ler tudo</Text>
                 </>
@@ -240,13 +236,13 @@ export default function NotificationsScreen() {
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Bell
-                size={48}
-                color={colors.mutedDim}
-                style={{ marginBottom: 12, opacity: 0.5 }}
+                size={32}
+                strokeWidth={t.stroke} color={t.subtle}
+                style={{ marginBottom: 12 }}
               />
-              <Text style={styles.emptyTitle}>Tudo limpo por aqui!</Text>
+              <Text style={styles.emptyTitle}>Nenhuma notificação</Text>
               <Text style={styles.emptyBody}>
-                Você não tem nenhuma notificação pendente.
+                As novidades da sua conta aparecem aqui.
               </Text>
             </View>
           }
@@ -257,130 +253,20 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  headerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.04)',
-    backgroundColor: '#000000',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  backBtn: {
-    padding: 4,
-    marginLeft: -4,
-  },
-  headerTitle: {
-    color: '#FAFAFA',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  markAllBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: radius.sm,
-    backgroundColor: 'rgba(226, 29, 72, 0.1)',
-  },
-  markAllText: {
-    color: colors.accent,
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  loadingCenter: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  listContainer: {
-    paddingTop: spacing.xs,
-  },
-  itemContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.03)',
-    gap: 12,
-  },
-  itemUnread: {
-    backgroundColor: 'rgba(255, 255, 255, 0.015)',
-  },
-  itemRead: {
-    opacity: 0.75,
-  },
-  iconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.md,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  iconText: {
-    fontSize: 18,
-  },
-  contentWrap: {
-    flex: 1,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-    gap: 12,
-  },
-  itemTitle: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: 'bold',
-    flex: 1,
-  },
-  itemTitleUnread: {
-    color: '#FAFAFA',
-  },
-  unreadDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.accent,
-  },
-  itemMessage: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 17,
-    marginBottom: 6,
-  },
-  itemTime: {
-    color: colors.mutedDim,
-    fontSize: 10,
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 100,
-    paddingHorizontal: spacing.xl,
-  },
-  emptyTitle: {
-    color: '#FAFAFA',
-    fontSize: 15,
-    fontWeight: 'bold',
-    marginBottom: 6,
-  },
-  emptyBody: {
-    color: colors.muted,
-    fontSize: 12,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
+  markAllBtn: { minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.sm, gap: spacing.xs },
+  markAllText: { color: t.secondary, fontSize: 12, fontWeight: '500' },
+  listContainer: { paddingTop: spacing.sm },
+  itemContainer: { flexDirection: 'row', paddingHorizontal: spacing.xl, paddingVertical: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border, gap: spacing.md, minHeight: 88 },
+  itemUnread: { backgroundColor: t.surface },
+  itemRead: { backgroundColor: t.canvas },
+  contentWrap: { flex: 1, minWidth: 0 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs, gap: spacing.md },
+  itemTitle: { color: t.secondary, fontSize: 14, lineHeight: 20, fontWeight: '500', flex: 1 },
+  itemTitleUnread: { color: t.ink, fontWeight: '600' },
+  unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: t.accent },
+  itemMessage: { color: t.muted, fontSize: 13, lineHeight: 19, marginBottom: spacing.sm },
+  itemTime: { color: t.subtle, fontSize: 12, lineHeight: 18 },
+  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 100, paddingHorizontal: spacing.xl, gap: spacing.xs },
+  emptyTitle: { color: t.ink, fontSize: 17, fontWeight: '600', marginBottom: spacing.xs },
+  emptyBody: { color: t.muted, fontSize: 14, textAlign: 'center', lineHeight: 21 },
 });

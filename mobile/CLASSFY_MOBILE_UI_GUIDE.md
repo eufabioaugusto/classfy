@@ -8,7 +8,7 @@ Sinais extraidos da web:
 
 - base cinematica escura: preto puro, superficies em cinza muito escuro e bordas discretas;
 - acento principal vermelho Classfy, usado com parcimonia para estado ativo, destaque e conversao;
-- badges por plano/status: free verde, pro roxo, premium dourado, hot laranja;
+- planos: Free neutro; Pro com coroa amarela e Premium com coroa vermelha, usando `PlanCrown`. Cor de plano não se espalha pelo card ou pela tela;
 - cards de conteudo com thumbnail dominante, `16:9`, cantos de aproximadamente `12px`, overlay escuro e metadados compactos;
 - feed de exploracao inspirado em consumo de video: seco, denso, escaneavel;
 - acoes horizontais em chips/botoes arredondados no Watch;
@@ -65,6 +65,22 @@ O usuario deve abrir o app e ver conteudo imediatamente. A Home nao deve vender 
 - Nao usar textos longos para explicar features em tela principal.
 - Priorizar conteudo real ou mockado como conteudo real.
 - Se faltar dado, usar placeholder de conteudo, nao bloco explicativo.
+
+## Telas de dados: Economia e Conta
+
+Referência oficial: `src/components/v2/VISUAL_LANGUAGE.md`, `src/styles/classfy-v2.css` e as experiências de Economia/Biblioteca da web. No app, usar componentes React Native e tipografia do sistema; não transpor grids de dashboard desktop.
+
+- Fundação opt-in: `src/theme/data.ts` e `src/components/data/DataUI.tsx`. Não altera Home, Studio, Classy ou consumo de vídeo.
+- Fundo preto; superfície grafite `#111317`, elevação `#181B20`, texto claro, metadados cinza e bordas discretas. Sem gradientes, halos ou sombras para decorar métricas.
+- Ícones Lucide lineares com stroke 1.7, claros/cinzas por padrão. Cor somente para marca, estado ativo, dinheiro disponível, aviso ou ação destrutiva. Notificações não usam emojis como ícones.
+- Vermelho de marca `#EF5066`; os estados positivo/aviso/erro têm tokens próprios e texto explícito. Não usar uma cor diferente por tipo de métrica ou conquista.
+- Dados em números tabulares, unidade visível e formatação pt-BR. Valores em reais e Points devem ocupar contextos separados; Points não são saldo em dinheiro.
+- Carteira: saldo disponível primeiro, ação de saque explícita, aguardando liberação/reservado identificados, totais e extrato abaixo. Formulário fica no contexto do saldo quando solicitado.
+- Progresso: nível e aprendizado, retomada e conquistas em listas legíveis. Meta, progresso e estado alcançado devem ser compreensíveis sem cor; não usar escudos/brilhos multicoloridos.
+- Configurações: grupos de linhas de ação; formulários com label persistente e corpo legível. Diagnóstico técnico somente em desenvolvimento, recolhido.
+- Biblioteca: mídia preservada, categoria escrita de forma neutra e ação de remover explicitamente identificada. Cor não substitui rótulo.
+- Componentes compartilhados: `DataCard`, `DataSection`, `DataMetric`, `DataRow`, `DataIcon` e `DataAction`. Valores/descrições crescem e quebram linha; controles têm área de toque mínima de 44px, ações de 48px.
+- Validar leitura, estados vazios/carregando/erro, teclado, fonte ampliada e tela estreita. Não executar saque, compra, resgate ou alteração de privacidade real em QA visual.
 
 ## Regras de Gesto e Layout em Modais / Bottom Sheets
 
