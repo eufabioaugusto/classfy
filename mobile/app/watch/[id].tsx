@@ -30,6 +30,7 @@ import { ClassfyVideoPlayer, ClassfyVideoPlayerRef, ClassfyPlaybackStatus } from
 import { WatchCommentsSheet } from '@/components/WatchCommentsSheet';
 import { WatchDescriptionSheet } from '@/components/WatchDescriptionSheet';
 import { WatchRewardBar } from '@/components/WatchRewardBar';
+import { WatchPlayerPlaceholder } from '@/components/WatchPlayerPlaceholder';
 import { WatchStudySheet } from '@/components/WatchStudySheet';
 import { useAuth } from '@/features/auth/authContext';
 import { usePlaybackSource } from '@/features/watch/usePlaybackSource';
@@ -387,7 +388,7 @@ export default function WatchScreen() {
       <View style={styles.stateScreen}>
         <View style={styles.centerState}>
           <ActivityIndicator color={colors.accent} />
-          <Text style={styles.centerText}>Carregando Watch...</Text>
+          <Text style={styles.centerText}>Carregando conteúdo…</Text>
         </View>
       </View>
     );
@@ -397,8 +398,8 @@ export default function WatchScreen() {
     return (
       <View style={styles.stateScreen}>
         <View style={styles.centerState}>
-          <Text style={styles.errorTitle}>Conteudo indisponivel</Text>
-          <Text style={styles.centerText}>{error || 'Nao foi possivel carregar este conteudo.'}</Text>
+          <Text style={styles.errorTitle}>Conteúdo indisponível</Text>
+          <Text style={styles.centerText}>{error || 'Não foi possível carregar este conteúdo.'}</Text>
           <Pressable style={styles.primaryButton} onPress={() => router.back()}>
             <Text style={styles.primaryButtonText}>Voltar</Text>
           </Pressable>
@@ -532,15 +533,9 @@ export default function WatchScreen() {
                     }}
                   />
                 ) : (
-                  <>
-                    {content.thumbnail_url ? <Image source={{ uri: content.thumbnail_url }} style={styles.poster} /> : null}
-                    <View style={styles.posterOverlay} />
-                    {source.loading || source.error ? <Text style={[styles.playerBadge, { top: 70 }]}>{source.error || 'Preparando vídeo…'}</Text> : null}
-                    <View style={styles.playBadge}>
-                      <Ionicons name={access.hasAccess ? 'play' : 'lock-closed'} color={colors.background} size={36} />
-                    </View>
-                    <Text style={styles.playerBadge}>{formatType(content.content_type, content.isCourse)}</Text>
-                  </>
+                  <WatchPlayerPlaceholder poster={content.thumbnail_url} format={formatType(content.content_type, content.isCourse)} locked={!access.hasAccess}
+                    loading={source.loading || Boolean(content.isCourse && courseLessons.loading)}
+                    error={source.error || (content.isCourse && courseLessons.error ? 'Não foi possível carregar as aulas. Abra o conteúdo novamente.' : null)} />
                 )}
                 {!isFullscreen && (
                   <View style={styles.dragCapture} pointerEvents="box-none" {...panResponder.panHandlers}>
@@ -1295,14 +1290,6 @@ const styles = StyleSheet.create({
     height: '100%',
     width: '100%',
   },
-  poster: {
-    height: '100%',
-    width: '100%',
-  },
-  posterOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.overlaySoft,
-  },
   dragCapture: {
     alignItems: 'center',
     height: 72,
@@ -1317,33 +1304,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     height: 4,
     width: 46,
-  },
-  playBadge: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    borderRadius: radius.pill,
-    height: 76,
-    justifyContent: 'center',
-    left: '50%',
-    marginLeft: -38,
-    marginTop: -38,
-    position: 'absolute',
-    top: '50%',
-    width: 76,
-  },
-  playerBadge: {
-    backgroundColor: colors.overlay,
-    borderRadius: radius.pill,
-    bottom: spacing.md,
-    color: colors.text,
-    fontSize: typography.caption,
-    fontWeight: typography.weightBlack,
-    left: spacing.md,
-    overflow: 'hidden',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    position: 'absolute',
-    textTransform: 'uppercase',
   },
   body: {
     backgroundColor: colors.background,

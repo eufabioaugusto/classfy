@@ -18,6 +18,8 @@ export function usePlaybackSource(mediaAssetId: string | null | undefined, legac
     void supabase.functions.invoke('video-playback', { body: { mediaAssetId } }).then(({ data, error }) => {
       if (!active) return;
       setResolved({ key, url: error ? '' : data?.source?.url || '', error: error || !data?.source?.url ? 'Não foi possível carregar o vídeo. Abra o conteúdo novamente.' : '' });
+    }, () => {
+      if (active) setResolved({ key, url: '', error: 'Não foi possível carregar o vídeo. Abra o conteúdo novamente.' });
     });
     return () => { active = false; };
   }, [key, enabled, mediaAssetId, legacyUrl]);
