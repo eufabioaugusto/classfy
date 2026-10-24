@@ -3,7 +3,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -31,6 +31,7 @@ import { WatchCommentsSheet } from '@/components/WatchCommentsSheet';
 import { WatchDescriptionSheet } from '@/components/WatchDescriptionSheet';
 import { WatchRewardBar } from '@/components/WatchRewardBar';
 import { WatchPlayerPlaceholder } from '@/components/WatchPlayerPlaceholder';
+import { WatchCoursePlaylist } from '@/components/WatchCoursePlaylist';
 import { WatchStudySheet } from '@/components/WatchStudySheet';
 import { useAuth } from '@/features/auth/authContext';
 import { usePlaybackSource } from '@/features/watch/usePlaybackSource';
@@ -93,6 +94,7 @@ export default function WatchScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
 
   const handleFullscreenToggle = async (fullscreen: boolean) => {
+    dragY.stopAnimation(); dragY.setValue(0);
     setIsFullscreen(fullscreen);
     if (fullscreen) {
       scrollViewRef.current?.scrollTo({ y: 0, animated: false });
@@ -338,50 +340,30 @@ export default function WatchScreen() {
     }
   };
 
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponderCapture: (_, gesture) =>
-          gesture.dy > 18 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 2,
-        onMoveShouldSetPanResponder: (_, gesture) =>
-          gesture.dy > 18 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 2,
-        onPanResponderMove: (_, gesture) => {
-          if (gesture.dy > 0) dragY.setValue(gesture.dy);
-        },
-        onPanResponderRelease: (_, gesture) => {
-          const minimizeThreshold = Dimensions.get('window').height * 0.42;
-          const shouldMinimize = gesture.dy > minimizeThreshold || gesture.vy > 1.2;
-
-          if (shouldMinimize && content) {
-            startMiniPlayer({
-              id: content.id,
-              title: content.title,
-              fileUrl: content.file_url,
-              thumbnailUrl: content.thumbnail_url,
-              creatorName:
-                content.creator?.creator_channel_name ||
-                content.creator?.display_name ||
-                'Creator Classfy',
-              durationSeconds: content.duration_seconds,
-              startPositionMillis: currentPositionMillisRef.current,
-              shouldPlay: wasPlayingRef.current,
-            });
-            dragY.setValue(0);
-            if (router.canGoBack()) router.back();
-            else router.replace('/');
-            return;
-          }
-
-          Animated.spring(dragY, {
-            toValue: 0,
-            friction: 8,
-            tension: 80,
-            useNativeDriver: true,
-          }).start();
-        },
-      }),
-    [content, dragY, startMiniPlayer],
-  );
+  const minimizePlayback = useCallback(() => {
+    const current = playback.content;
+    const currentLessonId = content?.isCourse ? courseLessons.currentLesson?.id : undefined;
+    if (content && access.hasAccess && source.url && current?.id === content.id && current.lessonId === currentLessonId) {
+      // Reveal the provider's existing session; never replace or seek the video.
+      startMiniPlayer(current);
+    }
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [content, access.hasAccess, source.url, playback.content, courseLessons.currentLesson?.id, startMiniPlayer]);
+  const panResponder = useMemo(() => {
+    const restore = () => Animated.spring(dragY, { toValue: 0, friction: 8, tension: 80, useNativeDriver: true }).start();
+    return PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_, gesture) => gesture.dy > 18 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 2,
+      onMoveShouldSetPanResponder: (_, gesture) => gesture.dy > 18 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 2,
+      onPanResponderGrant: () => dragY.stopAnimation(),
+      onPanResponderMove: (_, gesture) => dragY.setValue(Math.max(0, gesture.dy)),
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy > windowHeight * 0.42 || gesture.vy > 1.2) minimizePlayback();
+        else restore();
+      },
+      onPanResponderTerminate: restore,
+    });
+  }, [dragY, windowHeight, minimizePlayback]);
 
   if (loading) {
     return (
@@ -411,7 +393,7 @@ export default function WatchScreen() {
   const activeVideoUrl = source.url;
   const showPlayableVideo = Boolean(access.hasAccess && activeVideoUrl);
   const creatorName = content.creator?.creator_channel_name || content.creator?.display_name || 'Creator Classfy';
-  const minimizeThreshold = Dimensions.get('window').height * 0.42;
+  const minimizeThreshold = windowHeight * 0.42;
   const overlayStyle = {
     borderRadius: isFullscreen
       ? 0
@@ -434,8 +416,8 @@ export default function WatchScreen() {
       ],
   };
   const contentOpacity = dragY.interpolate({
-    inputRange: [0, 24, minimizeThreshold * 0.62],
-    outputRange: [1, 0.12, 0],
+    inputRange: [0, minimizeThreshold * 0.32],
+    outputRange: [1, 0],
     extrapolate: 'clamp',
   });
   const contentLift = dragY.interpolate({
@@ -447,6 +429,7 @@ export default function WatchScreen() {
   return (
     <View style={styles.modalRoot}>
       <Animated.View style={[styles.overlaySurface, overlayStyle, isFullscreen && { backgroundColor: '#000' }]}>
+        <Animated.View pointerEvents="none" style={[styles.surfaceBackdrop, { opacity: isFullscreen ? 1 : contentOpacity }]} />
         <ScrollView
           ref={scrollViewRef}
           bounces={false}
@@ -495,20 +478,7 @@ export default function WatchScreen() {
                     poster={content.thumbnail_url}
                     title={content.isCourse && courseLessons.currentLesson ? courseLessons.currentLesson.title : content.title}
                     creatorName={creatorName}
-                    onMinimize={() => {
-                      startMiniPlayer({
-                        id: content.id,
-                        title: content.isCourse && courseLessons.currentLesson ? courseLessons.currentLesson.title : content.title,
-                        fileUrl: activeVideoUrl,
-                        thumbnailUrl: content.thumbnail_url,
-                        creatorName,
-                        durationSeconds: content.isCourse && courseLessons.currentLesson ? courseLessons.currentLesson.duration_seconds : content.duration_seconds,
-                        startPositionMillis: currentPositionMillisRef.current,
-                        shouldPlay: wasPlayingRef.current,
-                      });
-                      if (router.canGoBack()) router.back();
-                      else router.replace('/');
-                    }}
+                    onMinimize={minimizePlayback}
                     onNotesPress={() => {
                       setStudyInitialTab('notes');
                       setStudySheetOpen(true);
@@ -547,6 +517,10 @@ export default function WatchScreen() {
 
             {!isFullscreen && (
               <Animated.View style={[styles.body, { opacity: contentOpacity }]}>
+                {content.isCourse && access.hasAccess ? <View style={{ marginBottom: spacing.md }}>
+                  <WatchCoursePlaylist modules={courseLessons.modules} currentLesson={courseLessons.currentLesson} loading={courseLessons.loading} error={courseLessons.error}
+                    onPress={() => { setStudyInitialTab('modules'); setStudySheetOpen(true); }} />
+                </View> : null}
                 <WatchRewardBar
                   contentId={content.id}
                   studyId={studyId}
@@ -1267,8 +1241,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'transparent',
   },
+  surfaceBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.background },
   overlaySurface: {
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
     flex: 1,
     overflow: 'hidden',
   },
@@ -1306,7 +1281,7 @@ const styles = StyleSheet.create({
     width: 46,
   },
   body: {
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
     paddingBottom: spacing.section,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
