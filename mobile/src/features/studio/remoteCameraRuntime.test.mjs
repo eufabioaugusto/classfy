@@ -105,6 +105,24 @@ async function linkedController(h,configuration,options={}){
   return {camera,server,requests,async configure(...patches){commands=patches.map((payload,index)=>({id:`configure-${server.sequence+index+1}`,sequence:server.sequence+index+1,type:'configure',payload,status:'pending'}));await camera.poll();},
     async durable(id,payload){commands=[{id,sequence:server.sequence+1,type:'configure',payload,status:'pending'}];await camera.poll();}};
 }
+test('telemetria conserva espaço real do iPhone, inclusive zero, e descarta leituras inválidas',async()=>{
+  const h=nativeHarness();
+  for(const [available,total] of [[7_000_000_000,128_000_000_000],[4_999_999_999,128_000_000_000],[0,128_000_000_000]]){
+    h.state.storageAvailableBytes=available;h.state.storageTotalBytes=total;
+    const actual=h.runtime.remoteDeviceState(h.state);
+    assert.equal(actual.storageAvailableBytes,available);assert.equal(actual.storageTotalBytes,total);
+  }
+  for(const invalid of [-1,NaN,Infinity,1.5,Number.MAX_SAFE_INTEGER+1,undefined]){
+    const actual=h.runtime.remoteDeviceState({...h.state,storageAvailableBytes:invalid,storageTotalBytes:invalid});
+    assert.equal('storageAvailableBytes'in actual,false);assert.equal('storageTotalBytes'in actual,false);
+  }
+  assert.equal('storageTotalBytes'in h.runtime.remoteDeviceState({...h.state,storageAvailableBytes:100,storageTotalBytes:50}),false);
+  h.state.storageAvailableBytes=6_400_000_000;h.state.storageTotalBytes=128_000_000_000;
+  assert.equal((await h.port.port.snapshot()).storageAvailableBytes,6_400_000_000);
+  h.state.storageAvailableBytes=6_300_000_000;
+  assert.equal((await h.port.port.snapshot()).storageAvailableBytes,6_300_000_000);
+  assert.equal(h.calls.some(call=>call.kind==='REC'||call.kind==='STOP'),false);
+});
 test('pista remota é fornecida pelo mesmo native view, apenas vídeo; SDK não abre câmera ou microfone',async()=>{
   const h=nativeHarness();await h.port.port.configure(h.session.configuration);
   await h.port.port.preview({url:'wss://private.invalid',token:'not-real',identity:'device'});

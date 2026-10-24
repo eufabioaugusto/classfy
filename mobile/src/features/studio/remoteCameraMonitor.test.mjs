@@ -29,6 +29,7 @@ function harness(patch = {}, options = {}) {
     'react-native-safe-area-context': { useSafeAreaInsets: () => insets }, 'expo-status-bar': { StatusBar: 'status-bar' },
     'lucide-react-native': Object.fromEntries(['Check', 'ChevronRight', 'CloudUpload', 'Mic', 'Monitor', 'MoreHorizontal', 'RotateCw', 'Unplug', 'X'].map(name => [name, 'icon'])),
     './StudioCaptureAudioMonitor': { StudioCaptureAudioMonitor: 'audio-monitor' },
+    './StudioCaptureStorageMonitor': { StudioCaptureStorageMonitor: 'storage-monitor' },
     './remoteCameraMonitorLayout': { remoteCameraFocusPoint, remoteCameraModalOrientations, remoteCameraMonitorLayout, remoteCameraQualityLabel },
     './remoteCameraAudioPicker': { remoteCameraAudioInputSelected, remoteCameraAudioInputState, remoteCameraAudioPortLabel },
   };
@@ -178,5 +179,26 @@ test('troca de sessão/blur/REC e unmount rejeitam erro ou ACK tardio de input',
     if (change === 'session') await h.update({ captureScope: 'owner:other-session' }); else if (change === 'active') await h.update({ active: false });
     else if (change === 'recording') await h.state({ phase: 'recording' }); else if (change === 'processing') await h.state({ processing: true }); else h.unmount();
     gate.reject(Error('Erro de uma conexão antiga.')); await h.pump(); assert.equal(h.text().includes('Erro de uma conexão antiga.'), false, change); assert.equal(h.nodes('modal').length, 0, change); h.unmount();
+  }
+});
+
+
+test('armazenamento permanece junto do mic em retrato/paisagem, atualiza durante REC e não altera foco/Parar', async () => {
+  for (const window of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+    const h = harness({ state: { phase: 'recording', state: { ...audioDevice(audioRoute), storageAvailableBytes: 6_300_000_000, storageTotalBytes: 128_000_000_000 }, previewConnected: true, takeCount: 0 } }, { window });
+    try {
+      assert.equal(h.nodes('storage-monitor').length, 1);
+      assert.equal(h.nodes('storage-monitor')[0].props.availableBytes, 6_300_000_000);
+      assert.equal(h.nodes('storage-monitor')[0].props.totalBytes, 128_000_000_000);
+      assert.equal(h.nodes('audio-monitor').length, 1); assert.ok(h.control('Encerrar e salvar take'));
+      await h.state({ state: { ...audioDevice(audioRoute), storageAvailableBytes: 0, storageTotalBytes: 128_000_000_000 } });
+      assert.equal(h.nodes('storage-monitor')[0].props.availableBytes, 0);
+      await h.focus(window.width / 2, window.height / 2);
+      assert.equal(h.calls.filter(call => call[0] === 'focus').length, 1);
+      await h.press('Encerrar e salvar take'); assert.deepEqual(h.calls.at(-1), ['stop']);
+      await h.update({ active: false });
+      assert.equal(h.nodes('storage-monitor')[0].props.availableBytes, undefined);
+      assert.equal(h.nodes('storage-monitor')[0].props.totalBytes, undefined);
+    } finally { h.unmount(); }
   }
 });

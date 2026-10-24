@@ -43,6 +43,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
   private var speechSessionId = ""
   private var speechLocale = "pt-BR"
   private var audioTimer: DispatchSourceTimer?
+  private var storageTimer: DispatchSourceTimer?
   private var audioMonitoringAvailable = false
   private let frames = AVCaptureVideoDataOutput()
   private let metadata = AVCaptureMetadataOutput()
@@ -100,6 +101,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   deinit {
     audioTimer?.cancel()
+    storageTimer?.cancel()
     observers.forEach { NotificationCenter.default.removeObserver($0) }
     pressureObservation?.invalidate()
   }
@@ -138,6 +140,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
         self.failAudioInputSelection(StudioCaptureAudioInputError.cancelled, restore: false)
         self.audioInputSelection.invalidate()
         self.stopAudioMonitor(reason: "inactive")
+        self.stopStorageMonitor()
         self.invalidateFrames()
         if let operation = self.operation {
           self.stopOwned(operation, reason: stopReason)
@@ -175,6 +178,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       self.failAudioInputSelection(StudioCaptureAudioInputError.cancelled, restore: false)
       self.audioInputSelection.invalidate()
       self.stopAudioMonitor(reason: "inactive")
+      self.stopStorageMonitor()
       self.invalidateFrames()
       if let operation = self.operation { self.stopOwned(operation, reason: .disposed) }
       else { self.finishDisposal() }
@@ -186,6 +190,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     frames.setSampleBufferDelegate(nil, queue: nil)
     audioFrames.setSampleBufferDelegate(nil, queue: nil)
     audioTimer?.cancel(); audioTimer = nil
+    stopStorageMonitor()
     audioInputTimeout?.cancel(); audioInputTimeout = nil
     metadata.setMetadataObjectsDelegate(nil, queue: nil)
     pressureObservation?.invalidate(); pressureObservation = nil
@@ -541,8 +546,10 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
     state["operationId"] = operation?.id as Any? ?? NSNull()
     state["isRecording"] = movie.isRecording || (operation != nil && operation?.nativeFinished == false)
     let storageURL = operation?.fileURL ?? FileManager.default.temporaryDirectory.appendingPathComponent("classfy-recording-space")
-    let availableBytes = Self.freeDiskBytes(at: storageURL)
+    let storage = try? FileManager.default.attributesOfFileSystem(forPath: storageURL.deletingLastPathComponent().path)
+    let availableBytes = (storage?[.systemFreeSize] as? NSNumber)?.int64Value
     if let availableBytes { state["storageAvailableBytes"] = availableBytes }
+    if let totalBytes = (storage?[.systemSize] as? NSNumber)?.int64Value { state["storageTotalBytes"] = totalBytes }
     let recordedDuration = movie.recordedDuration
     if movie.isRecording, let remaining = StudioCaptureStoragePolicy.estimatedRemainingSeconds(availableBytes: availableBytes,
         recordedBytes: movie.recordedFileSize, recordedSeconds: recordedDuration.seconds) {
@@ -972,6 +979,7 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
 
   private func startAudioMonitor() {
     guard active, !disposed, session.isRunning else { return }
+    startStorageMonitor()
     refreshAudioMonitor(reason: "preparing")
     refreshSpeech()
     emitAudioMonitor()
@@ -983,6 +991,21 @@ final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOu
       self.emitAudioMonitor()
     }
     audioTimer = timer; timer.resume()
+  }
+
+  private func startStorageMonitor() {
+    guard storageTimer == nil else { return }
+    let timer = DispatchSource.makeTimerSource(queue: queue)
+    timer.schedule(deadline: .now() + .seconds(2), repeating: .seconds(2), leeway: .milliseconds(200))
+    timer.setEventHandler { [weak self] in
+      guard let self, self.active, !self.disposed, self.session.isRunning else { return }
+      self.emitState()
+    }
+    storageTimer = timer; timer.resume()
+  }
+
+  private func stopStorageMonitor() {
+    storageTimer?.cancel(); storageTimer = nil
   }
 
   private func stopAudioMonitor(reason: String) {

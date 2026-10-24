@@ -28,6 +28,8 @@ export function restoreStudioRemoteAudioPolicy(){remoteSDK?.native.setupIOSAudio
 const resolution=(quality:string)=>quality==='2160p'?'4k':quality==='1440p'?'2k':quality;
 export const remoteDeviceState=(state:StudioCameraState,configuration?:StudioRemoteConfiguration):StudioRemoteDeviceState=>({
   ...(configuration?{configuration}:{}),width:state.width,height:state.height,fps:state.fps||0,recording:state.isRecording,...(Number.isFinite(state.recordedDurationSeconds)?{recordedDurationSeconds:state.recordedDurationSeconds}:{}),
+  ...(Number.isSafeInteger(state.storageAvailableBytes)&&state.storageAvailableBytes!>=0?{storageAvailableBytes:state.storageAvailableBytes}:{}),
+  ...(Number.isSafeInteger(state.storageTotalBytes)&&state.storageTotalBytes!>0&&!(Number.isSafeInteger(state.storageAvailableBytes)&&state.storageAvailableBytes!>state.storageTotalBytes!)?{storageTotalBytes:state.storageTotalBytes}:{}),
   generation:state.generation,supportsFocus:state.supportsFocus,supportsFocusLock:state.supportsFocusLock,focusLocked:state.focusLocked,
   ...(state.imageGrade?{imageGrade:state.imageGrade}:{}),imageGradeConfirmed:state.imageGradeConfirmed,remoteGradeConfirmed:state.remoteGradeConfirmed,
   ...(state.audioInput?{audioInput:state.audioInput}:{}),supportsAudioInputSelection:state.supportsAudioInputSelection===true&&isStudioNativeAudioInputSelectionAvailable(),

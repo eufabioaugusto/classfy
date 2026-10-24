@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Check, ChevronRight, CloudUpload, Mic, Monitor, MoreHorizontal, RotateCw, Unplug, X } from 'lucide-react-native';
 import { StudioCaptureAudioMonitor, type StudioCaptureAudioMonitorProps } from './StudioCaptureAudioMonitor';
+import { StudioCaptureStorageMonitor } from './StudioCaptureStorageMonitor';
 import { remoteCameraFocusPoint, remoteCameraModalOrientations, remoteCameraMonitorLayout, remoteCameraQualityLabel, type RemoteCameraFocusPoint } from './remoteCameraMonitorLayout';
 import type { RemoteCameraSnapshot } from './remoteCameraController';
 import type { StudioAudioInputState } from '../../../modules/classfy-studio-media';
@@ -138,6 +139,8 @@ export function StudioRemoteCameraMonitor({ children, state, audio, active, capt
         <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden><StudioCaptureAudioMonitor {...audio} compact
           accessory={!recording && !state.processing && supportsAudioSelection ? <ChevronRight size={10} color="#CFCFD3" /> : undefined} /></View>
       </Pressable>
+      <StudioCaptureStorageMonitor availableBytes={active ? state.state?.storageAvailableBytes : undefined}
+        totalBytes={active ? state.state?.storageTotalBytes : undefined} />
     </View>
     {recording && <View style={[styles.stopPosition, layout.landscape ? { right: layout.right, bottom: layout.bottom } : { bottom: layout.bottom, left: (size.width - 88) / 2 }]}>
       <Pressable accessibilityRole="button" accessibilityLabel="Encerrar e salvar take" accessibilityState={{ disabled: saving, busy: saving }} disabled={saving}

@@ -81,7 +81,7 @@ export type StudioCameraState = {
   torchEnabled: boolean;
   isRecording: boolean;
   recordedDurationSeconds?: number;
-  storageAvailableBytes?: number; estimatedRemainingRecordingSeconds?: number;
+  storageAvailableBytes?: number; storageTotalBytes?: number; estimatedRemainingRecordingSeconds?: number;
   pro?: StudioCameraProState; proConfirmed?: boolean; sourceWidth?: number; sourceHeight?: number; downsampled?: boolean;
   generation?: number; revision?: number; phase?: string;
   supportsImageGrade?: boolean; imageGrade?: StudioGrade; imageGradeConfirmed?: boolean; remoteGradeConfirmed?: boolean;

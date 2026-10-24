@@ -35,7 +35,7 @@ type Props = {
   style?: StyleProp<ViewStyle>; active?: boolean; effectRecipeJSON?: string;
   speechEnabled?: boolean; speechSessionId?: string; speechLocale?: string;
   onSpeech?: (event: StudioCaptureSpeechEvent) => void;
-  onCameraReady?: () => void; onMountError?: (event: { message: string }) => void;
+  onCameraReady?: () => void; onCameraState?: (state: StudioCameraState) => void; onMountError?: (event: { message: string }) => void;
   onRecordingState?: (event: StudioNativeRecordingState) => void;
   onAudioMonitor?: (event: StudioCaptureAudioEvent) => void;
   onInterruption?: (event: { message?: string; reason?: string; generation: number; revision: number }) => void;
@@ -79,6 +79,7 @@ export const StudioNativeCamera = forwardRef<StudioNativeCameraHandle, Props>(fu
       if (confirmed.grade) effectRejected.current = true;
       confirmedEffect.current = null;
     }
+    if (mounted.current && live.current.active !== false) live.current.onCameraState?.(state);
   };
   const lastReadyGeneration = useRef<number | undefined>(undefined);
   useImperativeHandle(ref, () => ({

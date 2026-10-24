@@ -25,6 +25,7 @@ import { studioNormalizedZoom, useStudioCaptureCamera } from '@/features/studio/
 import { StudioCaptureFrame, StudioCaptureZoom } from '@/features/studio/StudioCaptureZoom';
 import { StudioCaptureTakes } from '@/features/studio/StudioCaptureTakes';
 import { StudioCaptureAudioMonitor } from '@/features/studio/StudioCaptureAudioMonitor';
+import { StudioCaptureStorageMonitor } from '@/features/studio/StudioCaptureStorageMonitor';
 import { StudioCaptureProControls } from '@/features/studio/StudioCaptureProControls';
 import { useStudioCaptureAudioMonitor } from '@/features/studio/StudioCaptureAudio';
 import { StudioCaptureScriptPanel } from '@/features/studio/StudioCaptureScriptPanel';
@@ -134,6 +135,14 @@ export default function StudioCaptureScreen() {
   const nativeCamera = Platform.OS === 'ios' && isStudioNativeCameraAvailable();
   const nativeEffects = !isAudio && nativeCamera && isStudioNativeCameraEffectsAvailable();
   const cameraControls = useStudioCaptureCamera(camera, facing, cameraMounted, { native: nativeCamera, orientation: project?.kind === 'aula' ? 'landscape' : 'portrait' });
+  const storageContext = useRef({ key: `${user?.id}:${id}:${facing}`, active: cameraMounted, epoch: 0 });
+  const storageKey = `${user?.id}:${id}:${facing}`;
+  if (storageContext.current.key !== storageKey || storageContext.current.active !== cameraMounted) storageContext.current.epoch++;
+  storageContext.current = { ...storageContext.current, key: storageKey, active: cameraMounted };
+  const storageScope = `${storageKey}:${storageContext.current.epoch}`;
+  const [captureStorage, setCaptureStorage] = useState<{ scope: string; availableBytes?: number; totalBytes?: number } | null>(null);
+  useEffect(() => { setCaptureStorage(null); }, [storageScope]);
+  const storage = captureStorage?.scope === storageScope ? captureStorage : null;
   const audioMonitorAvailable = nativeCamera && isStudioNativeCameraAudioMonitorAvailable();
   const audioMonitor = useStudioCaptureAudioMonitor({ active: cameraMounted, available: audioMonitorAvailable,
     scopeKey: `${user?.id}:${id}:${facing}`, generation: cameraControls.state?.generation });
@@ -857,6 +866,11 @@ export default function StudioCaptureScreen() {
       zoom={zoom} onZoom={changeZoom} disabled={zoomDisabled || immersive}
       onFocus={cameraState?.supportsFocus ? point => { void cameraControls.focus(point); } : undefined} canLockFocus={cameraState?.supportsFocusLock}>
       {nativeCamera ? <StudioNativeCamera ref={camera as React.Ref<StudioNativeCameraHandle>} style={StyleSheet.absoluteFill}
+        onCameraState={value => {
+          const live = storageContext.current;
+          if (!mounted.current || !live.active || `${live.key}:${live.epoch}` !== storageScope) return;
+          setCaptureStorage({ scope: storageScope, availableBytes: value.storageAvailableBytes, totalBytes: value.storageTotalBytes });
+        }}
         onAudioMonitor={audioMonitorAvailable ? audioMonitor.onAudioMonitor : undefined}
         speechEnabled={voiceAvailable && speech.speechEnabled} speechSessionId={speech.speechSessionId} speechLocale="pt-BR" onSpeech={speech.onSpeech}
         onCameraReady={() => { void cameraControls.initialize().then(result => { if (result !== undefined && mounted.current) { setReady(result); if (result) monitor.cameraReady(); } }); }}
@@ -888,6 +902,7 @@ export default function StudioCaptureScreen() {
       style={[styles.audioMonitor, { bottom: audioMonitorBottom, left: audioMonitorLeft, width: audioMonitorWidth }]}>
       <StudioCaptureAudioMonitor input={audioMonitor.input} channels={audioMonitor.channels}
         status={audioMonitor.status} message={audioMonitor.message} compact />
+      <StudioCaptureStorageMonitor availableBytes={storage?.availableBytes} totalBytes={storage?.totalBytes} />
     </View>}
 
     <View style={[styles.topControls, { top: safeTop, left: safeLeft, right: safeRight }]}>
@@ -1134,7 +1149,7 @@ function CaptureMessage({ icon, title, detail, actionLabel, onAction, disabled }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000' },
-  audioMonitor: { position: 'absolute' },
+  audioMonitor: { position: 'absolute', gap: 6 },
   topShade: { position: 'absolute', left: 0, right: 0, top: 0 },
   bottomShade: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   rightShade: { position: 'absolute', top: 0, bottom: 0, right: 0 },

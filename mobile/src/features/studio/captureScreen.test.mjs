@@ -285,6 +285,7 @@ async function harness(options = {}) {
     '@/features/studio/StudioCaptureTakes': takes,
     '@/features/studio/StudioCaptureAudio': audioMonitor,
     '@/features/studio/StudioCaptureAudioMonitor': { StudioCaptureAudioMonitor: 'audio-monitor' },
+    '@/features/studio/StudioCaptureStorageMonitor': { StudioCaptureStorageMonitor: 'storage-monitor' },
     '@/features/studio/StudioCaptureProControls': { StudioCaptureProControls: 'pro-controls' },
     '@/features/studio/StudioCaptureScriptPanel': scriptPanel,
     '@/features/studio/StudioCameraMonitorPanel': monitorPanel,
@@ -399,6 +400,10 @@ async function harness(options = {}) {
       guardedNavigate('dispatch', action, action);
     },
     background(value) { appState.currentState = value; for (const callback of appListeners) callback(value); dirty = true; },
+    async cameraStateEvent(patch = {}) {
+      const host = find(node => node.type === 'native-camera-view');
+      host.props.onState({ nativeEvent: { ...snapshot(), ...patch } }); await pump();
+    },
     async audioEvent(patch = {}) {
       const host = find(node => node.type === 'native-camera-view');
       host.props.onAudioMonitor?.({ nativeEvent: { version: 1, generation: state.generation, revision: state.revision,
@@ -1166,5 +1171,45 @@ test('gate de outra conta permite Voltar com orientação confirmada, sem mudar 
     assert.deepEqual(h.navigation, []); assert.equal(h.exits.length, 1);
     await h.confirmExit(); assert.equal(h.navigation.length, 1);
     assert.deepEqual(h.runtime.store.getStudioProject('owner', original.id).takes, before);
+  } finally { await h.dispose(); }
+});
+
+
+test('captura direta recebe espaço nativo junto ao mic durante REC, sem polling ou bloqueio aos 5 GB', async () => {
+  for (const projectKind of ['aula', 'short']) {
+    const h = await harness({ projectKind, audioMonitor: true });
+    try {
+      await h.ready(); const storage = () => h.find(node => node.type === 'storage-monitor').props;
+      assert.equal(storage().availableBytes, undefined);
+      const before = h.calls.filter(call => call.kind === 'capabilities').length;
+      await h.cameraStateEvent({ storageAvailableBytes: 6_300_000_000, storageTotalBytes: 128_000_000_000 });
+      assert.equal(storage().availableBytes, 6_300_000_000); assert.equal(storage().totalBytes, 128_000_000_000);
+      await h.cameraStateEvent({ storageAvailableBytes: 4_900_000_000, storageTotalBytes: 128_000_000_000 });
+      assert.equal(h.calls.filter(call => call.kind === 'capabilities').length, before);
+      h.button('Começar gravação').onPress(); await h.advance(3000);
+      assert.equal(h.calls.filter(call => call.kind === 'record').length, 1);
+      await h.cameraStateEvent({ storageAvailableBytes: 0, storageTotalBytes: 128_000_000_000 });
+      assert.equal(storage().availableBytes, 0); assert.ok(h.button('Encerrar e salvar take'));
+      h.button('Encerrar e salvar take').onPress(); await h.pump();
+    } finally { await h.dispose(); }
+  }
+});
+
+test('captura direta rejeita storage de geração antiga e limpa leitura ao sair ou trocar câmera', async () => {
+  const h = await harness({ projectKind: 'aula', audioMonitor: true });
+  try {
+    await h.ready(); const storage = () => h.find(node => node.type === 'storage-monitor').props;
+    await h.cameraStateEvent({ generation: 2, storageAvailableBytes: 6_300_000_000 });
+    const oldHost = h.find(node => node.type === 'native-camera-view');
+    await h.cameraStateEvent({ generation: 1, storageAvailableBytes: 0 });
+    assert.equal(storage().availableBytes, 6_300_000_000);
+    h.focus(false); await h.pump(); assert.equal(h.nodes(node => node.type === 'storage-monitor').length, 0);
+    h.focus(true); await h.ready(); assert.equal(storage().availableBytes, undefined);
+    oldHost.props.onState({ nativeEvent: { generation: 3, storageAvailableBytes: 0 } }); await h.pump();
+    assert.equal(storage().availableBytes, undefined, 'evento de câmera desmontada não expõe leitura anterior');
+    await h.cameraStateEvent({ storageAvailableBytes: 7_000_000_000 });
+    assert.equal(storage().availableBytes, 7_000_000_000);
+    h.button('Alternar câmera').onPress(); await h.pump();
+    assert.equal(storage().availableBytes, undefined);
   } finally { await h.dispose(); }
 });
