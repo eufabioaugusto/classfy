@@ -215,3 +215,8 @@
   .srs-scene:has(.srs-scene-tools) .srs-stage { z-index: 6; }
   .srs-scene-tools .src-controls, .srs-scene-tools .se-recording-tools { position: fixed; top: 68px; right: 12px; bottom: calc(112px + env(safe-area-inset-bottom)); width: calc(100% - 24px); max-height: none; border-radius: 15px; }
 }
+
+.srs-devices .se-recording-capture-meters{position:relative;inset:auto;flex:1 1 330px;width:auto;max-width:100%;min-width:0}
+.srs-devices .se-recording-capture-meters>.src-audio,.srs-devices .se-recording-capture-meters>.se-recording-monitor{width:auto;min-width:0}
+.srs-devices .src-storage{min-height:59px;border-radius:9px;background:#101218}
+@media(max-width:600px){.srs-devices .se-recording-capture-meters{flex-basis:100%}}
