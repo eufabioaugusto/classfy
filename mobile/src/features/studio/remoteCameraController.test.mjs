@@ -19,7 +19,7 @@ function harness(patch={}){
       ...(action==='unpair'?{unpaired:patch.unpaired===true}:{}),
       ...(['join','connect'].includes(action)?{connection:{url:'wss://private.invalid',token:'not-a-real-token',identity:'device'}}:{})};
   };
-  const deps={owner:'owner',deviceId:'device',localTakeStorage:patch.localTakeStorage===true,current:()=>current,now:()=>time,request,...(patch.readCaptureReceipt?{readCaptureReceipt:patch.readCaptureReceipt}:{}),journal:async()=>clone(journal),
+  const deps={owner:'owner',deviceId:'device',localTakeStorage:patch.localTakeStorage===true,current:()=>current,now:()=>time,request,onIdle:patch.onIdle,onBusy:patch.onBusy,...(patch.readCaptureReceipt?{readCaptureReceipt:patch.readCaptureReceipt}:{}),journal:async()=>clone(journal),
     discover:async controllerId=>{calls.push({action:'discover',body:{deviceId:'device',...(controllerId?{controllerId}:{})}});return patch.discover?await patch.discover():{ownerId:'owner',paired:true,controllerId:'controller',session:clone(session),commands:[],takes:[],serverAt:new Date(time+1200).toISOString()};},
     mutate:async(_id,change)=>{if(writeGate){const gate=writeGate;writeGate=undefined;gate.entered.resolve();await gate.promise;}journal=change(clone(journal));writes.push(clone(journal));return clone(journal);},
     ...(patch.prepareMaster?{prepareMaster:async(session,take,progress)=>{calls.push({action:'prepare-master',take:clone(take)});return patch.prepareMaster(session,take,progress);}}:{}),
@@ -52,6 +52,19 @@ function harness(patch={}){
 
 const selectedAudio=()=>({supportsAudioInputSelection:true,audioInput:{version:1,available:[{id:'builtin',name:'iPhone',type:'MicrophoneBuiltIn'},{id:'usb',name:'USB',type:'USBAudio'}],preferredId:null,current:{id:'builtin',name:'iPhone',type:'MicrophoneBuiltIn'},confirmed:true,selecting:false,warning:null}});
 const fastId=index=>`22222222-2222-4222-8222-${String(index).padStart(12,'0')}`;
+test('idle para miniaturas acontece depois do ACK STOP, e START invalida antes do primeiro await',async()=>{
+  const entered=deferred(),gate=deferred();let idle=0,busy=0;
+  const h=harness({localTakeStorage:true,onIdle:()=>idle++,onBusy:()=>busy++,request:async(action,body)=>{if(action==='ack'&&body.commandId==='stop'){entered.resolve();await gate.promise;}}});
+  await h.ready();idle=0;h.started.resolve(10050);h.queue([h.command('start')]);await h.controller.poll();h.queue([h.command('stop','stop',2)]);const stopping=h.controller.poll();
+  await entered.promise;assert.equal(h.controller.getSnapshot().phase,'ready');assert.equal(idle,0);gate.resolve();await stopping;assert.equal(idle,1);
+  const write=h.blockWrite();busy=0;h.queue([{...h.command('start','next',3),payload:{takeId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}}]);const next=h.controller.poll();
+  await write.entered.promise;assert.ok(busy>0);assert.equal(h.controller.isIdle(),false);write.resolve();await next;await h.controller.dispose();
+});
+test('ACK STOP falho não inicia fila ociosa; repetição confirmada pode iniciar sem regravar',async()=>{
+  let idle=0;const h=harness({localTakeStorage:true,onIdle:()=>idle++});await h.ready();idle=0;
+  h.started.resolve(10050);h.queue([h.command('start')]);await h.controller.poll();h.queue([h.command('stop','stop',2)]);h.failAck();await h.controller.poll();assert.equal(idle,0);
+  await h.controller.poll();assert.equal(idle,1);assert.equal(h.calls.filter(call=>call.action==='native-start').length,1);await h.controller.dispose();
+});
 test('local-first confirma STOP bruto de 2,7 GB sem render ou upload e deixa novo REC disponível',async()=>{
   const h=harness({localTakeStorage:true,inspect:async()=>({bytes:2747050311,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:777}),prepareMaster:async()=>{throw Error('Render não deve iniciar');}});
   await h.ready();h.started.resolve(10050);h.queue([h.command('start')]);await h.controller.poll();h.queue([h.command('stop','stop',2)]);await h.controller.poll();await tick();

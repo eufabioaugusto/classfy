@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
+import * as protocol from './remoteCameraProtocol.ts';
 const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',session='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',device='cccccccc-cccc-4ccc-8ccc-cccccccccccc',take='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 function harness(){
   const disk=new Map(),files=new Map(),fileCalls=[];let fail=false;
   const code=ts.transpileModule(readFileSync(new URL('./remoteCameraJournal.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
-  const module={exports:{}},deps={'@react-native-async-storage/async-storage':{getItem:async key=>disk.get(key)||null,setItem:async(key,value)=>{if(fail){fail=false;throw Error('quota');}disk.set(key,value);}},'expo-file-system/legacy':{documentDirectory:'file:///current/Documents/',getInfoAsync:async uri=>{fileCalls.push(uri);const content=files.get(uri);return content===undefined?{exists:false}:{exists:true,isDirectory:false,size:Buffer.byteLength(content)};},readAsStringAsync:async uri=>files.get(uri)}};
+  const module={exports:{}},deps={'./remoteCameraProtocol':protocol,'@react-native-async-storage/async-storage':{getItem:async key=>disk.get(key)||null,setItem:async(key,value)=>{if(fail){fail=false;throw Error('quota');}disk.set(key,value);}},'expo-file-system/legacy':{documentDirectory:'file:///current/Documents/',getInfoAsync:async uri=>{fileCalls.push(uri);const content=files.get(uri);return content===undefined?{exists:false}:{exists:true,isDirectory:false,size:Buffer.byteLength(content)};},readAsStringAsync:async uri=>files.get(uri)}};
   new Function('require','module','exports',code)(name=>deps[name],module,module.exports);
   const journal=module.exports;return {journal,disk,files,fileCalls,fail:()=>{fail=true;},read:()=>journal.readRemoteCameraJournal(owner,session,device),write:change=>journal.mutateRemoteCameraJournal(owner,session,device,change)};
 }
@@ -15,6 +16,12 @@ test('diário é owner/session/device scoped e troca de container rebaseia origi
   await h.write(value=>({...value,takes:[{id:take,uri,phase:'reserved'}]}));const actual=await h.read();assert.equal(actual.takes[0].uri,h.journal.remoteMasterUri(owner,session,take));
   assert.equal((await h.journal.readRemoteCameraJournal(device,session,device)).takes.length,0);
   await assert.rejects(h.journal.readRemoteCameraJournal(owner,session,owner),/recuperação/);
+});
+test('journal conserva só descritor validado da miniatura, nunca base64 ou URL privada',async()=>{
+  const h=harness(),thumbnail={version:1,mime:'image/jpeg',width:320,height:180,bytes:12000,hash:'a'.repeat(64)};
+  await h.write(value=>({...value,takes:[{id:take,uri:h.journal.remoteMasterUri(owner,session,take),phase:'local_ready',thumbnail:{...thumbnail,base64:'private',url:'https://private.invalid'}}]}));
+  assert.deepEqual((await h.read()).takes[0].thumbnail,thumbnail);
+  await h.write(value=>({...value,takes:value.takes.map(item=>({...item,thumbnail:{...thumbnail,width:321}}))}));assert.equal((await h.read()).takes[0].thumbnail,undefined);
 });
 test('gravações concorrentes preservam ambos recibos; quota falha antes de saved e retry não fica preso',async()=>{
   const h=harness();await Promise.all([h.write(value=>({...value,sequence:1})),h.write(value=>({...value,takes:[{id:take,uri:h.journal.remoteMasterUri(owner,session,take),phase:'reserved'}]}))]);

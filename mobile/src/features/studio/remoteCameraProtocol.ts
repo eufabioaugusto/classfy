@@ -19,6 +19,15 @@ export type StudioRemoteMetadata = {
   bytes: number; mime: string; width: number; height: number; fps: number; duration: number;
   startedAtServerMs?: number;
 };
+export type StudioRemoteThumbnail={version:1;mime:'image/jpeg';bytes:number;width:number;height:number;hash:string};
+/** Only a private-object descriptor is durable; image bytes/URLs never enter a heartbeat. */
+export function parseStudioRemoteThumbnail(value:unknown):StudioRemoteThumbnail|null{
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  const v=value as Record<string,unknown>;
+  if(v.version!==1||v.mime!=='image/jpeg'||!Number.isSafeInteger(v.bytes)||Number(v.bytes)<=0||Number(v.bytes)>16_384
+    ||![v.width,v.height].every(n=>Number.isSafeInteger(n)&&Number(n)>0&&Number(n)<=320)||typeof v.hash!=='string'||!/^[a-f0-9]{64}$/.test(v.hash))return null;
+  return {version:1,mime:'image/jpeg',bytes:v.bytes as number,width:v.width as number,height:v.height as number,hash:v.hash};
+}
 export type StudioRemoteRecordingEnd = {
   version: 1; takeId: string; finishedAtServerMs: number; durationSeconds: number;
   reason: 'user_stop' | 'app_background' | 'view_inactive' | 'disposed' | 'capture_interrupted' | 'runtime_error' | 'startup_timeout' | 'native_finished';
@@ -53,6 +62,7 @@ export type StudioRemoteCommand = {
 export type StudioRemoteTake = {
   id: string; status: 'reserved' | 'recording' | 'local_ready' | 'uploading' | 'uploaded' | 'failed';
   recordingEnd?: StudioRemoteRecordingEnd | null;
+  thumbnail?:StudioRemoteThumbnail|null;
   metadata: StudioRemoteMetadata | null; createdAt: string; uploadedAt: string | null;
 };
 export type StudioRemoteEnvelope = {

@@ -1,10 +1,10 @@
 import type {StudioNativeCaptureReceipt} from '../../../modules/classfy-studio-media';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
-import type { StudioRemoteMetadata,StudioRemoteConfiguration,StudioRemoteRecordingEnd } from './remoteCameraProtocol';
+import {parseStudioRemoteThumbnail,type StudioRemoteThumbnail,type StudioRemoteMetadata,type StudioRemoteConfiguration,type StudioRemoteRecordingEnd} from './remoteCameraProtocol';
 
 export type RemoteTakeJournal = { id: string; uri: string; phase:'reserved'|'recording'|'local_ready'|'uploading'|'uploaded'|'error';
-  localSaved?:boolean;captureReceipt?:StudioNativeCaptureReceipt;recordingEnd?:StudioRemoteRecordingEnd;
+  localSaved?:boolean;captureReceipt?:StudioNativeCaptureReceipt;recordingEnd?:StudioRemoteRecordingEnd;thumbnail?:StudioRemoteThumbnail;
   sourceUri?:string;sourceMetadata?:StudioRemoteMetadata;imageGrade?:StudioRemoteConfiguration['imageGrade'];gradeSignature?:string;
   metadata?:StudioRemoteMetadata; projectId?:string; localTakeId?:string; tusUrl?:string; partUrls?:Record<string,string>; error?:string; startedAtServerMs?:number };
 export type RemoteCameraJournal = {version:1;owner:string;sessionId:string;deviceId:string;projectId?:string;sequence:number;receipts:Record<string,Record<string,unknown>>;takes:RemoteTakeJournal[]};
@@ -43,7 +43,8 @@ export async function readRemoteCameraJournal(owner:string,id:string,deviceId:st
     if(m&&(!Number.isSafeInteger(m.bytes)||m.bytes<=0||!['video/quicktime','video/mp4'].includes(m.mime)||![m.width,m.height].every(value=>Number.isSafeInteger(value)&&value>0&&value<=7680)
       ||!Number.isFinite(m.fps)||m.fps<1||m.fps>120||!Number.isFinite(m.duration)||m.duration<=0||m.duration>86400))throw new Error('Os metadados deste original precisam de recuperação.');
     }
-    return {...take,uri,...(sourceUri?{sourceUri}:{})};
+    const {thumbnail:_thumbnail,...rest}=take,thumbnail=parseStudioRemoteThumbnail(take.thumbnail);
+    return {...rest,uri,...(sourceUri?{sourceUri}:{}),...(thumbnail?{thumbnail}:{})};
   })};
 }
 export function mutateRemoteCameraJournal(owner:string,id:string,deviceId:string,change:(latest:RemoteCameraJournal)=>RemoteCameraJournal):Promise<RemoteCameraJournal> {

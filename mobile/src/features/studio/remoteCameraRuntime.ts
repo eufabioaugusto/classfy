@@ -11,7 +11,7 @@ import {configureStudioNativeCameraAsync,getStudioNativeCameraCapabilitiesAsync,
   setStudioNativeAudioInputAsync,isStudioNativeAudioInputSelectionAvailable,
   type StudioCameraProSettings,type StudioCameraState,type StudioNativeCaptureReceipt} from '../../../modules/classfy-studio-media';
 import {createRemoteCameraController,REMOTE_CAMERA_LIVE_CONTROL_TOPIC,REMOTE_CAMERA_LIVE_ACK_TOPIC,remoteCameraLiveId,validRemoteCameraLivePatch,type RemoteCameraNative} from './remoteCameraController';
-import {remoteCameraRequest,remoteCameraDiscoveryRequest,createRemoteUploadFetch,type RemoteCameraScope,assertRemoteCameraScope} from './remoteCameraApi';
+import {remoteCameraRequest,remoteCameraDiscoveryRequest,remoteCameraThumbnailRequest,createRemoteUploadFetch,type RemoteCameraScope,assertRemoteCameraScope} from './remoteCameraApi';
 import {readRemoteCameraJournal,readRemoteCameraJournals,readRemoteCameraCaptureReceipt,mutateRemoteCameraJournal,remoteMasterUri,type RemoteTakeJournal} from './remoteCameraJournal';
 import {createStudioProject,getStudioProject,loadStudioProjects,mutateStudioProject} from './store';
 import {persistStudioTake} from './media';
@@ -19,6 +19,8 @@ import {studioGrade,validateStudioGrade,type StudioGrade} from './model';
 import {prepareRemoteCameraGradedMaster} from './remoteCameraGrade';
 import {decodeBase64Bytes} from './uploadTransport';
 import {uploadRemoteCameraOriginal} from './remoteCameraUpload';
+import {prepareRemoteCameraThumbnail} from './remoteCameraThumbnail';
+import {createRemoteThumbnailQueue,type RemoteThumbnailJob} from './remoteCameraThumbnailQueue';
 import type {StudioRemoteAudioInputState,StudioRemoteConfiguration,StudioRemoteDeviceState,StudioRemoteSession} from './remoteCameraProtocol';
 
 const resolutions={ '720p':'720p','1080p':'1080p','2k':'1440p','4k':'2160p'} as const;
@@ -336,7 +338,9 @@ export function createRemoteCameraRuntime(owner:string,deviceId:string,scope:Rem
     mutate:change=>mutate(session.id,change),
     read:async(position,length)=>decodeBase64Bytes(await FileSystem.readAsStringAsync(take.uri,{encoding:FileSystem.EncodingType.Base64,position,length})),
   });
+  let thumbnails:ReturnType<typeof createRemoteThumbnailQueue>|undefined;
   const controller=createRemoteCameraController({owner,deviceId,localTakeStorage:true,current:()=>scope.isCurrent?.()!==false&&!scope.signal?.aborted,request,
+    onIdle:sessionId=>thumbnails?.schedule(sessionId),onBusy:()=>thumbnails?.pause(),
     discover:controllerId=>remoteCameraDiscoveryRequest(owner,{deviceId,...(controllerId?{controllerId}:{})},scope),
     journal:id=>readRemoteCameraJournal(owner,id,deviceId),readCaptureReceipt:(sessionId,takeId)=>readRemoteCameraCaptureReceipt(owner,sessionId,takeId),mutate,masterUri:(session,take)=>remoteMasterUri(owner,session,take),inspect,upload,
     async prepareMaster(session,take,onProgress){check();return prepareRemoteCameraGradedMaster({owner,sessionId:session.id,takeId:take.id,sourceUri:take.sourceUri||take.uri,imageGrade:take.imageGrade||studioGrade('natural'),shouldContinue:()=>scope.isCurrent?.()!==false&&!scope.signal?.aborted,onProgress});},
@@ -351,7 +355,29 @@ export function createRemoteCameraRuntime(owner:string,deviceId:string,scope:Rem
       await mutateStudioProject(owner,project.id,value=>{check();return {takes:value.takes.some(item=>item.id===local.id)?value.takes:[...value.takes,local],...(!value.coverUri&&!value.coverUrl&&local.thumbnailUri?{coverUri:local.thumbnailUri}:{})};});
       return {projectId:project.id,localTakeId:local.id};},
   });
+  thumbnails=createRemoteThumbnailQueue({current:()=>scope.isCurrent?.()!==false&&!scope.signal?.aborted,
+    idle:sessionId=>controller.isIdle()&&controller.getSnapshot().session?.id===sessionId,
+    async list(){check();const journals=await readRemoteCameraJournals(owner,deviceId);check();
+      // Journal metadata is tiny. Select the recent window before touching any
+      // media file; older connections are valid targets without reopening them.
+      return journals.flatMap(journal=>journal.takes.map(take=>({journal,take}))).map((entry,index)=>({...entry,index}))
+        .filter(({take})=>(take.sourceMetadata||take.metadata)&&take.localSaved!==false&&!['recording','reserved'].includes(take.phase))
+        .sort((a,b)=>(b.take.startedAtServerMs||b.take.sourceMetadata?.startedAtServerMs||0)-(a.take.startedAtServerMs||a.take.sourceMetadata?.startedAtServerMs||0)||b.index-a.index)
+        .slice(0,24).filter(({take})=>!take.thumbnail).map(({journal,take}):RemoteThumbnailJob=>({sessionId:journal.sessionId,takeId:take.id,sourceUri:take.sourceMetadata?(take.sourceUri||take.uri):take.uri,metadata:(take.sourceMetadata||take.metadata)!}));
+    },
+    prepare:(job,jobScope)=>prepareRemoteCameraThumbnail(owner,job,jobScope),
+    async publish(job,image,jobScope){jobScope.check();return remoteCameraThumbnailRequest(owner,{sessionId:job.sessionId,takeId:job.takeId,role:'device',clientId:deviceId,
+      thumbnail:{version:1,mime:'image/jpeg',width:image.width,height:image.height,base64:image.base64}},
+      {signal:jobScope.signal,isCurrent:()=>scope.isCurrent?.()!==false&&!scope.signal?.aborted});},
+    async remember(job,thumbnail,jobScope){jobScope.check();await mutate(job.sessionId,journal=>{jobScope.check();return {...journal,takes:journal.takes.map(take=>{
+      if(take.id!==job.takeId)return take;const source=take.sourceMetadata||take.metadata;
+      if(!source||['bytes','width','height','fps','duration'].some(key=>source[key as keyof typeof source]!==job.metadata[key as keyof typeof source]))throw new Error('O original desta miniatura mudou.');
+      return {...take,thumbnail};
+    })};});jobScope.check();},
+  });
+  const abortThumbnails=()=>thumbnails?.dispose();scope.signal?.addEventListener('abort',abortThumbnails,{once:true});
   return {...controller,
+    async dispose(){thumbnails?.dispose();scope.signal?.removeEventListener('abort',abortThumbnails);await controller.dispose();},
     async listLocalOriginals(){check();const values=await listRemoteCameraOriginals(owner,deviceId);check();return values;},
     async shareOriginal(sessionId:string,takeId:string){
       check();const journal=await readRemoteCameraJournal(owner,sessionId,deviceId),take=journal.takes.find(value=>value.id===takeId);check();

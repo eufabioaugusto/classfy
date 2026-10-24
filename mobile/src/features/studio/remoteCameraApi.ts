@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { createLiveFetch, withLiveDeadline } from '@/features/live/request';
-import type { StudioRemoteDiscoveryResponse, StudioRemoteResponse } from './remoteCameraProtocol';
+import {parseStudioRemoteThumbnail,type StudioRemoteDiscoveryResponse,type StudioRemoteResponse,type StudioRemoteThumbnail} from './remoteCameraProtocol';
 
 export type RemoteCameraScope = { isCurrent?: () => boolean; signal?: AbortSignal };
 export function assertRemoteCameraScope(scope?: RemoteCameraScope) {
@@ -57,6 +57,13 @@ export async function remoteCameraRequest(owner:string,action:string,body:Record
   if (!value?.session?.id || !Number.isFinite(Date.parse(value.serverAt)) || !Array.isArray(value.commands) || !Array.isArray(value.takes)
     || value.session.ownerId!==owner)throw new Error('O servidor não confirmou a conexão desta conta.');
   return value;
+}
+export async function remoteCameraThumbnailRequest(owner:string,body:{sessionId:string;takeId:string;role:'device';clientId:string;
+  thumbnail:{version:1;mime:'image/jpeg';width:number;height:number;base64:string}},scope?:RemoteCameraScope):Promise<StudioRemoteThumbnail>{
+  const value=await requestRemoteCameraResponse(owner,'thumbnail_put',body,scope) as {thumbnail?:unknown;serverAt?:string};
+  const thumbnail=parseStudioRemoteThumbnail(value?.thumbnail);
+  if(!thumbnail||!Number.isFinite(Date.parse(value?.serverAt||'')))throw new Error('O servidor não confirmou a miniatura deste take.');
+  return thumbnail;
 }
 export async function remoteCameraDiscoveryRequest(owner:string,body:{deviceId:string;controllerId?:string},scope?:RemoteCameraScope):Promise<StudioRemoteDiscoveryResponse> {
   const value=await requestRemoteCameraResponse(owner,'discover',body,scope) as StudioRemoteDiscoveryResponse;

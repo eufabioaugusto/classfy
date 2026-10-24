@@ -73,7 +73,7 @@ function nativeHarness(options={}){
     '@/features/live/request':{withLiveDeadline:run=>run()},'../../../modules/classfy-studio-media':native,
     './remoteCameraController':controller,'./remoteCameraUpload':upload,'./remoteCameraApi':{assertRemoteCameraScope:()=>{if(!current)throw Error('stale');}},
     './model':model,'./remoteCameraGrade':{prepareRemoteCameraGradedMaster:async()=>{throw Error('unused');}},
-    './remoteCameraJournal':{},'./store':{},'./media':{},'./uploadTransport':transfer,
+    './remoteCameraJournal':{},'./store':{},'./media':{},'./uploadTransport':transfer,'./remoteCameraThumbnail':{},'./remoteCameraThumbnailQueue':{},
     'livekit-client':sdk,'@livekit/react-native-webrtc':{MediaStream:class{constructor(descriptor){calls.push({kind:'stream',descriptor});}getVideoTracks(){return [{id:'native-track',readyState:'live',enabled:true,muted:false}];}release(){calls.push({kind:'release-stream'});}}},
     '@livekit/react-native':{registerGlobals:options=>calls.push({kind:'register',options}),setupIOSAudioManagement:()=>calls.push({kind:'restore-audio-policy'})},
   });

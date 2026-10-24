@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 import * as liveModel from '../live/model.ts';
+import * as protocol from './remoteCameraProtocol.ts';
 function compile(file,dependencies) {
   const code=ts.transpileModule(readFileSync(new URL(file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   const module={exports:{}};new Function('require','module','exports',code)(name=>{if(!(name in dependencies))throw Error(`Unknown import ${name}`);return dependencies[name];},module,module.exports);return module.exports;
@@ -11,6 +12,7 @@ function harness(options={}) {
   let owner='owner',listener,current=true,afterRequest;const calls=[];
   const deadlines=compile('../live/request.ts',{'./model':liveModel});
   const api=compile('./remoteCameraApi.ts',{
+    './remoteCameraProtocol':protocol,
     '@/features/live/request':deadlines,
     '@/lib/supabase':{supabase:{auth:{getSession:async()=>({data:{session:{user:{id:owner},access_token:'test-only'}}}),
       onAuthStateChange:callback=>{listener=callback;return {data:{subscription:{unsubscribe:()=>calls.push('unsubscribe')}}};}}}},
@@ -24,6 +26,18 @@ test('QR somente Classfy e código opaco completo; URLs estrangeiras/credenciais
   assert.equal(api.readRemotePairingCode(`classfy://studio/remote-camera?code=${code}`),code);
   assert.equal(api.readRemotePairingCode(`https://classfy.com.br/studio/iphone?code=${code}`),code);
   for(const value of [`https://foreign.invalid/studio/iphone?code=${code}`,`https://user@classfy.com.br/studio/iphone?code=${code}`,`https://classfy.com.br:123/studio/iphone?code=${code}`,'short'])assert.throws(()=>api.readRemotePairingCode(value));
+});
+test('thumbnail_put usa resposta pequena própria e mantém parser de status estrito',async()=>{
+  const thumbnail={version:1,mime:'image/jpeg',bytes:7000,width:320,height:180,hash:'a'.repeat(64)};
+  const h=harness({response:{data:{thumbnail,serverAt:new Date().toISOString()},error:null}}),body={sessionId:'old-session',takeId:'take',role:'device',clientId:'device',thumbnail:{version:1,mime:'image/jpeg',width:320,height:180,base64:'test'}};
+  assert.deepEqual(await h.api.remoteCameraThumbnailRequest('owner',body,h.scope),thumbnail);
+  assert.deepEqual(h.calls.find(call=>call.name).args.body,{action:'thumbnail_put',...body});
+  await assert.rejects(h.api.remoteCameraRequest('owner','status',{},h.scope),/desta conta/);
+  for(const patch of [{bytes:16385},{width:321},{height:0},{hash:'private-url'},{mime:'image/png'}]){
+    const bad=harness({response:{data:{thumbnail:{...thumbnail,...patch},serverAt:new Date().toISOString()},error:null}});
+    await assert.rejects(bad.api.remoteCameraThumbnailRequest('owner',body,bad.scope),/miniatura/);
+  }
+  h.after(()=>h.invalidate());await assert.rejects(h.api.remoteCameraThumbnailRequest('owner',body,h.scope));
 });
 test('auth proprietário antes de qualquer ação, cliente capturado e response owner verificado',async()=>{
   const h=harness();await h.api.remoteCameraRequest('owner','status',{sessionId:'session'},h.scope);

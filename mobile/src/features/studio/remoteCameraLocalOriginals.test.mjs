@@ -3,27 +3,44 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 import * as model from './model.ts';
+import * as protocol from './remoteCameraProtocol.ts';
 const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',session='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',device='cccccccc-cccc-4ccc-8ccc-cccccccccccc',takeId='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const otherSession='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const metadata={bytes:2747050311,mime:'video/quicktime',width:3840,height:2160,fps:30,duration:777};
 function compile(file,deps){const code=ts.transpileModule(readFileSync(new URL(file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,module={exports:{}};
   new Function('require','module','exports',code)(name=>{if(!(name in deps))throw Error(`Unexpected dependency ${name}`);return deps[name];},module,module.exports);return module.exports;}
 function harness(){
-  const disk=new Map(),files=new Map(),calls=[];let current=true,shareAction='shared',captured;
+  const disk=new Map(),files=new Map(),calls=[];let current=true,shareAction='shared',captured,thumbnailDependencies;
   const storage={getItem:async key=>disk.get(key)||null,setItem:async(key,value)=>disk.set(key,value),getAllKeys:async()=>[...disk.keys()]};
   const fs={documentDirectory:'file:///current/Documents/',getInfoAsync:async uri=>{calls.push({kind:'stat',uri});return files.has(uri)?{exists:true,size:files.get(uri)}:{exists:false};},readAsStringAsync:()=>{throw Error('Não carregar MOV inteiro');},copyAsync:()=>{throw Error('Não copiar MOV');},deleteAsync:()=>{throw Error('Não apagar original');}};
-  const journal=compile('./remoteCameraJournal.ts',{'@react-native-async-storage/async-storage':storage,'expo-file-system/legacy':fs});
+  const journal=compile('./remoteCameraJournal.ts',{'./remoteCameraProtocol':protocol,'@react-native-async-storage/async-storage':storage,'expo-file-system/legacy':fs});
   const store=compile('./store.ts',{'@react-native-async-storage/async-storage':storage,'expo-crypto':{randomUUID:()=> 'ffffffff-ffff-4fff-8fff-ffffffffffff'},'expo-file-system/legacy':fs,'./model':model});
   const runtime=compile('./remoteCameraRuntime.ts',{'@react-native-async-storage/async-storage':storage,'expo-file-system/legacy':fs,'expo-crypto':{randomUUID:()=>device},
     'react-native':{NativeModules:{},Share:{sharedAction:'shared',share:async value=>{calls.push({kind:'share',value});return {action:shareAction};}}},
     '@/features/live/request':{},'../../../modules/classfy-studio-media':{},'./remoteCameraController':{createRemoteCameraController:deps=>{captured=deps;return{};}},
     './remoteCameraApi':{assertRemoteCameraScope:scope=>{if(scope.isCurrent?.()===false)throw Error('Sessão mudou');}},'./model':model,'./remoteCameraGrade':{prepareRemoteCameraGradedMaster:()=>{throw Error('Não renderizar automaticamente');}},
-    './remoteCameraJournal':journal,'./store':store,'./media':{persistStudioTake:()=>{throw Error('Não copiar original remoto');}},'./uploadTransport':{},'./remoteCameraUpload':{}});
+    './remoteCameraJournal':journal,'./store':store,'./media':{persistStudioTake:()=>{throw Error('Não copiar original remoto');}},'./uploadTransport':{},'./remoteCameraUpload':{},
+    './remoteCameraThumbnail':{},'./remoteCameraThumbnailQueue':{createRemoteThumbnailQueue:deps=>{thumbnailDependencies=deps;return {schedule(){},pause(){},dispose(){}};}}});
   const client=runtime.createRemoteCameraRuntime(owner,device,{isCurrent:()=>current});
   async function saved(sessionId=session,patch={}){const uri=journal.remoteMasterUri(owner,sessionId,takeId),take={id:takeId,uri,sourceUri:uri,sourceMetadata:metadata,phase:'local_ready',localSaved:true,...patch};files.set(uri,metadata.bytes);
     await journal.mutateRemoteCameraJournal(owner,sessionId,device,value=>({...value,takes:[take]}));return take;}
-  return {runtime,client,journal,store,disk,files,calls,saved,deps:()=>captured,dismiss:()=>{shareAction='dismissed';},invalidate:()=>{current=false;}};
+  return {runtime,client,journal,store,disk,files,calls,saved,deps:()=>captured,thumbnails:()=>thumbnailDependencies,dismiss:()=>{shareAction='dismissed';},invalidate:()=>{current=false;}};
 }
+test('descoberta de miniaturas limita24 recentes entre sessões e não toca MOV/catálogo heartbeat',async()=>{
+  const h=harness();await h.saved(otherSession,{startedAtServerMs:1});
+  const takes=Array.from({length:30},(_,i)=>{const id=`11111111-1111-4111-8111-${String(i).padStart(12,'0')}`,uri=h.journal.remoteMasterUri(owner,session,id);
+    return {id,uri,sourceMetadata:metadata,phase:'local_ready',localSaved:true,startedAtServerMs:i+2,...(i===29?{thumbnail:{version:1,mime:'image/jpeg',width:320,height:180,bytes:80,hash:'a'.repeat(64)}}:{})};});
+  await h.journal.mutateRemoteCameraJournal(owner,session,device,value=>({...value,takes}));
+  const jobs=await h.thumbnails().list();assert.equal(jobs.length,23);assert.equal(jobs[0].takeId,takes[28].id);assert.ok(jobs.every(job=>job.sessionId===session));assert.deepEqual(h.calls,[]);
+  await h.journal.mutateRemoteCameraJournal(owner,session,device,value=>({...value,takes:value.takes.slice(-2)}));
+  const historical=await h.thumbnails().list();assert.ok(historical.some(job=>job.sessionId===otherSession));assert.deepEqual(h.calls,[]);
+});
+test('recibo de miniatura só vai ao journal do take/fonte corretos e cancelamento não grava recibo tardio',async()=>{
+  const h=harness(),take=await h.saved(otherSession),thumbnail={version:1,mime:'image/jpeg',width:320,height:180,bytes:80,hash:'a'.repeat(64)},job={sessionId:otherSession,takeId,metadata,sourceUri:take.uri};
+  await h.thumbnails().remember(job,thumbnail,{check(){}});assert.deepEqual((await h.journal.readRemoteCameraJournal(owner,otherSession,device)).takes[0].thumbnail,thumbnail);
+  const before=[...h.disk.entries()];await assert.rejects(h.thumbnails().remember(job,{...thumbnail,hash:'b'.repeat(64)},{check(){throw Error('Novo REC');}}),/Novo REC/);assert.deepEqual([...h.disk.entries()],before);
+  await assert.rejects(h.thumbnails().remember({...job,metadata:{...metadata,bytes:1}},thumbnail,{check(){}}),/original.*mudou/);assert.deepEqual([...h.disk.entries()],before);
+});
 test('STOP registra original de 2,7 GB no projeto sem copiar, renderizar ou ler bytes; look continua reversível',async()=>{
   const h=harness(),grade={preset:'cinematic',intensity:.7,exposure:-.5,contrast:.2,saturation:0,temperature:.3},take=await h.saved(session,{imageGrade:grade});
   assert.equal(h.deps().localTakeStorage,true);const saved=await h.deps().saveLocal({id:session,kind:'aula',title:'Aula longa'},take);
