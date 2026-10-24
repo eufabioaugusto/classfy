@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, ArrowRight, Check, ChevronRight, FileText, Film, Lightbulb, Mic, Minus, Plus, RefreshCw, Sparkles, Video } from 'lucide-react-native';
+import { ArrowLeft, Check, ChevronRight, FileText, Film, Lightbulb, Mic, Minus, Plus, RefreshCw, Sparkles, Video } from 'lucide-react-native';
 import { ClassyAvatar } from '@/components/ClassyAvatar';
 import { SheetCloseButton, SheetModal as NativeSheetModal, sheetStyles } from '@/components/SheetModal';
 import { useAuth } from '@/features/auth/authContext';
@@ -76,7 +76,7 @@ export function StudioIdeasCard({ active, disabled = false, onUseScript, onSheet
     if (previousOwner.current !== user?.id || !active || disabled) { applyingRef.current = false; setApplying(false); }
     previousOwner.current = user?.id;
   }, [user?.id, active, disabled]);
-  const useScript = async () => {
+  const applyScript = async () => {
     if (applyingRef.current || blocked || !ideas.draft || !ideas.canUseDraft() || !active || !user?.id) return;
     let draft: StudioIdeaDraft;
     try { draft = validateStudioIdeaDraft(ideas.draft); }
@@ -94,30 +94,15 @@ export function StudioIdeasCard({ active, disabled = false, onUseScript, onSheet
   };
   if (!user) return null;
   return <>
-    <View style={s.card}>
-      <View style={s.cardHeader}>
-        <View style={s.avatar}><ClassyAvatar size={38} /></View>
-        <View style={s.flex}><Text style={s.eyebrow}>CLASSY PARA CRIAR</Text><Text style={s.cardTitle}>Sua próxima ideia começa aqui.</Text></View>
-        {ready && ideas.context?.suggestions.length ? <Pressable accessibilityRole="button" accessibilityLabel="Abrir Classy para criar" onPress={ideas.open} disabled={disabled || ideas.busy} style={s.iconButton}><ChevronRight size={20} color={colors.textSecondary} /></Pressable> : null}
-      </View>
-      {ideas.loading || (ideas.busy && !ideas.context?.suggestions.length) ? <View style={s.loading}><ActivityIndicator size="small" color={brand} /><Text style={s.hint}>{ideas.loading ? 'Encontrando seu contexto…' : 'Preparando três pautas para você…'}</Text></View>
-        : ready && ideas.context?.suggestions.length ? <>
-          <View style={s.contextRow}><Text style={s.contextLabel}>{ideas.context.source.label}</Text><Pressable accessibilityRole="button" accessibilityLabel="Seu contexto de criação" disabled={disabled || ideas.busy} onPress={ideas.showCategories} style={s.contextAction}><FileText size={14} color="#CE98A5" /><Text style={s.contextActionLabel}>Seu contexto</Text></Pressable></View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.rail}>
-            {ideas.context.suggestions.map((idea, index) => <Pressable key={idea.id} accessibilityRole="button" accessibilityLabel={`Criar roteiro: ${idea.title}`} disabled={disabled || ideas.busy} onPress={() => ideas.choose(idea)} style={({ pressed }) => [s.idea, { width: Math.min(266, Math.max(210, width * 0.64)) }, pressed && s.pressed]}>
-              <View style={s.ideaTop}><Text style={s.ideaNumber}>0{index + 1}</Text><ArrowRight size={17} color={brand} /></View>
-              <Text style={s.ideaTitle} numberOfLines={2}>{idea.title}</Text>
-              <Text style={s.ideaSummary} numberOfLines={2}>{idea.summary}</Text>
-              <Text style={s.ideaMeta}>{formats.find(item => item.kind === idea.kind)?.label} · {idea.durationMinutes} min</Text>
-            </Pressable>)}
-          </ScrollView>
-        </> : <>
-          <Text style={s.intro}>{!ready ? 'Conte o que você ensina. A Classy prepara sugestões alinhadas com sua área e seu jeito de criar.' : 'A Classy transforma seu contexto e seus últimos conteúdos em novas pautas e roteiros.'}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel={!ready ? 'Personalizar sugestões' : ideas.error ? 'Tentar sugestões novamente' : 'Ver sugestões da Classy'} disabled={disabled || ideas.busy} onPress={!ready ? ideas.open : ideas.error ? ideas.retry : ideas.open} style={s.cardAction}><Sparkles size={17} color={brand} /><Text style={s.cardActionLabel}>{!ready ? 'Personalizar sugestões' : ideas.error ? 'Tentar novamente' : 'Ver sugestões'}</Text><ArrowRight size={17} color={brand} /></Pressable>
-          {ready ? <Pressable accessibilityRole="button" accessibilityLabel="Seu contexto de criação" disabled={disabled || ideas.busy} onPress={ideas.showCategories} style={s.cardAction}><FileText size={14} color="#CE98A5" /><Text style={s.contextActionLabel}>Seu contexto</Text></Pressable> : null}
-        </>}
-      {ideas.error && !ideas.visible ? <Text accessibilityRole="alert" style={s.error}>{ideas.error}</Text> : null}
-    </View>
+    <Pressable accessibilityRole="button" accessibilityLabel="Abrir Classy para criar"
+      accessibilityHint="Veja suas ideias, contexto e roteiros."
+      accessibilityState={{ disabled: disabled || ideas.busy, busy: ideas.loading || ideas.busy, expanded: ideas.visible }}
+      disabled={disabled || ideas.busy} onPress={ideas.open}
+      style={({ pressed }) => [s.entry, disabled && s.disabled, pressed && s.pressed]}>
+      <View style={s.avatar}><ClassyAvatar size={30} /></View>
+      <View style={s.entryCopy}><Text style={s.entryTitle}>Classy para criar</Text><Text style={s.entryHint}>Ideias e roteiros para você</Text></View>
+      {ideas.loading || ideas.busy ? <ActivityIndicator size="small" color={colors.muted} /> : <ChevronRight size={17} color={colors.muted} />}
+    </Pressable>
     <NativeSheetModal visible={ideas.visible} onRequestClose={close} onDismiss={dismissed}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={sheetStyles.backdrop}>
         <Pressable accessibilityRole="button" accessibilityLabel={keyboardOpen ? 'Recolher teclado do roteiro' : 'Fechar sugestões da Classy'} onPress={() => keyboardOpen ? Keyboard.dismiss() : close()} style={StyleSheet.absoluteFill} />
@@ -170,7 +155,7 @@ export function StudioIdeasCard({ active, disabled = false, onUseScript, onSheet
             {ideas.categoriesVisible ? <View accessibilityLabel="Ação do contexto" style={[s.draftFooter, { paddingBottom: keyboardOpen ? 14 : Math.max(insets.bottom, 18) }]}>
               <Pressable accessibilityRole="button" accessibilityLabel="Salvar contexto e gerar sugestões" accessibilityState={{ disabled: blocked || !ideas.editorialCategory || ideas.teachingFocus.trim().length < 12, busy: ideas.busy }} disabled={blocked || !ideas.editorialCategory || ideas.teachingFocus.trim().length < 12} onPress={() => { void ideas.saveEditorial(); }} style={({ pressed }) => [s.primary, (blocked || !ideas.editorialCategory || ideas.teachingFocus.trim().length < 12) && s.disabled, pressed && s.pressed]}>{ideas.busy ? <ActivityIndicator color="#19080D" size="small" /> : <Sparkles size={19} color="#19080D" />}<Text style={s.primaryLabel}>{ideas.busy ? 'Salvando seu contexto…' : 'Salvar e gerar sugestões'}</Text></Pressable>
             </View> : ideas.draft && ready ? <View accessibilityLabel="Ação do roteiro" style={[s.draftFooter, { paddingBottom: keyboardOpen ? 14 : Math.max(insets.bottom, 18) }]}>
-              <Pressable accessibilityRole="button" accessibilityLabel="Gravar com este roteiro" accessibilityState={{ disabled: blocked || !ideas.draft.title.trim() || !ideas.draft.script.trim(), busy: applying }} disabled={blocked || !ideas.draft.title.trim() || !ideas.draft.script.trim()} onPress={() => { void useScript(); }} style={({ pressed }) => [s.primary, (blocked || !ideas.draft?.title.trim() || !ideas.draft?.script.trim()) && s.disabled, pressed && s.pressed]}>{applying ? <ActivityIndicator color="#19080D" size="small" /> : <Video size={19} color="#19080D" />}<Text style={s.primaryLabel}>{applying ? 'Salvando seu roteiro…' : 'Gravar com este roteiro'}</Text></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Gravar com este roteiro" accessibilityState={{ disabled: blocked || !ideas.draft.title.trim() || !ideas.draft.script.trim(), busy: applying }} disabled={blocked || !ideas.draft.title.trim() || !ideas.draft.script.trim()} onPress={() => { void applyScript(); }} style={({ pressed }) => [s.primary, (blocked || !ideas.draft?.title.trim() || !ideas.draft?.script.trim()) && s.disabled, pressed && s.pressed]}>{applying ? <ActivityIndicator color="#19080D" size="small" /> : <Video size={19} color="#19080D" />}<Text style={s.primaryLabel}>{applying ? 'Salvando seu roteiro…' : 'Gravar com este roteiro'}</Text></Pressable>
             </View> : null}
           </View>
       </KeyboardAvoidingView>
@@ -179,12 +164,11 @@ export function StudioIdeasCard({ active, disabled = false, onUseScript, onSheet
 }
 const s = StyleSheet.create({
   flex: { flex: 1, gap: 5 }, row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  card: { borderRadius: 22, borderWidth: 1, borderColor: '#38202B', backgroundColor: '#110E14', paddingVertical: 18, overflow: 'hidden', gap: 12 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18 }, avatar: { width: 45, height: 45, borderRadius: 23, backgroundColor: '#251A2E', alignItems: 'center', justifyContent: 'center' },
-  eyebrow: { color: '#D49CA9', fontSize: 10, fontWeight: '700', letterSpacing: 1.5 }, cardTitle: { color: colors.text, fontSize: 17, lineHeight: 22, fontWeight: '600', letterSpacing: -0.35 }, iconButton: { width: 38, height: 44, alignItems: 'center', justifyContent: 'center' },
-  context: { color: colors.muted, fontSize: 11, paddingHorizontal: 19 }, rail: { paddingHorizontal: 18, gap: 10 }, idea: { padding: 15, borderRadius: 16, backgroundColor: '#1B161F', borderWidth: 1, borderColor: '#302633', gap: 10 }, ideaTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, ideaNumber: { color: brand, fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }, ideaTitle: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '600', letterSpacing: -0.2 }, ideaSummary: { color: colors.muted, fontSize: 12, lineHeight: 18 }, ideaMeta: { color: '#CE98A5', fontSize: 11, lineHeight: 17 },
-  contextRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 19, gap: 10 }, contextLabel: { flex: 1, color: colors.muted, fontSize: 11 }, contextAction: { flexDirection: 'row', alignItems: 'center', minHeight: 44, gap: 6 }, contextActionLabel: { color: '#CE98A5', fontSize: 11, fontWeight: '500' },
-  intro: { color: colors.muted, fontSize: 13, lineHeight: 20, paddingHorizontal: 18 }, cardAction: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 8, minHeight: 44, marginHorizontal: 18 }, cardActionLabel: { color: brand, fontSize: 13, fontWeight: '600' }, loading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 18, minHeight: 44 },
+  entry: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface },
+  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#211A27', alignItems: 'center', justifyContent: 'center' },
+  entryCopy: { flex: 1, minWidth: 0, gap: 3 }, entryTitle: { color: colors.textSecondary, fontSize: 14, lineHeight: 19, fontWeight: '600' }, entryHint: { color: colors.muted, fontSize: 12, lineHeight: 17 },
+  ideaNumber: { color: brand, fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }, ideaTitle: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '600', letterSpacing: -0.2 }, ideaMeta: { color: '#CE98A5', fontSize: 11, lineHeight: 17 },
+  loading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 18, minHeight: 44 },
   sheet: { alignSelf: 'center' }, sheetHeader: { paddingTop: 0 }, sheetBrand: { flexDirection: 'row', alignItems: 'center', gap: 9, flexShrink: 1 }, sheetBrandLabel: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' }, sheetScroll: { flexShrink: 1 }, sheetContent: { paddingHorizontal: 22, paddingTop: 10, gap: 17 }, sheetTitle: { color: colors.text, fontSize: 25, lineHeight: 30, fontWeight: '600', letterSpacing: -0.7 }, hint: { color: colors.muted, fontSize: 13, lineHeight: 20 }, pickedTitle: { color: colors.text, fontSize: 18, lineHeight: 25, fontWeight: '600' }, summary: { color: colors.textSecondary, fontSize: 13, lineHeight: 21 },
   reason: { borderLeftWidth: 2, borderLeftColor: '#704354', paddingVertical: 10, paddingLeft: 13, flexDirection: 'row', gap: 10 }, reasonTitle: { color: '#D49CA9', fontSize: 12, fontWeight: '600' }, categories: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 }, category: { flexDirection: 'row', alignItems: 'center', minHeight: 45, paddingHorizontal: 15, paddingVertical: 10, gap: 7, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }, categorySelected: { borderColor: '#A8455A', backgroundColor: '#2A1720' }, categoryLabel: { color: colors.textSecondary, fontSize: 13, fontWeight: '500' },
   label: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' }, formats: { flexDirection: 'row', gap: 9 }, format: { flex: 1, minHeight: 58, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', gap: 6 }, duration: { flexDirection: 'row', alignItems: 'center', gap: 8 }, step: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: colors.surfaceAlt }, minutes: { color: colors.text, fontSize: 15, fontWeight: '600', minWidth: 46, textAlign: 'center' },

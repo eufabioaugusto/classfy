@@ -63,8 +63,9 @@ function harness({ empty = false, noCache = false, missingEditorial = false, com
     for (const effect of effects) { slots[effect.i]?.cleanup?.(); slots[effect.i] = { deps: effect.deps, cleanup: effect.callback() }; }
   };
   const pump = async () => { for (let i = 0; i < 30; i++) { if (dirty) render(); for (const [id, callback] of [...frames]) { frames.delete(id); callback(); } await new Promise(resolve => setImmediate(resolve)); if (!dirty) return; } throw new Error('Ideas did not settle'); };
-  const visit = (node, predicate) => { if (Array.isArray(node)) { for (const child of node) { const found = visit(child, predicate); if (found) return found; } } else if (node && typeof node === 'object') { if (predicate(node)) return node; return visit(node.props?.children, predicate); } };
-  return { pump, calls, aborts, busyChanges, scrollRequests, state: () => current, control: label => visit(tree, node => node.props?.accessibilityLabel === label)?.props, modal: () => visit(tree, node => node.type === 'SheetModal')?.props,
+  const visit = (node, predicate, includeHidden = false) => { if (Array.isArray(node)) { for (const child of node) { const found = visit(child, predicate, includeHidden); if (found) return found; } } else if (node && typeof node === 'object') { if (!includeHidden && node.type === 'SheetModal' && !node.props?.visible) return; if (predicate(node)) return node; return visit(node.props?.children, predicate, includeHidden); } };
+  return { pump, calls, aborts, busyChanges, scrollRequests, state: () => current, control: label => visit(tree, node => node.props?.accessibilityLabel === label)?.props, modal: () => visit(tree, node => node.type === 'SheetModal', true)?.props,
+    visibleText: () => { const values = []; visit(tree, node => { if (node.type === 'Text' && typeof node.props?.children === 'string') values.push(node.props.children); return false; }); return values.join('\n'); },
     update: values => { if ('owner' in values) owner = values.owner; if ('active' in values) active = values.active; if ('disabled' in values) disabled = values.disabled; dirty = true; },
     appState: state => { appState.currentState = state; for (const listener of listeners.get('change') || []) listener(state); },
     keyboard: (event, endCoordinates) => { for (const listener of keyboardListeners.get(event) || []) listener({ endCoordinates }); },
@@ -79,6 +80,11 @@ function harness({ empty = false, noCache = false, missingEditorial = false, com
     dispose: () => { for (const slot of slots) slot?.cleanup?.(); },
   };
 }
+async function openIdeas(h) {
+  const launcher = h.control('Abrir Classy para criar');
+  assert.ok(launcher); assert.equal(launcher.disabled, false);
+  launcher.onPress(); await h.pump(); assert.equal(h.modal().visible, true);
+}
 test('contrato rejeita resposta de outra pauta, formato, duração e roteiro vazio', () => {
   const request = { action: 'script', suggestionId: uuid(1), kind: 'short', durationMinutes: 2, requestId: uuid(99) };
   assert.equal(contract.parseStudioIdeasScript(scriptFixture(request), request).draft.kind, 'short');
@@ -88,17 +94,24 @@ test('contrato rejeita resposta de outra pauta, formato, duração e roteiro vaz
   assert.throws(() => contract.validateStudioIdeaDraft({ ...scriptFixture(request).draft, script: ' ', suggestionId: uuid(1), durationMinutes: 2 }));
   assert.throws(() => contract.parseStudioIdeasSuggestions({ suggestions: ideas.slice(0, 2), source: recentSource }));
 });
-test('contexto e três sugestões existentes não chamam geração nem bloqueiam ações fora do sheet', async () => {
-  const h = harness({ component: true }); try { await h.pump(); assert.deepEqual(h.calls.map(call => call.action), ['context']); assert.equal(h.state().context.suggestions.length, 3); assert.deepEqual(h.busyChanges, [false]); assert.ok(h.control('Criar roteiro: Pauta 1')); } finally { h.dispose(); }
+test('entrada compacta mantém pautas e contexto no sheet e não bloqueia a biblioteca fechada', async () => {
+  const h = harness({ component: true }); try {
+    await h.pump(); assert.deepEqual(h.calls.map(call => call.action), ['context']); assert.equal(h.state().context.suggestions.length, 3); assert.deepEqual(h.busyChanges, [false]);
+    assert.equal(h.modal().visible, false); assert.equal(h.control('Criar roteiro: Pauta 1'), undefined); assert.equal(h.control('Seu contexto de criação'), undefined); assert.equal(h.control('Conteúdo das sugestões da Classy'), undefined);
+    assert.match(h.visibleText(), /Classy para criar/); assert.doesNotMatch(h.visibleText(), /Pauta 1|Seus últimos conteúdos|Sua próxima ideia começa aqui|Área principal/);
+    await openIdeas(h); assert.ok(h.control('Criar roteiro: Pauta 1')); assert.ok(h.control('Seu contexto de criação')); assert.equal(h.busyChanges.at(-1), true); assert.deepEqual(h.calls.map(call => call.action), ['context']);
+    h.control('Seu contexto de criação').onPress(); await h.pump(); assert.ok(h.control('Sobre o que você ensina?')); h.control('Voltar às sugestões').onPress(); await h.pump(); assert.ok(h.control('Criar roteiro: Pauta 1'));
+    h.modal().onRequestClose(); await h.pump(); assert.equal(h.modal().visible, false); assert.equal(h.control('Criar roteiro: Pauta 1'), undefined); assert.equal(h.control('Seu contexto de criação'), undefined); assert.equal(h.busyChanges.at(-1), false);
+  } finally { h.dispose(); }
 });
 test('histórico inicia sugestões uma vez e reabrir/foco usa cache sem custo novo', async () => {
-  const h = harness({ noCache: true }); try { await h.pump(); assert.deepEqual(h.calls.map(call => call.action), ['context', 'suggest']); h.state().open(); await h.pump(); h.state().close(); h.update({ active: false }); await h.pump(); h.update({ active: true }); await h.pump(); h.state().open(); await h.pump(); assert.equal(h.calls.filter(call => call.action === 'suggest').length, 1); } finally { h.dispose(); }
+  const h = harness({ noCache: true, component: true }); try { await h.pump(); assert.deepEqual(h.calls.map(call => call.action), ['context', 'suggest']); await openIdeas(h); h.modal().onRequestClose(); await h.pump(); assert.equal(h.control('Criar roteiro: Pauta 1'), undefined); h.update({ active: false }); await h.pump(); h.update({ active: true }); await h.pump(); await openIdeas(h); assert.ok(h.control('Criar roteiro: Pauta 1')); assert.equal(h.calls.filter(call => call.action === 'suggest').length, 1); } finally { h.dispose(); }
 });
 test('falha automática não gera em cada foco e retry conserva idempotência', async () => {
   const h = harness({ noCache: true }); try { h.failSuggestions(); await h.pump(); const request = h.calls.find(call => call.action === 'suggest'); assert.equal(h.state().error, 'Sugestões indisponíveis'); h.update({ active: false }); await h.pump(); h.update({ active: true }); await h.pump(); assert.equal(h.calls.filter(call => call.action === 'suggest').length, 1); h.state().retry(); await h.pump(); assert.equal(h.calls.filter(call => call.action === 'suggest')[1].requestId, request.requestId); } finally { h.dispose(); }
 });
 test('creator sem contexto escolhe área e foco; perfil salvo precede qualquer geração', async () => {
-  const h = harness({ empty: true, noCache: true }); try { await h.pump(); assert.deepEqual(h.calls.map(call => call.action), ['context']); h.state().open(); await h.pump(); assert.equal(h.state().categoriesVisible, true); h.state().chooseCategory(uuid(200)); await h.pump(); assert.equal(h.calls.length, 1); h.state().chooseCategory(uuid(20)); h.state().editTeachingFocus('Ensino tecnologia aplicada ao dia a dia.'); await h.pump(); assert.equal(h.calls.length, 1); const save = h.state().saveEditorial; save(); save(); await h.pump(); assert.deepEqual(h.calls.map(call => call.action), ['context', 'save_editorial', 'suggest']); assert.equal(h.calls[1].categoryId, uuid(20)); assert.equal(h.calls[1].teachingFocus, 'Ensino tecnologia aplicada ao dia a dia.'); assert.equal(h.state().context.editorial.ready, true); } finally { h.dispose(); }
+  const h = harness({ empty: true, noCache: true, component: true }); try { await h.pump(); assert.deepEqual(h.calls.map(call => call.action), ['context']); assert.equal(h.control('Sobre o que você ensina?'), undefined); await openIdeas(h); assert.equal(h.state().categoriesVisible, true); h.state().chooseCategory(uuid(200)); await h.pump(); assert.equal(h.calls.length, 1); h.control('Área principal: Tecnologia').onPress(); h.control('Sobre o que você ensina?').onChangeText('Ensino tecnologia aplicada ao dia a dia.'); await h.pump(); assert.equal(h.calls.length, 1); const save = h.control('Salvar contexto e gerar sugestões').onPress; save(); save(); await h.pump(); assert.deepEqual(h.calls.map(call => call.action), ['context', 'save_editorial', 'suggest']); assert.equal(h.calls[1].categoryId, uuid(20)); assert.equal(h.calls[1].teachingFocus, 'Ensino tecnologia aplicada ao dia a dia.'); assert.equal(h.state().context.editorial.ready, true); assert.ok(h.control('Criar roteiro: Pauta 1')); } finally { h.dispose(); }
 });
 test('geração limita Short, bloqueia clique duplo e retry recupera mesmo pedido', async () => {
   const h = harness(); try { await h.pump(); h.state().choose(ideas[0]); await h.pump(); h.state().setKind('short'); await h.pump(); h.state().setMinutes(10); await h.pump(); assert.equal(h.state().minutes, 3); h.failScript(1); const generate = h.state().generateScript; generate(); generate(); await h.pump(); assert.equal(h.calls.filter(call => call.action === 'script').length, 1); assert.equal(h.state().error, 'Roteiro indisponível'); h.state().retry(); await h.pump(); const requests = h.calls.filter(call => call.action === 'script'); assert.equal(requests[0].requestId, requests[1].requestId); assert.equal(h.state().draft.durationMinutes, 3); } finally { h.dispose(); }
@@ -110,7 +123,7 @@ test('falha terminal de sugestões renova UUID, mantendo contexto da categoria',
   const h = harness({ empty: true, noCache: true }); try { await h.pump(); h.failSuggestions('generation_failed'); h.state().chooseCategory(uuid(20)); h.state().editTeachingFocus('Ensino tecnologia aplicada ao dia a dia.'); await h.pump(); await h.state().saveEditorial(); await h.pump(); h.state().retry(); await h.pump(); const requests = h.calls.filter(call => call.action === 'suggest'); assert.notEqual(requests[0].requestId, requests[1].requestId); assert.equal(h.state().context.editorial.categoryId, uuid(20)); } finally { h.dispose(); }
 });
 test('edições permanecem após fechar e visitar outra pauta sem regenerar', async () => {
-  const h = harness(); try { await h.pump(); h.state().choose(ideas[0]); await h.pump(); const oldGenerate = h.state().generateScript; await oldGenerate(); await h.pump(); const edit = h.state().edit; edit('title', 'Meu título'); edit('script', 'Meu texto revisado.'); await h.pump(); await oldGenerate(); assert.equal(h.state().draft.title, 'Meu título'); h.state().close(); await h.pump(); h.state().choose(ideas[1]); await h.pump(); assert.equal(h.state().draft, null); h.state().choose(ideas[0]); await h.pump(); assert.equal(h.state().draft.script, 'Meu texto revisado.'); await h.state().generateScript(); assert.equal(h.calls.filter(call => call.action === 'script').length, 1); } finally { h.dispose(); }
+  const h = harness({ component: true }); try { await h.pump(); await openIdeas(h); h.control('Criar roteiro: Pauta 1').onPress(); await h.pump(); const oldGenerate = h.state().generateScript; h.control('Gerar roteiro com a Classy').onPress(); await h.pump(); h.control('Título do roteiro da Classy').onChangeText('Meu título'); h.control('Roteiro da Classy').onChangeText('Meu texto revisado.'); await h.pump(); await oldGenerate(); assert.equal(h.state().draft.title, 'Meu título'); h.modal().onRequestClose(); await h.pump(); assert.equal(h.control('Roteiro da Classy'), undefined); await openIdeas(h); assert.equal(h.control('Título do roteiro da Classy').value, 'Meu título'); assert.equal(h.control('Roteiro da Classy').value, 'Meu texto revisado.'); h.control('Escolher outra pauta').onPress(); await h.pump(); h.control('Criar roteiro: Pauta 2').onPress(); await h.pump(); assert.equal(h.state().draft, null); h.control('Escolher outra pauta').onPress(); await h.pump(); h.control('Criar roteiro: Pauta 1').onPress(); await h.pump(); assert.equal(h.control('Roteiro da Classy').value, 'Meu texto revisado.'); await h.state().generateScript(); assert.equal(h.calls.filter(call => call.action === 'script').length, 1); } finally { h.dispose(); }
 });
 for (const interruption of ['close', 'focus', 'background', 'owner']) test(`retorno tardio após ${interruption} não troca pauta nem preenche texto`, async () => {
   const h = harness(); try { await h.pump(); h.state().choose(ideas[0]); await h.pump(); const release = h.deferScript(); void h.state().generateScript(); await h.pump(); if (interruption === 'close') h.state().close(); else if (interruption === 'focus') h.update({ active: false }); else if (interruption === 'owner') h.update({ owner: uuid(91) }); else h.appState('background'); await h.pump(); release(); await h.pump(); assert.equal(h.state().draft, null); assert.ok(h.aborts.some(call => call.action === 'script')); if (interruption === 'owner') assert.equal(h.state().selected, null); } finally { h.dispose(); }
@@ -118,7 +131,7 @@ for (const interruption of ['close', 'focus', 'background', 'owner']) test(`reto
 test('handoff com falha mantém texto editado e sheet; sucesso aguarda dismiss nativo', async () => {
   let failures = 1, accepted = [];
   const h = harness({ component: true, useScript: async draft => { accepted.push(draft); if (failures--) throw new Error('Não foi possível salvar'); return true; } });
-  try { await h.pump(); h.control('Criar roteiro: Pauta 1').onPress(); await h.pump(); h.control('Gerar roteiro com a Classy').onPress(); await h.pump(); h.control('Roteiro da Classy').onChangeText('Roteiro editado e pronto.'); await h.pump(); h.control('Gravar com este roteiro').onPress(); await h.pump(); assert.equal(h.modal().visible, true); assert.equal(h.control('Roteiro da Classy').value, 'Roteiro editado e pronto.'); assert.equal(h.dismissed(), 0); h.control('Gravar com este roteiro').onPress(); await h.pump(); assert.equal(h.modal().visible, false); assert.equal(h.dismissed(), 0); h.modal().onDismiss(); h.modal().onDismiss(); assert.equal(h.dismissed(), 1); assert.equal(accepted.length, 2); assert.equal(accepted[1].script, 'Roteiro editado e pronto.'); } finally { h.dispose(); }
+  try { await h.pump(); await openIdeas(h); h.control('Criar roteiro: Pauta 1').onPress(); await h.pump(); h.control('Gerar roteiro com a Classy').onPress(); await h.pump(); h.control('Roteiro da Classy').onChangeText('Roteiro editado e pronto.'); await h.pump(); h.control('Gravar com este roteiro').onPress(); await h.pump(); assert.equal(h.modal().visible, true); assert.equal(h.control('Roteiro da Classy').value, 'Roteiro editado e pronto.'); assert.equal(h.dismissed(), 0); h.control('Gravar com este roteiro').onPress(); await h.pump(); assert.equal(h.modal().visible, false); assert.equal(h.control('Gravar com este roteiro'), undefined); assert.equal(h.dismissed(), 0); h.modal().onDismiss(); h.modal().onDismiss(); assert.equal(h.dismissed(), 1); assert.equal(accepted.length, 2); assert.equal(accepted[1].script, 'Roteiro editado e pronto.'); } finally { h.dispose(); }
 });
 test('mensagens públicas traduzem limites e falhas sem copiar texto sensível do serviço', () => {
   assert.match(contract.studioIdeasFriendlyError('generation_limit', 3600), /limite/);
@@ -145,7 +158,7 @@ test('cliente lê código HTTP estruturado, conserva erro de transporte e não m
 test('sheet desconta teclado da altura para manter cabeçalho abaixo da safe area', async () => {
   const h = harness({ component: true });
   try {
-    await h.pump(); h.control('Criar roteiro: Pauta 1').onPress(); await h.pump();
+    await h.pump(); await openIdeas(h); h.control('Criar roteiro: Pauta 1').onPress(); await h.pump();
     assert.equal(h.sheetHeight(), 844 - 50 - 16);
     h.keyboard('keyboardWillShow', { height: 336, screenY: 508 }); await h.pump();
     assert.equal(h.sheetHeight(), 844 - 50 - 336 - 16); assert.ok(h.control('Concluir digitação do roteiro'));
@@ -158,7 +171,7 @@ test('sheet desconta teclado da altura para manter cabeçalho abaixo da safe are
 test('rolagem do roteiro não tem responder touch no container e recolhe teclado ao arrastar', async () => {
   const h = harness({ component: true });
   try {
-    await h.pump(); h.control('Criar roteiro: Pauta 1').onPress(); await h.pump();
+    await h.pump(); await openIdeas(h); h.control('Criar roteiro: Pauta 1').onPress(); await h.pump();
     assert.equal(h.hasContentTouchWrapper(), false);
     const scroll = h.control('Conteúdo das sugestões da Classy');
     assert.equal(scroll.style.flexShrink, 1); assert.equal(scroll.keyboardShouldPersistTaps, 'handled');
@@ -167,7 +180,7 @@ test('rolagem do roteiro não tem responder touch no container e recolhe teclado
 });
 test('legado com A LUZ e sem perfil editorial não exibe nem gera pautas automaticamente', async () => {
   const h = harness({ missingEditorial: true, component: true });
-  try { await h.pump(); assert.deepEqual(h.calls.map(call => call.action), ['context']); assert.equal(h.state().context.editorial.ready, false); assert.deepEqual(h.state().context.suggestions, []); assert.ok(h.control('Personalizar sugestões')); assert.equal(h.control('Criar roteiro: Pauta 1'), undefined); h.state().choose(ideas[0]); await h.pump(); assert.equal(h.state().selected, null); } finally { h.dispose(); }
+  try { await h.pump(); assert.deepEqual(h.calls.map(call => call.action), ['context']); assert.equal(h.state().context.editorial.ready, false); assert.deepEqual(h.state().context.suggestions, []); assert.equal(h.control('Sobre o que você ensina?'), undefined); await openIdeas(h); assert.ok(h.control('Sobre o que você ensina?')); assert.equal(h.control('Criar roteiro: Pauta 1'), undefined); h.state().choose(ideas[0]); await h.pump(); assert.equal(h.state().selected, null); assert.equal(h.calls.some(call => call.action === 'suggest'), false); } finally { h.dispose(); }
 });
 test('parse legado não considera publicações, bio ou categoria transitória como perfil confirmado', () => {
   const legacy = contextFixture(); delete legacy.editorial;
@@ -181,11 +194,11 @@ test('parse legado não considera publicações, bio ou categoria transitória c
 test('save com erro conserva área e foco digitados para retry e reabertura', async () => {
   const h = harness({ empty: true, component: true });
   try {
-    await h.pump(); h.control('Personalizar sugestões').onPress(); await h.pump();
+    await h.pump(); await openIdeas(h);
     h.control('Área principal: Criação').onPress(); h.control('Sobre o que você ensina?').onChangeText('Ensino criação de conteúdo para pessoas que estão começando.'); await h.pump();
     h.failSave(); h.control('Salvar contexto e gerar sugestões').onPress(); await h.pump();
     assert.equal(h.state().editorialCategory, uuid(21)); assert.match(h.control('Sobre o que você ensina?').value, /criação de conteúdo/); assert.equal(h.state().reconciling, true); assert.equal(h.calls.some(call => call.action === 'suggest'), false);
-    h.state().close(); await h.pump(); h.state().open(); await h.pump();
+    h.modal().onRequestClose(); await h.pump(); assert.equal(h.control('Sobre o que você ensina?'), undefined); await openIdeas(h);
     assert.match(h.control('Sobre o que você ensina?').value, /criação de conteúdo/); assert.equal(h.state().editorialCategory, uuid(21));
     h.control('Salvar contexto e gerar sugestões').onPress(); await h.pump();
     assert.equal(h.calls.filter(call => call.action === 'save_editorial').length, 2); assert.equal(h.calls.filter(call => call.action === 'suggest').length, 1);
@@ -239,7 +252,7 @@ test('montagem iOS inativa retoma contexto ao ficar active, sem spinner eterno o
   try {
     await h.pump(); assert.equal(h.calls.length, 0); assert.equal(h.state().loading, true);
     h.appState('active'); await h.pump();
-    assert.deepEqual(h.calls.map(call => call.action), ['context']); assert.equal(h.state().loading, false); assert.ok(h.control('Personalizar sugestões'));
+    assert.deepEqual(h.calls.map(call => call.action), ['context']); assert.equal(h.state().loading, false); assert.ok(h.control('Abrir Classy para criar')); assert.equal(h.control('Sobre o que você ensina?'), undefined); await openIdeas(h); assert.ok(h.control('Sobre o que você ensina?'));
   } finally { h.dispose(); }
 });
 test('retorno do background sempre relê perfil externo e preserva foco ainda não salvo', async () => {
@@ -253,7 +266,7 @@ test('retorno do background sempre relê perfil externo e preserva foco ainda n�
 test('foco e abertura/resize do teclado revelam o campo editorial pelo offset real após layout', async () => {
   const h = harness({ component: true, missingEditorial: true });
   try {
-    await h.pump(); h.control('Personalizar sugestões').onPress(); await h.pump();
+    await h.pump(); await openIdeas(h);
     h.layoutField('Sobre o que você ensina?', 450); h.control('Sobre o que você ensina?').onFocus(); await h.pump();
     assert.equal(h.scrollRequests.at(-1).y, 438);
     h.keyboard('keyboardWillShow', { height: 336, screenY: 508 }); await h.pump(); assert.equal(h.scrollRequests.at(-1).y, 438);
@@ -265,7 +278,7 @@ test('foco e abertura/resize do teclado revelam o campo editorial pelo offset re
 test('a mesma rolagem por foco revela título e roteiro sem responder no container', async () => {
   const h = harness({ component: true });
   try {
-    await h.pump(); h.control('Criar roteiro: Pauta 1').onPress(); await h.pump(); h.control('Gerar roteiro com a Classy').onPress(); await h.pump();
+    await h.pump(); await openIdeas(h); h.control('Criar roteiro: Pauta 1').onPress(); await h.pump(); h.control('Gerar roteiro com a Classy').onPress(); await h.pump();
     h.layoutField('Título do roteiro da Classy', 110); h.control('Título do roteiro da Classy').onFocus(); await h.pump(); assert.equal(h.scrollRequests.at(-1).y, 98);
     h.control('Título do roteiro da Classy').onBlur(); h.layoutField('Roteiro da Classy', 230); h.control('Roteiro da Classy').onFocus(); await h.pump(); assert.equal(h.scrollRequests.at(-1).y, 218); assert.equal(h.hasContentTouchWrapper(), false);
   } finally { h.dispose(); }
