@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import type { StudioRemoteResponse } from '../../../../shared/studio/remoteCamera';
+import type { StudioRemoteResponse, StudioRemoteThumbnailDescriptor } from '../../../../shared/studio/remoteCamera';
 
 export type StudioRemoteRequest = { action: string; [key: string]: unknown };
 export type StudioRemoteScope = { signal?: AbortSignal; isCurrent?: () => boolean };
@@ -8,6 +8,7 @@ export type StudioRemoteDownloadScope = StudioRemoteScope & { cacheKey?: string;
 export type StudioRemoteClient = {
   request(body: StudioRemoteRequest, scope?: StudioRemoteScope): Promise<StudioRemoteResponse>;
   download(download: StudioRemoteDownload | string, scope?: StudioRemoteDownloadScope): Promise<Blob>;
+  thumbnail?(sessionId: string, takeId: string, clientId: string, scope?: StudioRemoteScope): Promise<(StudioRemoteThumbnailDescriptor & { url: string; expiresAt: string }) | null>;
 };
 export class StudioRemoteCameraError extends Error {
   constructor(message: string, readonly code = 'remote_camera_error') { super(message); this.name = 'StudioRemoteCameraError'; }
@@ -51,8 +52,7 @@ export function createStudioRemoteClient(owner: string): StudioRemoteClient {
     if (error || !owner || data.session?.user.id !== owner || !data.session.access_token) throw new StudioRemoteCameraError('Sua conta mudou. Abra a câmera novamente.', 'account_changed');
     return data.session.access_token;
   };
-  return {
-    async request(body, scope = {}) {
+  const invoke = async (body: StudioRemoteRequest, scope: StudioRemoteScope) => {
       const token = await ownerSession(scope);
       const { data, error } = await remoteBounded(scope, signal => supabase.functions.invoke('studio-camera', { body, signal, headers: { Authorization: `Bearer ${token}` } }));
       await ownerSession(scope); assertStudioRemoteScope(scope);
@@ -61,8 +61,29 @@ export function createStudioRemoteClient(owner: string): StudioRemoteClient {
         try { if ('context' in error && error.context instanceof Response) detail = await error.context.clone().json(); } catch { /* Transport errors have no JSON response. */ }
         throw new StudioRemoteCameraError(detail?.message ?? detail?.error ?? 'Não foi possível conectar o iPhone. Reconecte a prévia para continuar.', detail?.code ?? 'transport');
       }
+      return data;
+  };
+  return {
+    async request(body, scope = {}) {
+      const data = await invoke(body, scope);
       if (!data?.session?.id || !Array.isArray(data.commands) || !Array.isArray(data.takes) || typeof data.serverAt !== 'string') throw new StudioRemoteCameraError('A conexão respondeu com dados incompletos.', 'invalid_response');
       return data as StudioRemoteResponse;
+    },
+    async thumbnail(sessionId, takeId, clientId, scope = {}) {
+      const data = await invoke({ action: 'thumbnail_get', sessionId, takeId, role: 'controller', clientId }, scope);
+      if (data?.thumbnail == null) return null;
+      const value = data.thumbnail;
+      if (value.version !== 1 || value.mime !== 'image/jpeg' || !Number.isSafeInteger(value.bytes) || value.bytes <= 0 || value.bytes > 16384 ||
+        ![value.width, value.height].every(size => Number.isSafeInteger(size) && size > 0 && size <= 320) || typeof value.hash !== 'string' || !/^[a-f0-9]{64}$/.test(value.hash) || typeof value.url !== 'string' || !Number.isFinite(Date.parse(value.expiresAt))) {
+        throw new StudioRemoteCameraError('A miniatura respondeu com dados inválidos.', 'invalid_thumbnail');
+      }
+      let target: URL;
+      try { target = new URL(value.url); } catch { throw new StudioRemoteCameraError('A miniatura não possui endereço válido.', 'invalid_thumbnail'); }
+      const expected = `/storage/v1/object/sign/studio-camera-thumbnails/${owner}/${sessionId}/${takeId}/v1.jpg`;
+      if (target.protocol !== 'https:' || target.origin !== new URL(import.meta.env.VITE_SUPABASE_URL).origin || decodeURIComponent(target.pathname) !== expected) {
+        throw new StudioRemoteCameraError('A miniatura não pertence a este take privado.', 'invalid_thumbnail');
+      }
+      return value;
     },
     async download(download, scope = {}) {
       await ownerSession(scope);

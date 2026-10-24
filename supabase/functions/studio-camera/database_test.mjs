@@ -137,9 +137,14 @@ try {
  const realtimeMigration=await readFile(new URL('../../migrations/20261014233000_studio_camera_monitor_realtime.sql',import.meta.url),'utf8');
  await sql(realtimeMigration);await sql(realtimeMigration);
  await sql(await readFile(new URL('monitor_realtime_test.sql',import.meta.url),'utf8'));
+ for (const name of ['20261023220000_studio_camera_local_take_handoff.sql','20261023233000_studio_camera_native_recording_end.sql','20261024020000_studio_camera_private_thumbnails.sql']) {
+  const source=await readFile(new URL(`../../migrations/${name}`,import.meta.url),'utf8'); await sql(source); await sql(source);
+ }
+ for (const name of ['local_first_handoff_test.sql','native_recording_end_test.sql','thumbnails_test.sql']) await sql(await readFile(new URL(name,import.meta.url),'utf8'));
  console.log('PostgreSQL QA passed: entitlement, ownership, expiry, one-use/retry, ACK order, multipart recovery, restrictive RLS, concurrent idempotency, durable pairings, safe camera handoff, protected original recovery priority and acknowledged audio input selection.');
  console.log('Mobile monitor QA passed: private viewer lifecycle, Premium/ownership, protected remote handoff, bounded display state, preview-only expiry/close, preserved local REC, restrictive ACL and concurrent idempotency/allocation.');
  console.log('Monitor Realtime QA passed: idempotent publication, lifecycle metadata columns only, owner/non-owner RLS, expired/free/unapproved denial, no anonymous read, no writes or private media/RPC privileges.');
+ console.log('Private thumbnail QA passed: completed source proof, owner/device/controller scope, immutable descriptor, private bucket/RLS, archived reads and preserved original/REC authority.');
 } finally {
  if (started) await command('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']).catch(() => undefined);
  await rm(temporary, { recursive: true, force: true });

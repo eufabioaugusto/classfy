@@ -25,6 +25,9 @@ export type StudioRemoteMetadata = {
   bytes: number; mime: string; width: number; height: number; fps: number; duration: number;
   startedAtServerMs?: number;
 };
+export type StudioRemoteThumbnailDescriptor = {
+  version: 1; hash: string; bytes: number; mime: 'image/jpeg'; width: number; height: number;
+};
 export type StudioRemoteLocalTake = {
   id: string; metadata: StudioRemoteMetadata; localSaved: true;
   phase: 'local_ready' | 'preparing' | 'uploading' | 'uploaded' | 'error'; error?: string;
@@ -67,6 +70,7 @@ export type StudioRemoteCommand = {
 export type StudioRemoteTake = {
   id: string; status: 'reserved' | 'recording' | 'local_ready' | 'uploading' | 'uploaded' | 'failed';
   recordingEnd?: StudioRemoteRecordingEnd | null;
+  thumbnail?: StudioRemoteThumbnailDescriptor | null;
   metadata: StudioRemoteMetadata | null; createdAt: string; uploadedAt: string | null;
 };
 export type StudioRemoteEnvelope = {

@@ -48,6 +48,29 @@ beforeEach(() => { controllers = []; localStorage.clear(); vi.useFakeTimers(); v
 afterEach(() => { controllers.forEach(controller => controller.dispose()); vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('câmera remota preserva o original nativo e a autoridade do iPhone', () => {
+  it('miniatura conserva somente descriptor privado validado no merge do catálogo, inclusive após F5', async () => {
+    const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const start = await h.controller.remoteStart(); await h.controller.finishLocalTake!();
+    const descriptor = { version: 1 as const, hash: 'a'.repeat(64), bytes: 1500, mime: 'image/jpeg' as const, width: 240, height: 135 };
+    h.data.takes[0].thumbnail = { ...descriptor, url: 'https://private.invalid/must-not-persist' } as typeof descriptor;
+    expect(studioRemoteLocalTakes(h.data).find(take => take.id === start.takeId)?.thumbnail).toEqual(descriptor);
+    localStorage.setItem('classfy:studio:remote-camera:v1:owner:new:aula', JSON.stringify({ sessionId: h.data.session.id, controllerId: h.data.session.controllerId, takeId: start.takeId }));
+    const restored = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview, inspect: h.inspect }); controllers.push(restored); let remote!: StudioRemoteView; restored.subscribeRemote(next => remote = next); await restored.prepare();
+    expect(remote.localTakes?.find(take => take.id === start.takeId)?.thumbnail).toEqual(descriptor);
+    const stored = localStorage.getItem('classfy:studio:remote-library:v1:owner:new:aula')!; expect(stored).toContain(descriptor.hash); expect(stored).not.toContain('must-not-persist');
+    delete h.data.takes[0].thumbnail; await restored.reconnect(); expect(remote.localTakes?.find(take => take.id === start.takeId)?.thumbnail).toEqual(descriptor);
+    const reload = createStudioRemoteCapture({ owner: 'owner', kind: 'aula', client: h.client, preview: h.preview }); controllers.push(reload); let cached!: StudioRemoteView; reload.subscribeRemote(next => cached = next);
+    expect(cached.localTakes?.find(take => take.id === start.takeId)?.thumbnail).toEqual(descriptor); expect(h.download).not.toHaveBeenCalled();
+  });
+  it('miniatura inválida/URL direta não vira descriptor e null confirmado remove cache de descriptor', async () => {
+    const h = fixture(); h.data.takes = [{ id: 'take', status: 'uploaded', metadata: { bytes: 1, mime: 'video/mp4', width: 1920, height: 1080, fps: 30, duration: 1 }, uploadedAt: new Date(NOW).toISOString(), createdAt: new Date(NOW).toISOString() }];
+    const descriptor = { version: 1 as const, hash: 'a'.repeat(64), bytes: 1500, mime: 'image/jpeg' as const, width: 240, height: 135 };
+    for (const invalid of [{ ...descriptor, version: 2 }, { ...descriptor, bytes: 16385 }, { ...descriptor, bytes: 0 }, { ...descriptor, width: 321 }, { ...descriptor, height: -1 }, { ...descriptor, mime: 'image/svg+xml' }, { ...descriptor, hash: 'not-a-hash' }, { url: 'https://public.invalid/frame.jpg' }]) {
+      h.data.takes[0].thumbnail = invalid as typeof descriptor; expect(studioRemoteLocalTakes(h.data)[0].thumbnail).toBeUndefined();
+    }
+    h.data.takes[0].thumbnail = descriptor; await h.controller.prepare(); expect(h.remote().localTakes![0].thumbnail).toEqual(descriptor);
+    h.data.takes[0].thumbnail = null; await h.controller.reconnect(); expect(h.remote().localTakes![0].thumbnail).toBeNull();
+  });
+
   it('término físico aos 66s encerra contador de 161s e preserva parcial sem STOP ou envio automático', async () => {
     const h = fixture(); h.data.session.deviceState!.capabilities!.localTakeStorage = 1; await h.controller.prepare(); const first = await h.controller.remoteStart();
     await vi.advanceTimersByTimeAsync(161_690);
