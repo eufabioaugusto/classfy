@@ -27,6 +27,7 @@ type ClassfyVideoPlayerProps = {
   onNotesPress?: () => void;
   onPlaybackPosition?: (positionSeconds: number) => void;
   onStatusUpdate?: (status: ClassfyPlaybackStatus) => void;
+  showLoadingIndicator?: boolean;
   isFullscreen?: boolean;
   onFullscreenToggle?: (fullscreen: boolean) => void;
   playbackRate?: number;
@@ -69,6 +70,7 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
   onNotesPress,
   onPlaybackPosition,
   onStatusUpdate,
+  showLoadingIndicator = true,
   isFullscreen = false,
   onFullscreenToggle,
   playbackRate = 1,
@@ -228,7 +230,7 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
     ]}>
       {!playback.visible && <VideoView player={player} style={styles.video} contentFit="contain" nativeControls={false} fullscreenOptions={{ enable: false }} allowsPictureInPicture={false} />}
       {!hasStartedPlaying && poster ? <Image source={{ uri: poster }} style={[styles.video, StyleSheet.absoluteFillObject]} resizeMode="contain" /> : null}
-      {playback.status === 'loading' ? <View pointerEvents="none" style={styles.loadingOverlay}><Text style={styles.timeText}>Carregando vídeo…</Text></View> : null}
+      {showLoadingIndicator && playback.status === 'loading' ? <View pointerEvents="none" style={styles.loadingOverlay}><Text style={styles.timeText}>Carregando vídeo…</Text></View> : null}
       {playback.error ? <View style={styles.loadingOverlay}><Text style={styles.timeText}>{playback.error}</Text><Pressable accessibilityLabel="Tentar reproduzir novamente" onPress={() => { playback.closeMiniPlayer(); void attach({ ...session, fileUrl: src }); }}><Text style={styles.timeText}>Tentar novamente</Text></Pressable></View> : null}
 
       <Pressable pointerEvents={showControls ? 'none' : 'auto'} style={styles.leftTapZone} onPress={() => handleSideTap('left')} />

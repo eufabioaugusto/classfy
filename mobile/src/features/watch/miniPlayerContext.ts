@@ -10,6 +10,7 @@ export type MiniPlayerContent = {
 export type MiniPlayerContextValue = {
   content: MiniPlayerContent | null; visible: boolean; player: VideoPlayer;
   playing: boolean; position: number; duration: number; status: string; error: string | null;
+  sourceReady?: boolean;
   watchPercent: number; realWatchSeconds: number; qualifiedWatchSeconds: number; completed: boolean;
   attach: (content: MiniPlayerContent) => Promise<void>;
   startMiniPlayer: (content: MiniPlayerContent) => void;

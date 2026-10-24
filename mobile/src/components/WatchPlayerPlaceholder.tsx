@@ -11,10 +11,12 @@ type WatchPlayerPlaceholderProps = {
   locked: boolean;
   loading: boolean;
   error?: string | null;
+  visible?: boolean;
 };
 
 /** The cover stays in place until the existing player has a playable source. */
-export function WatchPlayerPlaceholder({ poster, format, locked, loading, error }: WatchPlayerPlaceholderProps) {
+export function WatchPlayerPlaceholder({ poster, format, locked, loading, error, visible = true }: WatchPlayerPlaceholderProps) {
+  if (!visible) return null;
   return <>
     {poster ? <Image source={{ uri: poster }} style={StyleSheet.absoluteFillObject} /> : null}
     <View pointerEvents="none" style={styles.shade} />

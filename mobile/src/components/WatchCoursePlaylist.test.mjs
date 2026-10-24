@@ -36,9 +36,9 @@ test('trocar de aula atual atualiza posição e título sem usar a ordem individ
   const firstView = render(), nextView = render({ currentLesson: second });
   assert.match(firstView.text, /Aula 1 de 3/); assert.match(nextView.text, /Aula 2 de 3/); assert.match(nextView.text, /Uma prática guiada/); assert.doesNotMatch(nextView.text, /Comece por aqui/);
 });
-test('carregamento não apresenta contagem ou título antigos e ainda permite abrir a lista', () => {
+test('lista pendente oferece abrir as aulas sem spinner, contagem ou título antigos', () => {
   const h = render({ loading: true, currentLesson: third });
-  assert.match(h.text, /Carregando aulas/); assert.doesNotMatch(h.text, /Aula 3 de 3|Aplicando o aprendizado/); assert.equal(has(h.tree, 'spinner'), true);
+  assert.match(h.text, /Ver lista de aulas/); assert.doesNotMatch(h.text, /Carregando|Aula 3 de 3|Aplicando o aprendizado/); assert.equal(has(h.tree, 'spinner'), false); assert.doesNotMatch(h.tree.props.accessibilityLabel, /Aula 3 de 3|Aplicando o aprendizado/);
   assert.deepEqual(h.tree.props.accessibilityState, { disabled: false, busy: true }); h.press(); assert.equal(h.presses(), 1);
 });
 test('erro usa mensagem pública sem números ou diagnóstico bruto e conserva a entrada do sheet', () => {

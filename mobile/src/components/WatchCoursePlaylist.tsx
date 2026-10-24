@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { CourseLesson, CourseModule } from '@/features/watch/useCourseLessons';
 import { colors } from '@/theme/colors';
@@ -19,7 +19,7 @@ export function WatchCoursePlaylist({ modules, currentLesson, loading, error, di
   const index = currentLesson ? lessons.findIndex(lesson => lesson.id === currentLesson.id) : -1;
   const total = lessons.length;
   const position = !loading && !error && total ? index >= 0 ? `Aula ${index + 1} de ${total}` : `${total} ${total === 1 ? 'aula' : 'aulas'}` : '';
-  const title = loading ? 'Carregando aulas…' : error ? 'Não foi possível carregar as aulas.' : !total ? 'Nenhuma aula disponível.' : index >= 0 ? lessons[index].title.trim() || 'Aula sem título' : 'Escolha uma aula para começar';
+  const title = loading ? 'Ver lista de aulas' : error ? 'Não foi possível carregar as aulas.' : !total ? 'Nenhuma aula disponível.' : index >= 0 ? lessons[index].title.trim() || 'Aula sem título' : 'Escolha uma aula para começar';
   return <Pressable accessibilityRole="button" accessibilityLabel={['Aulas do curso', position, title].filter(Boolean).join('. ')}
     accessibilityHint="Abrir a lista de aulas deste curso."
     accessibilityState={{ disabled, busy: loading }} disabled={disabled} onPress={() => { if (!disabled) onPress(); }}
@@ -30,7 +30,7 @@ export function WatchCoursePlaylist({ modules, currentLesson, loading, error, di
       <Text style={styles.title} numberOfLines={2}>{title}</Text>
     </View>
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.accessory}>
-      {loading ? <ActivityIndicator size="small" color={colors.muted} /> : <Ionicons name="chevron-forward" size={17} color={colors.muted} />}
+      <Ionicons name="chevron-forward" size={17} color={colors.muted} />
     </View>
   </Pressable>;
 }

@@ -25,7 +25,7 @@ function harness({course=true,type='video',allowed=true}={}){
   let access={hasAccess:allowed,reason:null,requiredPlan:'free'},source={url:lessonA.video_url,loading:false,error:null};
   const lessons={currentLesson:lessonA,modules:[{id:'module',title:'Módulo',lessons:[lessonA,lessonB]}],loading:false,error:null,completedLessons:[],progressPercent:0,refresh:async()=>{},selectLesson(lesson){calls.push(['selectLesson',lesson]);lessons.currentLesson=lesson;source={...source,url:lesson.video_url};dirty=true;}};
   const existing={id:'content',lessonId:course?lessonA.id:undefined,title:course?lessonA.title:content.title,fileUrl:source.url,courseId:course?'content':undefined,startPositionMillis:123400,shouldPlay:true};
-  const playback={content:existing,position:123.4,playing:true,completed:false,player:{playbackRate:1,currentTime:123.4},startMiniPlayer:value=>calls.push(['mini',value]),attach:value=>calls.push(['attach',value]),seek:value=>calls.push(['seek',value])};
+  const playback={content:existing,position:123.4,playing:true,completed:false,status:'readyToPlay',sourceReady:true,error:null,player:{playbackRate:1,currentTime:123.4},startMiniPlayer:value=>calls.push(['mini',value]),attach:value=>calls.push(['attach',value]),seek:value=>calls.push(['seek',value])};
   const equal=(a,b)=>a&&b&&a.length===b.length&&a.every((value,index)=>Object.is(value,b[index]));
   const hooks={
     useRef:value=>{const i=cursor++;return slots[i]??=( {current:value});},
@@ -71,7 +71,7 @@ function harness({course=true,type='video',allowed=true}={}){
   const alpha=()=>number(flatten(backdrop().props.style).opacity);
   const move=dy=>pan().onPanResponderMove(null,{dy,dx:0,vy:0});
   return{pump,calls,component,pan,move,alpha,existing,playback,lessons,lessonB,tree:()=>tree,
-    change(values){if('content'in values)content={...content,...values.content};if('access'in values)access={...access,...values.access};if('source'in values)source={...source,...values.source};dirty=true;},
+    change(values){if('content'in values)content={...content,...values.content};if('access'in values)access={...access,...values.access};if('source'in values)source={...source,...values.source};if('playback'in values)Object.assign(playback,values.playback);if('lessons'in values)Object.assign(lessons,values.lessons);dirty=true;},
     dispose(){for(const slot of slots)slot?.cleanup?.();},
   };
 }
@@ -111,5 +111,67 @@ for(const entry of ['pan','button'])test(`minimize via ${entry} reveals the exac
 test('a stale provider lesson is never revealed while the new course lesson is becoming active',async()=>{
   const h=harness();try{await h.pump();h.component('WatchStudySheet').onSelectLesson(h.lessonB);await h.pump();h.component('ClassfyVideoPlayer').onMinimize();
     assert.equal(h.calls.filter(call=>call[0]==='mini').length,0);assert.equal(h.calls.filter(call=>call[0]==='back').length,1);assert.equal(h.playback.content,h.existing);
+  }finally{h.dispose();}
+});
+
+test('a single cover spans source resolution and native buffering, then only sourceReady removes it',async()=>{
+  const h=harness();try{
+    const nativePlayer=h.playback.player;
+    h.change({source:{url:'',loading:true},playback:{content:null,sourceReady:false,status:'idle'}});await h.pump();
+    const firstCover=h.component('WatchPlayerPlaceholder');assert.equal(firstCover.visible,true);assert.equal(firstCover.loading,true);assert.equal(firstCover.poster,'cover.jpg');assert.equal(h.component('ClassfyVideoPlayer'),undefined);
+    h.change({source:{url:h.existing.fileUrl,loading:false},playback:{content:h.existing,status:'loading'}});await h.pump();
+    assert.equal(h.component('ClassfyVideoPlayer').src,h.existing.fileUrl);assert.equal(h.component('ClassfyVideoPlayer').showLoadingIndicator,false);
+    assert.equal(h.component('WatchPlayerPlaceholder').visible,true);assert.equal(h.component('WatchPlayerPlaceholder').loading,true);assert.equal(h.component('WatchPlayerPlaceholder').poster,firstCover.poster);
+    assert.equal(nodes(h.tree(),node=>node.type==='WatchPlayerPlaceholder').length,1);
+    h.change({playback:{status:'readyToPlay',sourceReady:false,position:0,playing:false}});await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,true,'A generic ready status does not prove the active source is ready');
+    h.change({playback:{sourceReady:true}});await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,false);assert.equal(h.component('WatchPlayerPlaceholder').loading,false);
+    assert.equal(h.playback.player,nativePlayer);assert.equal(h.calls.filter(call=>['attach','seek'].includes(call[0])).length,0);
+  }finally{h.dispose();}
+});
+for(const mismatch of ['content','lesson','url'])test(`readiness or native error belonging to another ${mismatch} cannot dismiss the active cover`,async()=>{
+  const h=harness();try{
+    const stale={...h.existing,...(mismatch==='content'?{id:'other-content'}:mismatch==='lesson'?{lessonId:'other-lesson'}:{fileUrl:'https://media/old-source.m3u8'})};
+    h.change({playback:{content:stale,status:'readyToPlay',sourceReady:true}});await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,true);assert.equal(h.component('WatchPlayerPlaceholder').loading,true);
+    h.change({playback:{error:'Failure from the previous source'}});await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,true);assert.equal(h.component('WatchPlayerPlaceholder').error,null);
+    h.change({playback:{content:h.existing,error:null}});await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,false);
+  }finally{h.dispose();}
+});
+test('course lesson selection keeps the cover until the same lesson and URL are ready in the provider',async()=>{
+  const h=harness();try{
+    await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,false);
+    h.component('WatchCoursePlaylist').onPress();await h.pump();h.component('WatchStudySheet').onSelectLesson(h.lessonB);await h.pump();
+    assert.equal(h.component('ClassfyVideoPlayer').session.lessonId,h.lessonB.id);assert.equal(h.component('WatchPlayerPlaceholder').visible,true);assert.equal(h.component('WatchPlayerPlaceholder').loading,true);
+    h.change({playback:{content:{...h.existing,lessonId:h.lessonB.id,fileUrl:h.lessonB.video_url},sourceReady:false,status:'readyToPlay'}});await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,true);
+    h.change({playback:{sourceReady:true}});await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,false);assert.equal(h.calls.filter(call=>['attach','seek'].includes(call[0])).length,0);
+  }finally{h.dispose();}
+});
+test('a native error from the current source uncovers the existing player so its retry remains reachable',async()=>{
+  const h=harness();try{
+    h.change({playback:{sourceReady:false,status:'error',error:'Não foi possível reproduzir este vídeo.'}});await h.pump();
+    assert.equal(h.component('WatchPlayerPlaceholder').visible,false);assert.equal(h.component('WatchPlayerPlaceholder').error,null);assert.equal(h.component('ClassfyVideoPlayer').showLoadingIndicator,false);
+    assert.equal(h.component('ClassfyVideoPlayer').src,h.existing.fileUrl);assert.equal(h.playback.error,'Não foi possível reproduzir este vídeo.');
+    h.change({playback:{error:null,status:'loading',sourceReady:false}});await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,true);assert.equal(h.component('WatchPlayerPlaceholder').loading,true);
+  }finally{h.dispose();}
+});
+test('source errors keep their cover, and locked content never exposes a player despite prior readiness',async()=>{
+  const h=harness();try{
+    h.change({source:{url:'',loading:false,error:'Não foi possível carregar o vídeo. Abra o conteúdo novamente.'}});await h.pump();
+    assert.equal(h.component('WatchPlayerPlaceholder').visible,true);assert.equal(h.component('WatchPlayerPlaceholder').loading,false);assert.match(h.component('WatchPlayerPlaceholder').error,/Não foi possível/);assert.equal(h.component('ClassfyVideoPlayer'),undefined);
+    h.change({access:{hasAccess:false},source:{url:h.existing.fileUrl,loading:true}});await h.pump();
+    assert.equal(h.component('WatchPlayerPlaceholder').visible,true);assert.equal(h.component('WatchPlayerPlaceholder').locked,true);assert.equal(h.component('WatchPlayerPlaceholder').loading,false);assert.equal(h.component('ClassfyVideoPlayer'),undefined);
+  }finally{h.dispose();}
+});
+test('course catalog loading and failure remain in the same cover without pretending a source is ready',async()=>{
+  const h=harness();try{
+    h.change({source:{url:'',loading:false},lessons:{loading:true,currentLesson:null}});await h.pump();
+    assert.equal(h.component('WatchPlayerPlaceholder').visible,true);assert.equal(h.component('WatchPlayerPlaceholder').loading,true);assert.equal(h.component('WatchCoursePlaylist').loading,true);assert.equal(h.component('ClassfyVideoPlayer'),undefined);
+    h.change({lessons:{loading:false,error:'Internal catalog diagnostic'}});await h.pump();
+    assert.equal(h.component('WatchPlayerPlaceholder').visible,true);assert.equal(h.component('WatchPlayerPlaceholder').loading,false);assert.equal(h.component('WatchPlayerPlaceholder').error,'Não foi possível carregar as aulas. Abra o conteúdo novamente.');
+  }finally{h.dispose();}
+});
+for(const type of ['video','podcast'])test(`${type} readiness does not wait for playback or a first-frame callback, including fullscreen`,async()=>{
+  const h=harness({course:false,type});try{
+    h.change({playback:{position:0,playing:false,status:'readyToPlay',sourceReady:true}});await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,false);
+    await h.component('ClassfyVideoPlayer').onFullscreenToggle(true);await h.pump();assert.equal(h.component('WatchPlayerPlaceholder').visible,false);assert.equal(h.component('ClassfyVideoPlayer').showLoadingIndicator,false);
   }finally{h.dispose();}
 });

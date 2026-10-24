@@ -1,6 +1,6 @@
 import { PropsWithChildren, useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { useVideoPlayer } from 'expo-video';
+import { useVideoPlayer, type VideoSource } from 'expo-video';
 import { useAuth } from '@/features/auth/authContext';
 import { supabase } from '@/lib/supabase';
 import { MiniPlayerContent, MiniPlayerContext } from './miniPlayerContext';
@@ -13,6 +13,12 @@ type Session = {
   saving?: Promise<void>; lastAttempt?: number; pendingFlush?: boolean; rewards: Set<string>;
 };
 const identity = (content: MiniPlayerContent) => `${content.id}:${content.lessonId || ''}`;
+const sourceUrl = (source: VideoSource) => {
+  const uri = typeof source === 'string' ? source : source && typeof source === 'object' ? source.uri : null;
+  if (!uri) return null;
+  try { return new URL(uri).href; } catch { return uri; }
+};
+type SourceLoad = { revision: number; url: string | null; started: boolean; settled: boolean; confirmed: boolean };
 
 export function MiniPlayerProvider({ children }: PropsWithChildren) {
   const { user } = useAuth();
@@ -29,6 +35,7 @@ export function MiniPlayerProvider({ children }: PropsWithChildren) {
   const [duration, setDuration] = useState(0);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState<string | null>(null);
+  const [sourceReady, setSourceReady] = useState(false);
   const [watchPercent, setWatchPercent] = useState(0);
   const [completed, setCompleted] = useState(false);
   const [qualifiedWatchSeconds, setQualifiedWatchSeconds] = useState(0);
@@ -36,7 +43,20 @@ export function MiniPlayerProvider({ children }: PropsWithChildren) {
   const current = useRef<Session | null>(null);
   const replacements = useRef<Promise<void>>(Promise.resolve());
   const revision = useRef(0);
+  const sourceLoad = useRef<SourceLoad | null>(null);
   const requiresPlayAfterBackground = useRef(false);
+
+  const syncSourceState = useCallback(() => {
+    const load = sourceLoad.current;
+    if (!load?.url || !load.confirmed || !load.settled || load.revision !== revision.current || !current.current || current.current.owner !== ownerRef.current) return;
+    // statusChange has no source identity. Read the current native status after
+    // sourceChange/sourceLoad proves the URL, instead of replaying an old payload.
+    const nativeStatus = player.status;
+    setStatus(nativeStatus);
+    setSourceReady(nativeStatus === 'readyToPlay');
+    setError(nativeStatus === 'error' ? 'Não foi possível reproduzir este vídeo.' : null);
+    setDuration(player.duration || 0);
+  }, [player]);
 
   const persist = useCallback(async (session: Session | null) => {
     if (!session?.owner || !session.content.trackingEnabled || session.tracker.watched <= 0) return;
@@ -91,13 +111,14 @@ export function MiniPlayerProvider({ children }: PropsWithChildren) {
   const closeMiniPlayer = useCallback(() => {
     player.pause(); current.current?.tracker.discontinuity();
     void flush(); current.current = null; revision.current += 1;
+    sourceLoad.current = null; setSourceReady(false); setStatus('idle'); setError(null);
     setVisible(false); setContent(null); setPlaying(false); setPosition(0); setDuration(0);
     replacements.current = replacements.current.catch(() => {}).then(() => player.replaceAsync(null));
   }, [flush, player]);
 
   const attach = useCallback(async (next: MiniPlayerContent) => {
     setVisible(false);
-    if (current.current && identity(current.current.content) === identity(next) && current.current.content.fileUrl === next.fileUrl) { current.current.content = next; setContent(next); return; }
+    if (current.current && current.current.owner === ownerRef.current && identity(current.current.content) === identity(next) && current.current.content.fileUrl === next.fileUrl) { current.current.content = next; setContent(next); return; }
     const wasPlaying = player.playing;
     player.pause();
     const previous = current.current; previous?.tracker.discontinuity(); void persist(previous);
@@ -108,20 +129,25 @@ export function MiniPlayerProvider({ children }: PropsWithChildren) {
     if (!continuing) requiresPlayAfterBackground.current = false;
     current.current = session;
     const request = ++revision.current;
+    const load: SourceLoad = { revision: request, url: sourceUrl(next.fileUrl || null), started: false, settled: false, confirmed: false };
+    sourceLoad.current = load; setSourceReady(false);
     setContent(next); setPosition(resumePosition); setDuration(0);
     if (!continuing) { setWatchPercent(0); setCompleted(false); setRealWatchSeconds(0); setQualifiedWatchSeconds(0); }
     setError(null); setStatus('loading');
     replacements.current = replacements.current.catch(() => {}).then(async () => {
       if (request !== revision.current) return;
       try {
+        load.started = true;
         await player.replaceAsync(next.fileUrl || null);
         if (request !== revision.current) return;
+        load.settled = true;
+        syncSourceState();
         if (resumePosition) player.currentTime = resumePosition;
         if (continuing && wasPlaying) player.play();
-      } catch { if (request === revision.current) setError('Não foi possível abrir o vídeo. Tente novamente.'); }
+      } catch { if (request === revision.current && session.owner === ownerRef.current) { setSourceReady(false); setStatus('error'); setError('Não foi possível abrir o vídeo. Tente novamente.'); } }
     });
     await replacements.current;
-  }, [persist, player]);
+  }, [persist, player, syncSourceState]);
 
   const startMiniPlayer = useCallback((next: MiniPlayerContent) => {
     if (current.current && current.current.content.id === next.id && (!next.lessonId || current.current.content.lessonId === next.lessonId)) setVisible(true);
@@ -148,8 +174,16 @@ export function MiniPlayerProvider({ children }: PropsWithChildren) {
   }, [player]);
 
   useEffect(() => {
+    const confirmSource = (source: VideoSource) => {
+      const load = sourceLoad.current;
+      if (!load?.started || !load.url || sourceUrl(source) !== load.url || load.revision !== revision.current || !current.current || current.current.owner !== ownerRef.current) return;
+      load.confirmed = true;
+      syncSourceState();
+    };
     const subscriptions = [
-      player.addListener('statusChange', event => { setStatus(event.status); setError(event.error ? 'Não foi possível reproduzir este vídeo.' : null); setDuration(player.duration || 0); }),
+      player.addListener('sourceChange', event => confirmSource(event.source)),
+      player.addListener('sourceLoad', event => confirmSource(event.videoSource)),
+      player.addListener('statusChange', () => syncSourceState()),
       player.addListener('playingChange', event => { if (event.isPlaying && requiresPlayAfterBackground.current) { player.pause(); setPlaying(false); return; } setPlaying(event.isPlaying); if (!event.isPlaying) { current.current?.tracker.discontinuity(); void flush(); } }),
       player.addListener('timeUpdate', event => {
         const session = current.current;
@@ -164,8 +198,8 @@ export function MiniPlayerProvider({ children }: PropsWithChildren) {
       AppState.addEventListener('change', state => { if (state !== 'active') { requiresPlayAfterBackground.current = true; player.pause(); current.current?.tracker.discontinuity(); void flush(); } }),
     ];
     return () => { subscriptions.forEach(subscription => subscription.remove()); void flush(); };
-  }, [flush, persist, player]);
+  }, [flush, persist, player, syncSourceState]);
   useEffect(() => { if (current.current && current.current.owner !== user?.id) closeMiniPlayer(); }, [user?.id, closeMiniPlayer]);
 
-  return <MiniPlayerContext.Provider value={{ content, visible, player, playing, position, duration, status, error, watchPercent, completed, realWatchSeconds, qualifiedWatchSeconds, attach, startMiniPlayer, closeMiniPlayer, expand, togglePlay, seek, flush }}>{children}</MiniPlayerContext.Provider>;
+  return <MiniPlayerContext.Provider value={{ content, visible, player, playing, position, duration, status, error, sourceReady, watchPercent, completed, realWatchSeconds, qualifiedWatchSeconds, attach, startMiniPlayer, closeMiniPlayer, expand, togglePlay, seek, flush }}>{children}</MiniPlayerContext.Provider>;
 }

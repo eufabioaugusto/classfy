@@ -392,6 +392,16 @@ export default function WatchScreen() {
 
   const activeVideoUrl = source.url;
   const showPlayableVideo = Boolean(access.hasAccess && activeVideoUrl);
+  const playbackMatchesSource = playback.content?.id === content.id
+    && playback.content?.lessonId === (content.isCourse ? courseLessons.currentLesson?.id : undefined)
+    && playback.content?.fileUrl === activeVideoUrl;
+  const sourcePending = source.loading || Boolean(content.isCourse && courseLessons.loading);
+  const sourceError = source.error || (content.isCourse && courseLessons.error ? 'Não foi possível carregar as aulas. Abra o conteúdo novamente.' : null);
+  // The same cover spans source resolution and native buffering. A native
+  // failure reveals the player's retry action instead of leaving a cover on it.
+  const nativeError = playbackMatchesSource && playback.error;
+  const playerPending = access.hasAccess && (sourcePending || (showPlayableVideo && !nativeError && (!playbackMatchesSource || !playback.sourceReady)));
+  const showPlayerCover = !access.hasAccess || !showPlayableVideo || playerPending || Boolean(sourceError);
   const creatorName = content.creator?.creator_channel_name || content.creator?.display_name || 'Creator Classfy';
   const minimizeThreshold = windowHeight * 0.42;
   const overlayStyle = {
@@ -484,6 +494,7 @@ export default function WatchScreen() {
                       setStudySheetOpen(true);
                     }}
                     onStatusUpdate={handlePlayerStatus}
+                    showLoadingIndicator={false}
                     isFullscreen={isFullscreen}
                     onFullscreenToggle={handleFullscreenToggle}
                     playbackRate={playbackRate}
@@ -502,11 +513,9 @@ export default function WatchScreen() {
                       setStudySheetOpen(true);
                     }}
                   />
-                ) : (
-                  <WatchPlayerPlaceholder poster={content.thumbnail_url} format={formatType(content.content_type, content.isCourse)} locked={!access.hasAccess}
-                    loading={source.loading || Boolean(content.isCourse && courseLessons.loading)}
-                    error={source.error || (content.isCourse && courseLessons.error ? 'Não foi possível carregar as aulas. Abra o conteúdo novamente.' : null)} />
-                )}
+                ) : null}
+                <WatchPlayerPlaceholder visible={showPlayerCover} poster={content.thumbnail_url} format={formatType(content.content_type, content.isCourse)} locked={!access.hasAccess}
+                  loading={playerPending} error={sourceError} />
                 {!isFullscreen && (
                   <View style={styles.dragCapture} pointerEvents="box-none" {...panResponder.panHandlers}>
                     <View style={styles.dragHandle} />
@@ -619,8 +628,7 @@ export default function WatchScreen() {
                           <Ionicons
                             name={isFollowing ? 'person-remove-outline' : 'person-add-outline'}
                             size={14}
-                            color={isFollowing ? colors.text : '#FFF'}
-                            style={{ marginRight: 6 }}
+                            color={isFollowing ? colors.text : colors.background}
                           />
                           <Text style={[styles.followButtonText, isFollowing && styles.followButtonTextActive]}>
                             {isFollowing ? 'Seguindo' : 'Seguir'}
@@ -1417,6 +1425,10 @@ const styles = StyleSheet.create({
   },
   followButton: {
     borderRadius: radius.pill,
+    flexDirection: 'row',
+    gap: 6,
+    minHeight: 44,
+    flexShrink: 0,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     justifyContent: 'center',
@@ -1431,6 +1443,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   followButtonText: {
+    color: colors.background,
     fontSize: typography.caption,
     fontWeight: typography.weightBlack,
   },

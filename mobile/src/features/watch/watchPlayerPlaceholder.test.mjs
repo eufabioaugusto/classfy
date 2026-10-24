@@ -112,3 +112,10 @@ test('an idle missing cover leaves only its format rather than a broken image or
   assert.equal(byType(tree, 'ActivityIndicator').length, 0);
   noFalsePlayer(tree);
 });
+
+for (const state of [{ locked: false, loading: true }, { locked: false, loading: false }, { locked: false, loading: true, error: 'Source failure' }, { locked: true, loading: true, error: 'Private failure' }]) {
+  test(`visible=false removes the entire cover, shade, badge and status: ${JSON.stringify(state)}`, () => {
+    const tree = render({ poster: 'cover.jpg', format: 'Aula', ...state, visible: false });
+    assert.equal(tree, null); assert.equal(nodes(tree).length, 0); assert.deepEqual(text(tree), []);
+  });
+}
