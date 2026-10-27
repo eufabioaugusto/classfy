@@ -129,7 +129,7 @@ export function useStudioSceneDirector(options: DirectorOptions) {
   const state = options.state, recording = state.phase === 'recording', unavailable = !!options.blocked || !['ready', 'recording'].includes(state.phase);
   const level = state.levels[0], average = !state.microphoneEnabled || !level ? -60 : Math.max(-60, Math.min(0, level.averageDb));
   const portal = target && createPortal(<section className="se-director" aria-label="Controle flutuante de gravação" onKeyDown={shortcut}>
-    <header><span><img src={`${window.location.origin}/brand/classfy-simbolo-vermelho.svg`} alt="" width="22" height="22" /> <strong>Prévia flutuante</strong></span><button type="button" className="se-director-close" aria-label="Fechar controle flutuante" title="Fechar esta janela mantém a gravação" onClick={close}><X size={17} /></button></header>
+    <header><span><img src={`${window.location.origin}/brand/classfy-icone-principal.svg`} alt="" width="22" height="22" /> <strong>Prévia flutuante</strong></span><button type="button" className="se-director-close" aria-label="Fechar controle flutuante" title="Fechar esta janela mantém a gravação" onClick={close}><X size={17} /></button></header>
     <div className="se-director-status"><span className={recording ? 'is-recording' : ''}><Circle size={8} fill="currentColor" />{recording ? 'GRAVANDO' : 'PRONTO PARA GRAVAR'}</span><time>{time(state.elapsed)}</time></div>
     <div className="se-director-preview">
       <DirectorPreview stream={preview === 'camera' ? state.cameraPreviewStream ?? null : state.stream}

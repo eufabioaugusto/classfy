@@ -1,12 +1,17 @@
-# Identidade Classfy — asa/play
+# Identidade Classfy
 
-- [Pacote completo v1](classfy-asa-play-v1.zip): SVGs, PNGs, fonte/licença e prancha.
-- [Guia original da entrega](asa-play-v1.md): construção, cores, tamanhos e pesquisa preliminar. Descreve o estado anterior à integração no produto.
-- Arquivo utilizado pela interface: `public/brand/classfy-simbolo-vermelho.svg`.
-- Componente compartilhado: `src/components/ClassfyLogo.tsx`.
+## Ícone principal — 27/10/2026
 
-Integrado em 10/10/2026 ao logo da barra lateral e do header mobile. A versão recolhida mostra apenas o símbolo. O nome mantém a tipografia existente do produto. O pacote arquivado contém também uma composição em Inter ExtraBold para usos externos.
+Arquivo final enviado e aprovado pelo Fabio: `Classfy_Icone_Principal.svg`.
 
-Não alterar a geometria do SVG de forma independente das futuras versões do pacote.
+- Runtime: `public/brand/classfy-icone-principal.svg`, cópia exata do original.
+- Proporção: 1200×900 (4:3); retângulo inteiro e sorriso branco.
+- Cor do arquivo aprovado: **#F24B62**. Os tokens da interface permanecem #EF5066; esta entrega substitui o ícone, sem redefinir a paleta da interface.
+- Navegação: `src/components/ClassfyLogo.tsx`, compartilhado pela barra lateral e header mobile.
+- Studio, checkout e player flutuante usam o mesmo ícone.
+- Favicon SVG explícito e ICO de compatibilidade derivados do mesmo vetor.
+- O caminho antigo `public/brand/classfy-simbolo-vermelho.svg` também serve o novo arquivo para compatibilidade.
 
-Vermelho oficial atualizado para **#EF5066**, por definição do Fabio. Pacote e SVG de runtime sincronizados. Os estilos usam os tokens `--brand-red`, `--brand-red-rgb` e `--brand-red-hsl` de `src/index.css`.
+## Histórico — asa/play
+
+O ícone anterior foi substituído. Entrega histórica preservada no [pacote v1](classfy-asa-play-v1.zip) e no [guia original](asa-play-v1.md).

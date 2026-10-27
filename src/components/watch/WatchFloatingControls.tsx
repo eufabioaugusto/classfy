@@ -97,7 +97,7 @@ export function WatchFloatingControls({ media, title, creator, poster, audioOnly
 
   return <section className={`cf-watch-floating${audioOnly ? ' cf-watch-floating--audio' : ''}${state.paused ? ' cf-watch-floating--paused' : ''}${error ? ' cf-watch-floating--error' : ''}`} aria-label="Mini player Classfy" onKeyDown={keyboard}>
     <header className="cf-watch-floating-header">
-      <span className="cf-watch-floating-brand"><img src={`${window.location.origin}/brand/classfy-simbolo-vermelho.svg`} alt="" width="18" height="18" /><span>Classfy</span></span>
+      <span className="cf-watch-floating-brand"><img src={`${window.location.origin}/brand/classfy-icone-principal.svg`} alt="" width="18" height="18" /><span>Classfy</span></span>
       <div className="cf-watch-floating-window-actions">
         <button type="button" onClick={onReturn} aria-label="Voltar ao Watch" title="Voltar ao Watch"><ArrowUpRight size={16} aria-hidden="true" /></button>
         <button type="button" onClick={onClose} aria-label="Fechar mini player" title="Fechar mini player"><X size={16} aria-hidden="true" /></button>

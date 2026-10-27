@@ -99,7 +99,7 @@ function ReturnedPaymentDialog({ payment, isCurrent, onActive, onClose }: { paym
   return <Dialog.Root open onOpenChange={open => { if (!open) close(); }}><Dialog.Portal container={container ?? undefined}>
     <Dialog.Overlay className="sc-checkout-overlay" />
     <Dialog.Content className="sc-checkout-dialog" onPointerDownOutside={event => event.preventDefault()} onEscapeKeyDown={event => { event.preventDefault(); close(); }} onKeyDownCapture={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } }}>
-      <header className="sc-checkout-header"><img src="/brand/classfy-simbolo-vermelho.svg" alt="Classfy" width="30" height="30" /><div><span>CLASSFY · PAGAMENTO</span><Dialog.Title>{title}</Dialog.Title></div><button className="sc-checkout-close" type="button" aria-label="Fechar verificação do pagamento" onClick={close}><X size={19} /></button></header>
+      <header className="sc-checkout-header"><img src="/brand/classfy-icone-principal.svg" alt="Classfy" width="30" height="30" /><div><span>CLASSFY · PAGAMENTO</span><Dialog.Title>{title}</Dialog.Title></div><button className="sc-checkout-close" type="button" aria-label="Fechar verificação do pagamento" onClick={close}><X size={19} /></button></header>
       <Dialog.Description className="sc-checkout-description">Verificamos com o servidor o pagamento que você já iniciou.</Dialog.Description>
       <section className={active ? 'sc-checkout-result' : 'sc-checkout-status'} role="status">
         {busy ? <Loader2 size={30} className="sc-checkout-spin" /> : active ? <CheckCircle2 size={42} /> : <ShieldCheck size={30} />}

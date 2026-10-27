@@ -10,7 +10,7 @@ export function ClassfyLogo({ compact = false, className, symbolClassName }: Cla
   return (
     <span className={cn("inline-flex shrink-0 items-center gap-3", className)}>
       <img
-        src="/brand/classfy-simbolo-vermelho.svg"
+        src="/brand/classfy-icone-principal.svg"
         alt=""
         width={28}
         height={28}
