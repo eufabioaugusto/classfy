@@ -8,7 +8,7 @@ interface ClassfyLogoProps {
 
 export function ClassfyLogo({ compact = false, className, symbolClassName }: ClassfyLogoProps) {
   return (
-    <span className={cn("inline-flex shrink-0 items-center gap-3", className)}>
+    <span className={cn("inline-flex shrink-0 items-center gap-2", className)}>
       <img
         src="/brand/classfy-icone-principal.svg"
         alt=""
