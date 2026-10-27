@@ -75,7 +75,10 @@ export function GlobalClassy() {
   useEffect(() => { restoredStudy.current = null; setOpen(false); setSelected(""); setDraft(""); setMessages([]); setSavedNotes(new Set()); setReferences([]); setStudyMode(undefined); setTarget(undefined); setSources([]); cancelDictation(); }, [user?.id, cancelDictation]);
   useEffect(() => { if (!selected && activeStudies.length) setSelected(activeStudies[0].id); }, [activeStudies, selected]);
   useEffect(() => {
-    if (!open || !studyId || !user?.id) return;
+    if (!open || !studyId || !user?.id) {
+      setHistoryLoading(false);
+      return;
+    }
     let cancelled = false;
     const load = async () => {
       setHistoryLoading(true);
