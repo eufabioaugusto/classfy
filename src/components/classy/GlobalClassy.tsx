@@ -12,53 +12,9 @@ import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { supabase } from "@/integrations/supabase/client";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { toast } from "sonner";
+import { ClassyAvatar, type ClassyAvatarState } from "./ClassyAvatar";
 import "./global-classy.css";
 
-function ClassyAvatar() {
-  const avatar = useRef<SVGSVGElement>(null);
-
-  useEffect(() => {
-    const element = avatar.current;
-    if (!element || !window.matchMedia("(pointer: fine)").matches || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    const followPointer = (event: PointerEvent) => {
-      const bounds = element.getBoundingClientRect();
-      const dx = event.clientX - (bounds.left + bounds.width / 2);
-      const dy = event.clientY - (bounds.top + bounds.height / 2);
-      const proximity = Math.max(0, 1 - Math.hypot(dx, dy) / 220);
-      const lookX = Math.max(-1, Math.min(1, dx / 45)) * 3 * proximity;
-      const lookY = Math.max(-1, Math.min(1, dy / 45)) * 2 * proximity;
-      element.style.setProperty("--classy-look-x", `${lookX.toFixed(2)}px`);
-      element.style.setProperty("--classy-look-y", `${lookY.toFixed(2)}px`);
-    };
-
-    window.addEventListener("pointermove", followPointer, { passive: true });
-    return () => window.removeEventListener("pointermove", followPointer);
-  }, []);
-
-  return (
-    <svg ref={avatar} viewBox="0 0 64 64" aria-hidden="true" className="classy-avatar">
-      {/* A curious guide: expressive glasses and a balanced, rounded silhouette. */}
-      <path d="M33 5C18 5 8 15 8 31v11c0 12 11 18 25 18s25-6 25-18V31C58 15 48 5 33 5Z" fill="#30203e"/>
-      <path d="M33 11C22 11 13 19 13 31v11c0 9 9 15 20 15s20-6 20-15V31C53 19 44 11 33 11Z" fill="#fff7ef"/>
-      <path d="M9 30C9 14 18 6 33 6s24 8 24 24l-4-3c-9-1-16-7-20-11-3 7-10 12-20 13Z" fill="#30203e"/>
-      <path d="M34 10c7 1 12 4 15 9" fill="none" stroke="#674270" strokeWidth="2.5" strokeLinecap="round"/>
-      <path d="M8 33c0-6 4-10 11-10s10 5 14 5 7-5 14-5 11 4 11 10-4 12-11 12-10-7-14-7-7 7-14 7S8 39 8 33Z" fill="var(--brand-red)"/>
-      <g className="classy-avatar-eyes">
-        <ellipse cx="20" cy="33" rx="8" ry="8.5" fill="white"/>
-        <ellipse cx="46" cy="33" rx="8" ry="8.5" fill="white"/>
-        <g className="classy-avatar-gaze">
-          <ellipse cx="21" cy="33" rx="4.5" ry="5.5" fill="#30203e"/>
-          <ellipse cx="45" cy="33" rx="4.5" ry="5.5" fill="#30203e"/>
-          <circle cx="23" cy="30" r="2" fill="white"/>
-          <circle cx="47" cy="30" r="2" fill="white"/>
-        </g>
-      </g>
-      <path d="M13 27q7-5 13 0M40 27q7-5 13 0" fill="none" stroke="var(--brand-red)" strokeWidth="2" strokeLinecap="round"/>
-      <path d="M28 47q5 5 10-1" fill="none" stroke="#30203e" strokeWidth="2.5" strokeLinecap="round"/>
-    </svg>
-  );
-}
 export function GlobalClassy() {
   const { user } = useAuth();
   const location = useLocation();
@@ -96,6 +52,12 @@ export function GlobalClassy() {
   const [busy, setBusy] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [savedNotes, setSavedNotes] = useState<Set<string>>(new Set());
+  const [celebrating, setCelebrating] = useState(false);
+  useEffect(() => {
+    if (!celebrating) return;
+    const timer = window.setTimeout(() => setCelebrating(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [celebrating]);
   const { status: voiceStatus, toggle: dictate, cancel: cancelDictation } = useClassyDictation(text => setDraft(previous => `${previous} ${text}`.trim()));
   const voiceActive = voiceStatus !== "idle";
   const listening = voiceStatus === "recording";
@@ -180,7 +142,7 @@ export function GlobalClassy() {
   async function saveNote(message: StudyMessage) {
     if (!user || busy || savedNotes.has(message.id)) return;
     const { error } = await supabase.from("study_notes").insert({ study_id: message.study_id, user_id: user.id, note_text: message.content, content_id: message.metadata?.context_sources?.find((source: { contentId?: string }) => source.contentId)?.contentId || null, timestamp_seconds: null });
-    if (error) toast.error("Não foi possível salvar a anotação."); else { setSavedNotes(previous => new Set(previous).add(message.id)); toast.success("Resposta salva nas anotações do estudo."); window.dispatchEvent(new CustomEvent("classfy:study-note-updated", { detail: { studyId: message.study_id } })); }
+    if (error) toast.error("Não foi possível salvar a anotação."); else { setCelebrating(true); setSavedNotes(previous => new Set(previous).add(message.id)); toast.success("Resposta salva nas anotações do estudo."); window.dispatchEvent(new CustomEvent("classfy:study-note-updated", { detail: { studyId: message.study_id } })); }
   }
   async function generateTranscript(source: typeof sources[number]) {
     setGenerating(source.id);
@@ -198,14 +160,16 @@ export function GlobalClassy() {
     if (/(?:^|\s)\/$/.test(value)) { setDraft(value.replace(/\/$/, "")); setMenu("modes"); return; }
     setDraft(value);
   }
+  const avatarState: ClassyAvatarState = busy || historyLoading || generating ? "thinking"
+    : celebrating ? "happy" : open || draft.trim() ? "attentive" : "idle";
   if (hidden) return null;
   return <div className={`classy-global ${routeStudy ? "classy-global--study" : ""} ${player.isVisible ? "classy-global--player" : ""}`}>
     {open && !voiceActive && <section className="classy-panel" role="dialog" aria-modal="false" aria-label="Assistente Classy">
-      <header className="classy-panel-header"><ClassyAvatar/><div><strong>Classy</strong><small>Seu espaço para aprender</small></div><button aria-label="Fechar Classy" onClick={() => setOpen(false)}><X size={19}/></button></header>
+      <header className="classy-panel-header"><ClassyAvatar state={avatarState}/><div><strong>Classy</strong><small>Seu espaço para aprender</small></div><button aria-label="Fechar Classy" onClick={() => setOpen(false)}><X size={19}/></button></header>
       <div className="classy-context"><span>Com você em · {pageName}</span><div><select aria-label="Estudo da conversa" value={studyId} disabled={!!routeStudy || busy || loading} onChange={event => setSelected(event.target.value)}><option value="">Escolha um estudo</option>{activeStudies.map(study => <option key={study.id} value={study.id}>{study.title}</option>)}</select><button aria-label="Abrir estudo" disabled={!studyId} onClick={() => navigate(`/c/${studyId}`)}><ExternalLink size={16}/></button></div></div>
       {sources.length > 0 && <div className="classy-sources" aria-label="Fontes usadas na resposta">{sources.map(source => <div key={`${source.type}:${source.id}`}><span>{source.title} · {source.transcriptAvailable === undefined ? "Contexto conectado" : source.transcriptAvailable ? "Transcrição conectada" : "Sem transcrição"}</span>{source.transcriptAvailable === false && (source.contentId || source.type === "lesson") && <button disabled={!!generating} onClick={() => generateTranscript(source)}>{generating === source.id ? "Preparando…" : "Gerar transcrição"}</button>}</div>)}</div>}
       <div className="classy-messages" aria-busy={busy || historyLoading}>
-        {historyLoading ? <p className="classy-empty">Carregando conversa…</p> : messages.length === 0 && <div className="classy-empty"><ClassyAvatar/><h2>Vamos descobrir algo?</h2><p>Escolha um estudo e me conte o que quer entender. Sua conversa e suas anotações ficam juntas.</p><button className="classy-create" disabled={!canCreateMore} onClick={newStudy}><Plus size={16}/> Criar um estudo</button></div>}
+        {historyLoading ? <p className="classy-empty">Carregando conversa…</p> : messages.length === 0 && <div className="classy-empty"><ClassyAvatar state={avatarState}/><h2>Vamos descobrir algo?</h2><p>Escolha um estudo e me conte o que quer entender. Sua conversa e suas anotações ficam juntas.</p><button className="classy-create" disabled={!canCreateMore} onClick={newStudy}><Plus size={16}/> Criar um estudo</button></div>}
         {messages.filter(message => message.role !== "system").map(message => <article key={message.id} className={`classy-message classy-message--${message.role}`}><ChatMessage role={message.role} content={message.content}/>{message.role === "assistant" && <button className="classy-save" disabled={savedNotes.has(message.id)} onClick={() => saveNote(message)}><BookmarkPlus size={14}/> {savedNotes.has(message.id) ? "Anotação salva" : "Salvar anotação"}</button>}</article>)}
         {busy && <p role="status" className="classy-thinking"><Loader2 size={15} className="animate-spin"/> Classy está pensando…</p>}<div ref={bottom}/>
       </div>
@@ -230,7 +194,7 @@ export function GlobalClassy() {
         </div>
         {listening && <button type="button" aria-label="Parar ditado" className="classy-listening" onClick={dictate}><Square size={17} fill="currentColor"/></button>}
       </> : <>
-      <button type="button" aria-label="Conversar com a Classy" onClick={() => setOpen(!open)}><ClassyAvatar/></button>
+      <button type="button" aria-label="Conversar com a Classy" onClick={() => setOpen(!open)}><ClassyAvatar state={avatarState}/></button>
       <input ref={input} aria-label="Mensagem para Classy" placeholder="Aprender com a Classy" value={draft} maxLength={4000} onChange={event => updateDraft(event.target.value)}/>
       <button type="button" aria-label="Ações da Classy" aria-expanded={actions} onClick={() => setActions(!actions)}>{actions ? <X size={18}/> : <Plus size={20}/>}</button>
       <button type="button" aria-label={listening ? "Parar ditado" : voiceStatus === "transcribing" ? "Transcrevendo áudio" : voiceStatus === "starting" ? "Abrindo microfone" : "Ditar mensagem"} disabled={voiceBusy || busy} aria-pressed={listening} className={listening ? "classy-listening" : ""} onClick={() => { setMenu(null); void dictate(); }}>{voiceBusy ? <Loader2 size={19} className="animate-spin"/> : <AudioLines size={19}/>}</button>

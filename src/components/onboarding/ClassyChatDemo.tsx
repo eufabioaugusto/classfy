@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowUp, Check, Sparkles } from "lucide-react";
+import { ClassyAvatar } from "@/components/classy/ClassyAvatar";
 
 type Props = {
   name: string;
@@ -33,7 +34,7 @@ export function ClassyChatDemo({ name, actions, busy, onStudy }: Props) {
     <section className="ob-classy-chat" aria-label="Conversa com a Classy">
       <header className="ob-classy-chat-header">
         <span className="ob-classy-chat-avatar">
-          <Sparkles />
+          <ClassyAvatar state={busy || typing ? "thinking" : "idle"} />
         </span>
         <div>
           <strong>Classy</strong>

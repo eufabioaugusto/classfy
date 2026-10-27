@@ -1721,3 +1721,7 @@
 .ob-plan-invite b { display: inline-flex; align-items: center; gap: 8px; color: var(--ob-red); font-size: 12px; font-weight: 600; }
 @media (max-width: 640px) { .ob-stage.ob-stage--complete { padding-top: 12px; } .ob-success-medal { width: 160px; height: 125px; } .ob-plan-invite strong { font-size: 17px; } }
 @media (prefers-reduced-motion: reduce) { .ob-success-medal { animation: none; } }
+
+/* A mesma Classy da barra, dentro do espaço já reservado no onboarding. */
+.ob-classy-chat-avatar:has(.classy-avatar){background:transparent;box-shadow:none}
+.ob-classy-chat-avatar .classy-avatar{width:40px;height:40px}

@@ -1,0 +1,9 @@
+.classy-avatar{display:inline-block;width:32px;height:32px;flex-shrink:0;vertical-align:middle;overflow:visible}
+.classy-avatar-eyes{transform-box:fill-box;transform-origin:center;animation:classy-blink 7s ease-in-out infinite}
+.classy-avatar-gaze{transform:translate(var(--classy-look-x,0px),var(--classy-look-y,0px));transition:transform 140ms ease-out}
+.classy-avatar[data-state="happy"] .classy-avatar-eyes{animation:none}
+.classy-avatar[data-state="happy"] .classy-avatar-smile{transform-box:fill-box;transform-origin:center;transform:scaleY(1.1)}
+.classy-avatar-speaking-mouth{transform-box:fill-box;transform-origin:center;animation:classy-speaking 700ms ease-in-out infinite}
+@keyframes classy-blink{0%,89%,92%,100%{transform:scaleY(1)}90%,91%{transform:scaleY(.08)}}
+@keyframes classy-speaking{0%,100%{transform:scaleY(.72)}35%{transform:scaleY(1)}70%{transform:scaleY(.85)}}
+@media(prefers-reduced-motion:reduce){.classy-avatar-eyes,.classy-avatar-speaking-mouth{animation:none}.classy-avatar-gaze{transition:none}}
