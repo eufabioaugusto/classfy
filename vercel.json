@@ -1,4 +1,5 @@
 {
+  "installCommand": "ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm install",
   "rewrites": [
     { "source": "/privacidade", "destination": "/legal/privacidade.html" },
     { "source": "/privacidade/", "destination": "/legal/privacidade.html" },
