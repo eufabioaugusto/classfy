@@ -1,3 +1,4 @@
+import { loadStudioCustomFont, studioBrowserFont } from './studioFonts';
 import { ALL_FORMATS, AudioBufferSink, BlobSource, CanvasSink, Input, type WrappedCanvas } from 'mediabunny';
 import { assertStudioRenderFeatures, studioGrade, validateStudioRecipe, type StudioEnhancement, type StudioGrade, type StudioRecipeClip, type StudioRenderRecipe } from '../../../../shared/studio';
 import { studioEnhancementPixel } from '../../../../shared/studio/autoEnhance';
@@ -18,7 +19,7 @@ export type StudioRenderer = {
   subscribe(listener: (state: StudioRendererState) => void): () => void;
 };
 const clamp = (value: number, low = 0, high = 1) => Math.max(low, Math.min(high, value));
-export const STUDIO_WEB_RENDER_FEATURES = ['enhancement-v1', 'portrait-v1', 'portrait-v2', 'cinematic-signature-v1'] as const;
+export const STUDIO_WEB_RENDER_FEATURES = ['enhancement-v1', 'portrait-v1', 'portrait-v2', 'cinematic-signature-v1', 'shape-mask-v1', 'text-layout-v1'] as const;
 /** O texto segue os pixels físicos do palco; o vídeo tratado tem um orçamento separado. */
 export function studioPreviewRasterSize(output: { width: number; height: number }, viewport: { width: number; height: number }, dpr = 1, fallbackMaxDimension = 1080) {
   const physicalScale = viewport.width > 0 && viewport.height > 0 && Number.isFinite(dpr) && dpr > 0
@@ -197,13 +198,20 @@ export class StudioRenderKernel {
     return reader.current.canvas;
   }
   private text(clip: StudioRecipeClip, width: number, height: number, progress: number): HTMLCanvasElement {
-    const style = clip.text!; const content = style.animation === 'typewriter' ? graphemes(style.content).slice(0, Math.floor(graphemes(style.content).length * progress)).join('') : style.content;
+    const style = clip.text!;
+    let fullText = style.showPunctuation === false ? style.content.replace(/\p{P}/gu, '') : style.content;
+    if (style.casing === 'upper') fullText = fullText.toLocaleUpperCase('pt-BR');
+    if (style.casing === 'lower') fullText = fullText.toLocaleLowerCase('pt-BR');
+    if (style.casing === 'title') fullText = fullText.toLocaleLowerCase('pt-BR').replace(/(^|[^\p{L}\p{M}])(\p{L})/gu, (_, space: string, letter: string) => space + letter.toLocaleUpperCase('pt-BR'));
+    const allClusters = graphemes(fullText);
+    const content = style.animation === 'typewriter' ? allClusters.slice(0, Math.floor(allClusters.length * progress)).join('') : fullText;
     const key = JSON.stringify([style, width, height, content]); const cached = this.textCache.get(key); if (cached) return cached;
     const canvas = studioCanvas(width, height), ctx = canvas.getContext('2d')!;
     const fontSize = Math.max(1, style.fontSize * this.recipe.output.height * height / Math.max(1, Math.round(clip.rect.height * this.recipe.output.height)));
     const font = studioBrowserFont(style.fontFamily); ctx.font = `${fontSize}px ${font}`; ctx.textBaseline = 'middle';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${fontSize * (style.letterSpacing ?? 0)}px`;
     const inset = Math.min(8 * height / Math.max(1, clip.rect.height * this.recipe.output.height), width / 8, height / 8), available = Math.max(1, width - inset * 2);
-    const lines = wrapStudioText(ctx, style.content, available), lineHeight = fontSize * 1.2;
+    const lines = wrapStudioText(ctx, fullText, available), lineHeight = fontSize * (style.lineHeight ?? 1.2);
     const top = (height - lines.length * lineHeight) / 2 + lineHeight / 2;
     const secondary = style.secondaryColor ?? '#000000', inverse = style.decoration?.endsWith('inverse');
     const fill = inverse ? secondary : style.color, decoration = inverse ? style.color : secondary;
@@ -225,7 +233,13 @@ export class StudioRenderKernel {
         else { ctx.fillText(visible,x,y); if (effect === 'neon') { ctx.lineWidth = Math.max(1,fontSize*.045); ctx.strokeStyle = fill; ctx.strokeText(visible,x,y); } }
         ctx.restore();
       }
-      if (style.decoration?.startsWith('outline')) { ctx.strokeStyle = decoration; ctx.lineWidth = Math.max(1, fontSize * .08); ctx.lineJoin = 'round'; ctx.strokeText(visible, x, y); }
+      if (style.decoration?.startsWith('outline') && style.outlineWidth !== 0) {
+        ctx.save();
+        ctx.globalAlpha = style.outlineOpacity ?? 1;
+        ctx.strokeStyle = decoration; ctx.lineWidth = Math.max(1, fontSize * (style.outlineWidth ?? .08)); ctx.lineJoin = 'round';
+        ctx.strokeText(visible, x, y);
+        ctx.restore();
+      }
       ctx.fillText(visible, x, y);
     });
     // Typewriter has a finite, byte-bounded LRU. Long lessons never retain every raster.
@@ -275,7 +289,13 @@ export class StudioRenderKernel {
       ctx.save(); ctx.globalAlpha = pose.alpha;
       ctx.translate((clip.rect.x + clip.rect.width / 2 + pose.x * clip.rect.width) * canvas.width, (clip.rect.y + clip.rect.height / 2 + pose.y * clip.rect.height) * canvas.height);
       ctx.rotate(clip.rotationDegrees * Math.PI / 180); ctx.scale(pose.scale * (clip.flipHorizontal ? -1 : 1), pose.scale * (clip.flipVertical ? -1 : 1));
-      if (clip.fit === 'cover') { ctx.beginPath(); ctx.rect(-width / 2, -height / 2, width, height); ctx.clip(); }
+      if (clip.fit === 'cover' || clip.mask && clip.mask !== 'none') {
+        ctx.beginPath();
+        if (clip.mask === 'ellipse') ctx.ellipse(0, 0, width / 2, height / 2, 0, 0, 2 * Math.PI);
+        else if (clip.mask === 'rounded') ctx.roundRect(-width / 2, -height / 2, width, height, Math.min(width, height) * .12);
+        else ctx.rect(-width / 2, -height / 2, width, height);
+        ctx.clip();
+      }
       ctx.drawImage(source, fit.x - width / 2, fit.y - height / 2, fit.width, fit.height); ctx.restore();
     }
   }
@@ -345,10 +365,16 @@ function graphemes(text: string): string[] {
   const Segmenter = (Intl as unknown as { Segmenter?: new (locale?: string, options?: { granularity: string }) => { segment(value: string): Iterable<{ segment: string }> } }).Segmenter;
   return Segmenter ? [...new Segmenter('pt-BR', { granularity: 'grapheme' }).segment(text)].map(v => v.segment) : Array.from(text);
 }
-export function studioBrowserFont(font: string) {
-  const aliases: Record<string, string> = { 'System': 'system-ui, sans-serif', 'HelveticaNeue': 'Arial, sans-serif', 'HelveticaNeue-Bold': 'Arial, sans-serif', 'TimesNewRomanPSMT': '"Times New Roman", serif', 'CourierNewPSMT': '"Courier New", monospace', 'Georgia': 'Georgia, serif' };
-  return aliases[font] ?? `"${font.replace(/["\\]/g, '')}", sans-serif`;
+async function prepareStudioPreviewFonts(recipe: { clips: readonly StudioRecipeClip[] }) {
+  const families = new Set(recipe.clips.flatMap(clip => clip.text ? [clip.text.fontFamily] : []));
+  await Promise.all([...families].map(async family => {
+    try {
+      await loadStudioCustomFont(family);
+      await document.fonts?.load(`16px ${studioBrowserFont(family)}`);
+    } catch { /* The preview remains available with the system fallback. */ }
+  }));
 }
+export { studioBrowserFont } from './studioFonts';
 export function wrapStudioText(ctx: Pick<CanvasRenderingContext2D, 'measureText'>, content: string, width: number): string[] {
   const lines: string[] = [];
   for (const paragraph of content.split('\n')) {
@@ -439,6 +465,7 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
   if (typeof ResizeObserver !== 'undefined') resizeObserver = new ResizeObserver(refreshSize);
   observeCanvas(); window.addEventListener('resize', refreshSize);
   const visibility = () => { if (document.visibilityState !== 'visible') pause(); }; document.addEventListener('visibilitychange',visibility);
+  let recipeVersion = 0;
   const engine: StudioRenderer = {
     preparePortrait(signal) { return portraits.prepare(signal); },
     prepareSignature(signal) { return signatures.prepare(signal); },
@@ -474,13 +501,13 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
       })().catch(error => { if (closed || generation !== epoch) return; publish({playing:false,loading:false,error:String(error.message ?? error)}); throw error; }).finally(() => { if (playWork === task) playWork = null; });
       playWork = task; return task;
     },
-    async setRecipe(next) { const resume = state.playing && previewEnd === undefined, current = position(); pause(); const replacement = new StudioRenderKernel(next,resolveAsset,undefined,portraits,signatures); kernel.dispose(); kernel = replacement; const seeking = seek(Math.min(current,duration())), generation = epoch; await seeking; if (resume && !closed && generation === epoch) await engine.play(playbackRate); },
+    async setRecipe(next) { const version = ++recipeVersion; await prepareStudioPreviewFonts(next); if (closed || version !== recipeVersion) return; const resume = state.playing && previewEnd === undefined, current = position(); pause(); const replacement = new StudioRenderKernel(next,resolveAsset,undefined,portraits,signatures); kernel.dispose(); kernel = replacement; const seeking = seek(Math.min(current,duration())), generation = epoch; await seeking; if (resume && !closed && generation === epoch) await engine.play(playbackRate); },
     dispose() { if (closed) return; pause(); closed=true; epoch++; cancelAnimationFrame(resizeFrame); resizeObserver?.disconnect(); window.removeEventListener('resize',refreshSize); kernel.dispose(); portraits.dispose(); signatures.dispose(); listeners.clear(); document.removeEventListener('visibilitychange',visibility); void context?.close(); staging.width=1; staging.height=1; },
     subscribe(listener) { listeners.add(listener); listener({ ...state }); return () => listeners.delete(listener); },
   };
   try {
     // Font resolution is frozen before first frame. Preview and export use the same browser fallback.
-    await Promise.all(kernel.recipe.clips.filter(c => c.text).map(c => document.fonts?.load(`16px ${studioBrowserFont(c.text!.fontFamily)}`).catch(() => [])));
+    await prepareStudioPreviewFonts(kernel.recipe);
     if (bound) await seek(0); return engine;
   } catch (error) { engine.dispose(); throw error; }
 }

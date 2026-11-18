@@ -1,6 +1,6 @@
 import {
   addStudioLayerItem, applyStudioLayerTimelineRange, compileStudioRecipe, createStudioEditingHistory, createStudioTextItem,
-  deriveStudioTakes, duplicateStudioLayer, duplicateStudioTake, locateStudioTime, moveStudioLayerItemToLane, moveStudioTake,
+  deriveStudioTakes, duplicateStudioLayer, extractStudioClipAudio, duplicateStudioTake, locateStudioTime, moveStudioLayerItemToLane, moveStudioTake,
   patchStudioClipGrade, patchStudioClipEnhancement, patchStudioClipPortrait, patchStudioClipSignature, patchStudioClipProperties, patchStudioLayerItem, reconcileStudioTakes, removeStudioLayerItem,
   removeStudioTake, setStudioLayerHidden, setStudioLayerMuted, setStudioMainMuted, splitStudioLayer, splitStudioTake,
   studioEditing, studioSeconds, studioTicks, validateStudioEditing, withStudioTakes,
@@ -253,8 +253,11 @@ export function rollStudioBoundary(project: StudioProject, leftId: string, right
   return edit(project, reconcileStudioTakes(project, takes));
 }
 
+export function extractClipAudio(project: StudioProject, id: string, audioId: string): StudioProject {
+  return edit(project, extractStudioClipAudio(studioEditing(project), id, audioId));
+}
 export function patchClip(project: StudioProject, id: string, patch: StudioWebClipPatch): StudioProject {
-  const allowed = new Set(['name', 'rect', 'grade', 'effect', 'text', 'enhancement', 'portrait', 'signature', 'playbackRate', 'flipHorizontal', 'flipVertical', 'opacity', 'gain', 'fadeInTicks', 'fadeOutTicks', 'motion', 'fit', 'rotationDegrees']);
+  const allowed = new Set(['name', 'rect', 'grade', 'effect', 'text', 'enhancement', 'portrait', 'signature', 'playbackRate', 'flipHorizontal', 'flipVertical', 'opacity', 'gain', 'fadeInTicks', 'fadeOutTicks', 'motion', 'fit', 'rotationDegrees', 'mask']);
   if (Object.keys(patch).some(key => !allowed.has(key))) throw new Error('Use uma operação de corte ou movimento para alterar o intervalo do clip.');
   const { name, rect, grade, effect, text: textPatch, enhancement, portrait, signature, ...properties } = patch;
   let editing = studioEditing(project);

@@ -156,7 +156,7 @@ export type StudioPortrait = { version: 1 | 2; strength: number };
 /** Person/background treatment. Geometry and segmentation masks remain transient in the renderer. */
 export type StudioSignature = { version: 1; strength: number; subjectExposure: number; backgroundExposure: number;
   backgroundBlur: number; temperature: number };
-export type StudioRenderFeature = 'enhancement-v1' | 'portrait-v1' | 'portrait-v2' | 'cinematic-signature-v1';
+export type StudioRenderFeature = 'enhancement-v1' | 'portrait-v1' | 'portrait-v2' | 'cinematic-signature-v1' | 'shape-mask-v1' | 'text-layout-v1';
 export type StudioPendingTake = {
   id: string; uri: string; name: string; sourceUri?: string; kind?: StudioAssetKind;
   sourceKind?: 'standard' | 'cinematic'; sourceStage?: StudioSourceStage; frameRate?: number; colorSpace?: string;
@@ -173,20 +173,22 @@ export type StudioTextAnimation = 'none' | 'typewriter' | 'pop' | 'bounce' | 'fa
 export type StudioClipMotion = 'none' | 'fade-in' | 'fade-out' | 'zoom-in' | 'pulse' | 'blink';
 export type StudioTextStyle = { content: string; fontFamily: string; fontSize: number; color: string; backgroundColor: string; alignment: 'left' | 'center' | 'right';
   decoration?: StudioTextDecoration; visualEffect?: StudioTextVisualEffect; animation?: StudioTextAnimation;
-  secondaryColor?: string; gradientColors?: [string, string]; animationDurationTicks?: number };
+  letterSpacing?: number; lineHeight?: number; casing?: 'original' | 'upper' | 'lower' | 'title'; showPunctuation?: boolean;
+  outlineWidth?: number; outlineOpacity?: number; secondaryColor?: string; gradientColors?: [string, string]; animationDurationTicks?: number };
 export type StudioAsset = {
   id: string; kind: StudioAssetKind; uri: string; name: string; durationTicks: number;
   width?: number; height?: number; frameRate?: number; thumbnailUri?: string;
   sourceKind?: 'standard' | 'cinematic'; sourceStage?: StudioSourceStage; colorSpace?: string;
   hasAudio?: boolean;
 };
+export type StudioClipMask = 'none' | 'ellipse' | 'rounded';
 export type StudioMainClip = {
   id: string; assetId: string; name?: string; sourceStartTicks: number; sourceEndTicks: number;
   /** Still image hold; temporal originals derive duration from their source range. */
   durationTicks?: number; effect?: StudioEffect; grade?: StudioGrade; gain?: number;
   enhancement?: StudioEnhancement; portrait?: StudioPortrait; signature?: StudioSignature;
   /** Reversible framing of the original within the lesson canvas. */
-  rect?: StudioRect; fit?: 'contain' | 'cover'; rotationDegrees?: number;
+  rect?: StudioRect; fit?: 'contain' | 'cover'; rotationDegrees?: number; mask?: StudioClipMask;
   playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; opacity?: number;
   fadeInTicks?: number; fadeOutTicks?: number; motion?: StudioClipMotion;
   motionOffsetTicks?: number; motionDurationTicks?: number;
@@ -196,7 +198,7 @@ export type StudioLayerAnchor = { clipId: string; offsetTicks?: number; sourceSt
 export type StudioLayerItem = {
   id: string; kind: StudioLayerKind; assetId?: string; atTicks: number; durationTicks: number;
   sourceStartTicks?: number; sourceEndTicks?: number; anchor?: StudioLayerAnchor;
-  rect?: StudioRect; rotationDegrees?: number; fit?: 'contain' | 'cover'; opacity?: number;
+  rect?: StudioRect; rotationDegrees?: number; fit?: 'contain' | 'cover'; opacity?: number; mask?: StudioClipMask;
   gain?: number; fadeInTicks?: number; fadeOutTicks?: number; effect?: StudioEffect; grade?: StudioGrade; text?: StudioTextStyle;
   enhancement?: StudioEnhancement; portrait?: StudioPortrait; signature?: StudioSignature;
   playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; motion?: StudioClipMotion;
@@ -239,7 +241,7 @@ export type StudioEditing = {
 export type StudioRecipeClip = {
   id: string; kind: StudioLayerKind; assetId?: string; startTicks: number; durationTicks: number;
   sourceStartTicks: number; sourceEndTicks: number; zIndex: number; rect: StudioRect;
-  rotationDegrees: number; fit: 'contain' | 'cover'; opacity: number; gain: number;
+  rotationDegrees: number; fit: 'contain' | 'cover'; opacity: number; gain: number; mask?: StudioClipMask;
   fadeInTicks: number; fadeOutTicks: number; effect: StudioEffect; grade?: StudioGrade; text?: StudioTextStyle;
   enhancement?: StudioEnhancement; portrait?: StudioPortrait; signature?: StudioSignature;
   playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; motion?: StudioClipMotion;
@@ -309,7 +311,11 @@ export function studioRequiredFeatures(value: StudioEditing | Pick<StudioRenderR
   return [...(clips.some(clip => (clip.enhancement?.strength ?? 0) > 0) ? ['enhancement-v1' as const] : []),
     ...(clips.some(clip => clip.portrait?.version === 1 && clip.portrait.strength > 0) ? ['portrait-v1' as const] : []),
     ...(clips.some(clip => clip.portrait?.version === 2 && clip.portrait.strength > 0) ? ['portrait-v2' as const] : []),
-    ...(clips.some(clip => (clip.signature?.strength ?? 0) > 0) ? ['cinematic-signature-v1' as const] : [])];
+    ...(clips.some(clip => (clip.signature?.strength ?? 0) > 0) ? ['cinematic-signature-v1' as const] : []),
+    ...(clips.some(clip => !!clip.mask && clip.mask !== 'none') ? ['shape-mask-v1' as const] : []),
+    ...(clips.some(clip => 'text' in clip && clip.text && ((typeof clip.text.fontFamily === 'string' && clip.text.fontFamily.startsWith('StudioFont-')) ||
+      clip.text.letterSpacing || clip.text.lineHeight !== undefined || clip.text.casing && clip.text.casing !== 'original' ||
+      clip.text.showPunctuation === false || clip.text.outlineWidth !== undefined || clip.text.outlineOpacity !== undefined)) ? ['text-layout-v1' as const] : [])];
 }
 /** Call before handing a recipe to a platform renderer; missing support may never produce an untreated export. */
 export function assertStudioRenderFeatures(recipe: StudioRenderRecipe, supported: readonly StudioRenderFeature[]): void {
@@ -352,7 +358,7 @@ export function studioClipDurationTicks(clip: Pick<Partial<StudioMainClip>, 'sou
 }
 const mainDuration = studioClipDurationTicks;
 const studioPropertyKeys = ['playbackRate', 'flipHorizontal', 'flipVertical', 'gain', 'opacity', 'fadeInTicks', 'fadeOutTicks',
-  'motion', 'motionOffsetTicks', 'motionDurationTicks'] as const;
+  'motion', 'motionOffsetTicks', 'motionDurationTicks', 'mask'] as const;
 function studioClipProperties(clip: Partial<StudioMainClip>) {
   const result: Partial<StudioMainClip> = {};
   for (const key of studioPropertyKeys) if (clip[key] !== undefined) Object.assign(result, { [key]: clip[key] });
@@ -591,6 +597,7 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
     if (!validStudioPlaybackRate(clip.playbackRate) || clip.playbackRate !== undefined && !['video', 'audio'].includes(clip.kind)) push('Escolha uma velocidade entre 0,25× e 4× para vídeo ou áudio.');
     if (asset && asset.kind !== 'image' && (!validStudioPlaybackRate(clip.playbackRate) || Math.round((clip.sourceEndTicks - clip.sourceStartTicks) / (clip.playbackRate ?? 1)) !== clip.durationTicks
       || clip.sourceEndTicks > asset.durationTicks + studioTicks(0.05))) push('Revise os cortes dos takes.');
+    if (clip.mask !== undefined && (!['none', 'ellipse', 'rounded'].includes(clip.mask) || !['video', 'image'].includes(clip.kind))) push('Revise a máscara do clipe.');
     if (clip.kind === 'video') { edges.push({ tick: clip.startTicks, delta: 1 }, { tick: clip.startTicks + clip.durationTicks, delta: -1 }); }
     const { rect } = clip;
     if (!rect || ![rect.x, rect.y, rect.width, rect.height, clip.rotationDegrees, clip.opacity, clip.gain].every(Number.isFinite)
@@ -614,6 +621,12 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
     if (text && (text.decoration !== undefined && !textDecorations.includes(text.decoration)
       || text.visualEffect !== undefined && !textVisualEffects.includes(text.visualEffect)
       || text.animation !== undefined && !textAnimations.includes(text.animation)
+      || text.casing !== undefined && !['original', 'upper', 'lower', 'title'].includes(text.casing)
+      || text.showPunctuation !== undefined && typeof text.showPunctuation !== 'boolean'
+      || text.letterSpacing !== undefined && (!Number.isFinite(text.letterSpacing) || Math.abs(text.letterSpacing) > .2)
+      || text.lineHeight !== undefined && (!Number.isFinite(text.lineHeight) || text.lineHeight < .7 || text.lineHeight > 2)
+      || text.outlineWidth !== undefined && (!Number.isFinite(text.outlineWidth) || text.outlineWidth < 0 || text.outlineWidth > .2)
+      || text.outlineOpacity !== undefined && (!Number.isFinite(text.outlineOpacity) || text.outlineOpacity < 0 || text.outlineOpacity > 1)
       || text.secondaryColor !== undefined && !studioColor(text.secondaryColor)
       || text.gradientColors !== undefined && (!Array.isArray(text.gradientColors) || text.gradientColors.length !== 2 || !text.gradientColors.every(studioColor))
       || text.animationDurationTicks !== undefined && (!isTicks(text.animationDurationTicks) || text.animationDurationTicks <= 0))) push('Revise o estilo e a animação do texto.');
@@ -907,7 +920,7 @@ export function patchStudioClipSignature(editing: StudioEditing, id: string, val
 }
 
 export type StudioClipPropertiesPatch = Partial<Pick<StudioMainClip,
-  'playbackRate' | 'flipHorizontal' | 'flipVertical' | 'opacity' | 'gain' | 'fadeInTicks' | 'fadeOutTicks' | 'motion' | 'fit' | 'rotationDegrees'>>;
+  'playbackRate' | 'flipHorizontal' | 'flipVertical' | 'opacity' | 'gain' | 'fadeInTicks' | 'fadeOutTicks' | 'motion' | 'fit' | 'rotationDegrees' | 'mask'>>;
 function validatedStudioEdit(editing: StudioEditing) {
   const issues = validateStudioEditing(editing, 'aula');
   if (issues.length) throw new Error(issues[0]);

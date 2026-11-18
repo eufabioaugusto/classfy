@@ -5,7 +5,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, ChevronDown, Download, Film, Image, Loader2, Mic, Monitor, Music2, Pause, Play, Plus, Redo2, Scissors, SlidersHorizontal, Sparkles, Subtitles, Type, Undo2, Upload, Video, X } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { addCaption, addCaptionTrack, addLayerAsset, addMainAsset, addText, applyClassEdit, classEditTarget, duplicateClip, copyStudioClips, pasteStudioClips, groupStudioClips, patchClip, removeClassEditRetakes, removeClip, setLayerHidden, setLayerMuted, setMainMuted, splitLayerClip, splitMainClip, trimMainClip, trimLayerClip, type StudioWebClipPatch } from '@/lib/studio/editor/commands';
+import { addCaption, addCaptionTrack, addLayerAsset, addMainAsset, addText, applyClassEdit, classEditTarget, duplicateClip, extractClipAudio, copyStudioClips, pasteStudioClips, groupStudioClips, patchClip, removeClassEditRetakes, removeClip, setLayerHidden, setLayerMuted, setMainMuted, splitLayerClip, splitMainClip, trimMainClip, trimLayerClip, type StudioWebClipPatch } from '@/lib/studio/editor/commands';
 import { getAsset, getExport, putAsset, storeExport, studioAssetUri } from '@/lib/studio/editor/storage';
 import { inspectStudioMedia } from '@/lib/studio/editor/media';
 import { readStudioWaveform, type StudioWaveform } from '@/lib/studio/editor/audioEnvelope';
@@ -23,7 +23,7 @@ import { StudioDesktopTimeline, type TimelineTool } from './StudioDesktopTimelin
 import { StudioShortcutPanel } from './StudioShortcutPanel';
 import { studioShortcutFor, type StudioShortcut } from './studioShortcuts';
 import { studioSounds, studioSoundFile } from '@/lib/studio/editor/studioSoundEffects';
-import { StudioDesktopInspector } from './StudioDesktopInspector';
+import { StudioDesktopInspector, type StudioInspectorTrackProperty } from './StudioDesktopInspector';
 import { StudioRecorder } from './StudioRecorder';
 import { useStudioWorkspace } from './useStudioWorkspace';
 import { useStudioExitGuard } from './useStudioExitGuard';
@@ -325,6 +325,59 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       const edited = addCaptionTrack(snapshot, cues, captionStyles[captionStyle].style);
       if (edited === snapshot) { setCaptionNotice('Nenhuma fala identificada no áudio da montagem.'); return; }
       workspace.apply(() => edited);
+      setExportReady(false);
+      await workspace.flush();
+    });
+  };
+  const trackTargets = selectedClip ? recipe?.clips.filter(clip => clip.id !== selectedClip.id && clip.zIndex === selectedClip.zIndex && clip.kind === selectedClip.kind) ?? [] : [];
+  const applyInspectorToTrack = (property: StudioInspectorTrackProperty) => {
+    if (!selectedClip || !trackTargets.length || locked.current || confirmation.current) return;
+    const { text, rect, rotationDegrees, flipHorizontal, flipVertical, fit, opacity } = selectedClip;
+    let patch: StudioWebClipPatch;
+    if (property === 'style' && text) {
+      const { content: _content, ...style } = text;
+      patch = { text: {
+        decoration: undefined, visualEffect: undefined, animation: undefined, animationDurationTicks: undefined,
+        secondaryColor: undefined, gradientColors: undefined, casing: undefined, showPunctuation: undefined,
+        lineHeight: undefined, letterSpacing: undefined, outlineWidth: undefined, outlineOpacity: undefined,
+        ...style,
+      } };
+    } else if (property === 'transform') {
+      patch = { rect, rotationDegrees, flipHorizontal: flipHorizontal ?? false, flipVertical: flipVertical ?? false, fit };
+    } else {
+      patch = { opacity };
+    }
+    try { settle(); } catch { return; }
+    apply(value => trackTargets.reduce((next, target) => patchClip(next, target.id, patch), value));
+  };
+  const canExtractAudio = selectedClip?.kind === 'video' && selectedClip.gain > 0 &&
+    project?.editing?.assets.some(asset => asset.id === selectedClip.assetId && asset.hasAudio === true);
+  const extractSelectedAudio = () => {
+    if (!canExtractAudio || !selectedClip || locked.current || confirmation.current) return;
+    try {
+      settle();
+      const id = crypto.randomUUID();
+      workspace.apply(value => extractClipAudio(value, selectedClip.id, id));
+      setSelected(id);
+      setExportReady(false);
+      setError(null);
+    } catch (cause) { recordError(cause); }
+  };
+  const canRemoveSelectedPauses = premium && !!project?.editing && !!selectedClip && classEditTarget(project)?.clip.id === selectedClip.id;
+  const removeSelectedPauses = () => {
+    if (!canRemoveSelectedPauses || !selectedClip) return;
+    void external('Detectando pausas', async (token, signal) => {
+      const snapshot = workspace.current.current!;
+      const target = classEditTarget(snapshot);
+      if (!target || target.clip.id !== selectedClip.id) return;
+      const file = await getAsset(owner, projectId, target.asset.id);
+      if (!scope(token) || signal.aborted) return;
+      if (!file) throw new Error('O original deste trecho não está disponível neste navegador.');
+      const { clip } = target;
+      const pauses = await findStudioPauses(file, studioSeconds(clip.sourceStartTicks), studioSeconds(clip.sourceEndTicks), signal);
+      if (!scope(token) || signal.aborted) return;
+      if (!pauses.length) throw new Error('Nenhuma pausa longa encontrada neste clipe.');
+      workspace.apply(value => applyClassEdit(value, clip.id, pauses));
       setExportReady(false);
       await workspace.flush();
     });
@@ -773,7 +826,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
         {renderLoading && <div className="se-preview-loading"><Loader2 size={20} className="se-spin" /></div>}
         {!duration && <div className="se-first-media"><Film size={31} strokeWidth={1} /><p>Comece com seu primeiro arquivo</p><button className="se-button" onClick={() => openImport('main')}>Importar mídia</button></div>}
         <div className="se-transport"><button className="se-icon" aria-label={playing ? 'Pausar montagem' : 'Reproduzir montagem'} disabled={blocked || !!recorder || !duration} onClick={toggle}>{playing ? <Pause size={20} /> : <Play size={20} />}</button><span>{formatStudioEditorTime(position)}<i>/</i>{formatStudioEditorTime(duration)}</span><button className="se-icon" aria-label="Dividir no cursor" disabled={!canSplit || blocked} onClick={split}><Scissors size={17} /></button></div>
-      </main></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel id="studio-inspector-panel" order={3} defaultSize={23} minSize={18} maxSize={35}><StudioDesktopInspector comparing={comparing} onCompare={() => { try { settle(); engine.current?.pause(); setComparing(value => !value); } catch { /* Preserve draft on save failure. */ } }} onSignature={engine.current ? applySignature : undefined} onEnhance={improveScene} onPortrait={enablePortrait} clip={selectedClip} disabled={blocked || !!recorder} canSplit={canSplit} outputHeight={recipe.output.height} onDraft={draftPatch} onCommit={() => { try { settle(); } catch { /* keep error visible */ } }} onDuplicate={() => { if (selected) { settle(); apply(value => duplicateClip(value, selected)); } }} onRemove={remove} onSplit={split} /></ResizablePanel>
+      </main></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel id="studio-inspector-panel" order={3} defaultSize={23} minSize={18} maxSize={35}><StudioDesktopInspector owner={owner} onExtractAudio={canExtractAudio ? extractSelectedAudio : undefined} onRemovePauses={canRemoveSelectedPauses ? removeSelectedPauses : undefined} canApplyTrack={trackTargets.length > 0} onApplyTrack={applyInspectorToTrack} comparing={comparing} onCompare={() => { try { settle(); engine.current?.pause(); setComparing(value => !value); } catch { /* Preserve draft on save failure. */ } }} onSignature={engine.current ? applySignature : undefined} onEnhance={improveScene} onPortrait={enablePortrait} clip={selectedClip} disabled={blocked || !!recorder} canSplit={canSplit} outputHeight={recipe.output.height} onDraft={draftPatch} onCommit={() => { try { settle(); } catch { /* keep error visible */ } }} onDuplicate={() => { if (selected) { settle(); apply(value => duplicateClip(value, selected)); } }} onRemove={remove} onSplit={split} /></ResizablePanel>
     </ResizablePanelGroup></div></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel defaultSize={33} minSize={20} maxSize={65}><StudioDesktopTimeline zoomCommand={timelineZoom} loop={loop} onToggleLoop={() => runShortcut('loop')} project={effective} position={position} playing={playing} selectedIds={selection} tool={timelineTool} onTool={setTimelineTool} onSelectMany={selectMany} onBlade={splitAt} disabled={blocked || !!recorder} thumbnails={thumbnails} waveforms={waveforms} onSelect={select} onSeek={value => void seek(value)} onPreview={value => { if (confirmation.current) return; engine.current?.pause(); setPreview(value); }} onCommit={apply} onAdd={() => openImport('main')} onMainMute={() => apply(value => setMainMuted(value, !value.editing!.mainMuted))} onLayerHide={id => apply(value => setLayerHidden(value, id, !value.editing!.layers.find(l => l.id === id)?.hidden))} onLayerMute={id => apply(value => setLayerMuted(value, id, !value.editing!.layers.find(l => l.id === id)?.muted))} /></ResizablePanel></ResizablePanelGroup>
     <input ref={input} className="se-sr" tabIndex={-1} type="file" multiple onChange={e => { const files = Array.from(e.target.files ?? []), pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && files.length && pending?.type === 'media' && scope(pending.token)) void importFiles(files, pending.target, pending.at); }} />
     <input ref={captionsInput} className="se-sr" tabIndex={-1} type="file" accept=".srt,text/plain" onChange={e => { const file = e.target.files?.[0], pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && file && pending?.type === 'captions' && scope(pending.token)) void external('Importando legendas', async (token, signal) => { const cues = parseDesktopCaptions(await file.text()); if (!scope(token) || signal.aborted) return; const current = workspace.current.current!, length = studioSeconds(compileStudioRecipe(current).durationTicks); if (cues.some(c => c.start >= length || c.end > length + .01)) throw new Error('Uma legenda ultrapassa a duração da montagem. Revise o arquivo SRT.'); workspace.apply(value => addCaptionTrack(value, cues, captionStyles[captionStyle].style)); await workspace.flush(); }); }} />

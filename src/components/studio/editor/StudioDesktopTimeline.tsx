@@ -1,6 +1,6 @@
 import { studioSliderFill } from './studioSliderFill';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, EyeOff, Hand, Repeat, Magnet, Mic, Minus, MousePointer2, Plus, Scissors, StretchHorizontal, Volume2, VolumeX } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Eye, EyeOff, Hand, Repeat, Magnet, Mic, Minus, MousePointer2, Plus, Scissors, StretchHorizontal, Volume2, VolumeX } from 'lucide-react';
 import { compileStudioRecipe, formatStudioEditorTime, studioSeconds, type StudioProject } from '../../../../shared/studio';
 import { moveLayerClip, moveMainClip, patchClip, rollStudioBoundary, trimLayerClip, trimMainClip } from '@/lib/studio/editor/commands';
 import { studioWaveformPath, type StudioWaveform } from '@/lib/studio/editor/audioEnvelope';
@@ -247,7 +247,7 @@ export function StudioDesktopTimeline(props: Props) {
       {!marqueePreview && (tool === 'select' || tool === 'trim') && !disabled && <>{(['start', 'end'] as const).map(edge => <span key={edge} role="slider" tabIndex={0} aria-label={`Cortar ${edge === 'start' ? 'início' : 'fim'} de ${title}`} aria-valuenow={studioSeconds(main && asset?.kind !== 'image' ? edge === 'start' ? clip.sourceStartTicks : clip.sourceEndTicks : edge === 'start' ? clip.startTicks : clip.startTicks + clip.durationTicks)} className={`se-trim-handle ${edge}`} draggable={false} onDragStart={event => event.preventDefault()}
         onPointerDown={e => begin(e, clip.id, edge)} onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel}
         onLostPointerCapture={event => { if (transaction.current?.pointer === event.pointerId) cancel(); }}
-        onKeyDown={e => { if (disabled || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); e.stopPropagation(); const fake: Drag = { pointer: 0, id: clip.id, x: 0, y: 0, clip, base: project, edge, lastX: 0, lastY: 0, moved: true, scale }; onCommit(p => applyDrag(fake, (e.key === 'ArrowRight' ? 1 : -1) * scale * frame, 0, p)); }} />)}</>}
+        onKeyDown={e => { if (disabled || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); e.stopPropagation(); const fake: Drag = { pointer: 0, id: clip.id, x: 0, y: 0, clip, base: project, edge, lastX: 0, lastY: 0, moved: true, scale }; onCommit(p => applyDrag(fake, (e.key === 'ArrowRight' ? 1 : -1) * scale * frame, 0, p)); }}>{edge === 'start' ? <ChevronLeft size={11} aria-hidden="true" /> : <ChevronRight size={11} aria-hidden="true" />}</span>)}</>}
     </div>;
   };
   return <section className="se-timeline" aria-label="Montagem"><header><strong>Montagem</strong><span className="se-muted">{formatStudioEditorTime(duration)}</span><div className="se-timeline-toolbar">

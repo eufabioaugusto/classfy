@@ -10,6 +10,7 @@ export class StudioStorageConflictError extends StudioStorageError {
   constructor() { super('Este projeto mudou em outra aba. Reabra a versão atual antes de salvar.'); this.name = 'StudioStorageConflictError'; }
 }
 export type StudioExportFile = File & { readonly revision: number; readonly exportedAt: string };
+export type StudioFontRecord = { ownerId: string; family: string; name: string; file: Blob };
 type AssetRecord = { ownerId: string; projectId: string; assetId: string; blob: Blob };
 type ExportRecord = { renderVersion?: number; ownerId: string; projectId: string; revision: number; artifactId?: string; blob?: Blob; opfsName?: string; retainedOpfsNames?: string[]; name: string; mime: string; exportedAt: string };
 type StoredProject = Omit<StudioProject, 'takes'>;
@@ -59,10 +60,12 @@ export function createStudioBrowserStorage(options: { indexedDB?: IDBFactory; da
     const factory = options.indexedDB ?? globalThis.indexedDB;
     if (!factory) return Promise.reject(new StudioStorageError('Este navegador não disponibiliza armazenamento local para o Studio.'));
     opened = new Promise<IDBDatabase>((resolve, reject) => {
-      const opening = factory.open(options.databaseName ?? databaseName, 1);
+      const opening = factory.open(options.databaseName ?? databaseName, 2);
       let rejected = false;
-      opening.onupgradeneeded = () => {
+      opening.onupgradeneeded = event => {
         const db = opening.result;
+        const fonts = db.createObjectStore('fonts', { keyPath: 'family' }); fonts.createIndex('owner', 'ownerId');
+        if (event.oldVersion !== 0) return;
         const projects = db.createObjectStore('projects', { keyPath: ['ownerId', 'id'] }); projects.createIndex('owner', 'ownerId');
         const assets = db.createObjectStore('assets', { keyPath: ['ownerId', 'projectId', 'assetId'] }); assets.createIndex('project', ['ownerId', 'projectId']);
         db.createObjectStore('exports', { keyPath: ['ownerId', 'projectId'] });
@@ -300,7 +303,18 @@ export function createStudioBrowserStorage(options: { indexedDB?: IDBFactory; da
     });
     return materialize(duplicate);
   }
-  return { listProjects, getProject, createProject, saveProject, deleteProject, duplicateProject, putAsset, getAsset, storeExport, getExport };
+  async function listFonts(owner: string): Promise<StudioFontRecord[]> {
+    identity(owner);
+    return transaction(['fonts'], 'readonly', tx => request(tx.objectStore('fonts').index('owner').getAll(owner)));
+  }
+  async function saveFont(font: StudioFontRecord): Promise<void> {
+    identity(font.ownerId);
+    await transaction(['fonts'], 'readwrite', tx => request(tx.objectStore('fonts').add(font)));
+  }
+  async function getFont(family: string): Promise<StudioFontRecord | undefined> {
+    return transaction(['fonts'], 'readonly', tx => request(tx.objectStore('fonts').get(family)));
+  }
+  return { listProjects, getProject, createProject, saveProject, deleteProject, duplicateProject, putAsset, getAsset, storeExport, getExport, listFonts, saveFont, getFont };
 }
 const storage = createStudioBrowserStorage();
-export const { listProjects, getProject, createProject, saveProject, deleteProject, duplicateProject, putAsset, getAsset, storeExport, getExport } = storage;
+export const { listProjects, getProject, createProject, saveProject, deleteProject, duplicateProject, putAsset, getAsset, storeExport, getExport, listFonts, saveFont, getFont } = storage;

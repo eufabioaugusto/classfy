@@ -1,3 +1,4 @@
+import { loadStudioCustomFont } from './studioFonts';
 import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, StreamTarget, canEncodeAudio, canEncodeVideo, type Target } from 'mediabunny';
 import { assertStudioRenderFeatures, compileStudioRecipe, validateStudioRecipe, type StudioProject, type StudioRenderFeature, type StudioRenderRecipe } from '../../../../shared/studio';
 import { assertStudioActive, inspectStudioMedia, studioCanvas, type StudioAssetResolver } from './media';
@@ -73,7 +74,11 @@ export async function exportStudioRecipe(inputRecipe: StudioRenderRecipe, resolv
   const abort = () => { void output.cancel().catch(() => {}); }; signal?.addEventListener('abort',abort,{once:true});
   let success = false;
   try {
-    await Promise.all(recipe.clips.filter(c => c.text).map(c => document.fonts?.load(`16px ${studioBrowserFont(c.text!.fontFamily)}`).catch(() => [])));
+    const families = new Set(recipe.clips.flatMap(clip => clip.text ? [clip.text.fontFamily] : []));
+    await Promise.all([...families].map(async family => {
+      await loadStudioCustomFont(family);
+      await document.fonts?.load(`16px ${studioBrowserFont(family)}`).catch(() => []);
+    }));
     assertStudioActive(signal); onProgress?.(0); await output.start();
     let audioAt = 0, frame = 0; const totalFrames = video ? Math.ceil(duration * fps) : 0;
     // Advance both encoders together so the muxer cannot retain an entire encoded track.
