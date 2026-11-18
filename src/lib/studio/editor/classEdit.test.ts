@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readStudioWaveform, studioWaveformPath } from './audioEnvelope';
 import { findStudioPauses } from './classEdit';
+import { findStudioRetakes } from './studioRetakes';
 
 const source = vi.hoisted(() => ({
   packets: [] as { timestamp: number; buffer: Pick<AudioBuffer, 'sampleRate' | 'length' | 'numberOfChannels' | 'getChannelData'> }[],
@@ -31,13 +32,15 @@ describe('detecção de pausas do Class Edit', () => {
       packet(3.2, 1000, .1), packet(4.2, 400, 0), packet(4.6, 400, .1), packet(5, 1000, 0),
     ];
     const pauses = await findStudioPauses(new Blob(), 0, 6, new AbortController().signal);
-    expect(pauses).toHaveLength(3);
+    expect(pauses).toHaveLength(4);
     expect(pauses[0].start).toBe(0);
-    expect(pauses[0].end).toBeCloseTo(.8);
-    expect(pauses[1].start).toBeCloseTo(2.2);
-    expect(pauses[1].end).toBeCloseTo(3);
-    expect(pauses[2].start).toBeCloseTo(5.2);
-    expect(pauses[2].end).toBe(6);
+    expect(pauses[0].end).toBeCloseTo(.995);
+    expect(pauses[1].start).toBeCloseTo(2.005);
+    expect(pauses[1].end).toBeCloseTo(3.195);
+    expect(pauses[2].start).toBeCloseTo(4.205);
+    expect(pauses[2].end).toBeCloseTo(4.595);
+    expect(pauses[3].start).toBeCloseTo(5.005);
+    expect(pauses[3].end).toBe(6);
     expect(source.dispose).toHaveBeenCalled();
   });
 
@@ -45,8 +48,8 @@ describe('detecção de pausas do Class Edit', () => {
     source.packets = [packet(0, 8000, .22), packet(8, 1300, .018), packet(9.3, 9000, .21)];
     const pauses = await findStudioPauses(new Blob(), 0, 18.3, new AbortController().signal);
     expect(pauses).toHaveLength(1);
-    expect(pauses[0].start).toBeCloseTo(8.2);
-    expect(pauses[0].end).toBeCloseTo(9.1);
+    expect(pauses[0].start).toBeCloseTo(8.005);
+    expect(pauses[0].end).toBeCloseTo(9.295);
   });
 
   it('encurta a espera até a primeira fala aos 2,8 s mesmo com som ambiente', async () => {
@@ -54,7 +57,7 @@ describe('detecção de pausas do Class Edit', () => {
     const pauses = await findStudioPauses(new Blob(), 0, 18.3, new AbortController().signal);
     expect(pauses).toHaveLength(1);
     expect(pauses[0].start).toBe(0);
-    expect(pauses[0].end).toBeCloseTo(2.6);
+    expect(pauses[0].end).toBeCloseTo(2.795);
   });
 
   it('preserva voz baixa quando fica próxima do nível de fundo', async () => {
@@ -107,5 +110,19 @@ describe('forma de onda vinculada ao vídeo', () => {
     const signal = new AbortController().signal;
     expect(await readStudioWaveform(new Blob(), 2, signal)).toBeNull();
     await expect(findStudioPauses(new Blob(), 0, 2, signal)).rejects.toThrow('não conseguiu ler amostras');
+  });
+});
+
+describe('revisão de takes repetidos do Class Edit', () => {
+  it('agrupa três tentativas próximas mesmo com legendas divididas de forma diferente', () => {
+    const cues = [
+      { start: 1, end: 2, text: 'Hoje vamos aprender' },
+      { start: 2, end: 4, text: 'a editar vídeos pelo celular.' },
+      { start: 6, end: 9, text: 'Hoje nós vamos aprender a editar vídeos pelo celular.' },
+      { start: 11, end: 14, text: 'Hoje vamos aprender a editar vídeos pelo celular.' },
+      { start: 15, end: 18, text: 'Primeiro abra o aplicativo e importe a gravação.' },
+      { start: 90, end: 93, text: 'Hoje vamos aprender a editar vídeos pelo celular.' },
+    ];
+    expect(findStudioRetakes(cues).map(group => group.map(cue => [cue.start, cue.end]))).toEqual([[[1, 4], [6, 9], [11, 14]]]);
   });
 });

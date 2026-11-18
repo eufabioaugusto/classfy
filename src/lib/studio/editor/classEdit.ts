@@ -2,8 +2,8 @@ import { studioAudioWindows, type StudioAudioWindow } from './audioEnvelope';
 
 export type StudioPause = { start: number; end: number };
 
-const minimumPause = .9;
-const breathingRoom = .2;
+export const minimumStudioPause = .35;
+const breathingRoom = .005;
 
 // Decode a packet at a time to avoid holding the whole recording in memory.
 export async function findStudioPauses(file: Blob, start: number, end: number, signal: AbortSignal): Promise<StudioPause[]> {
@@ -24,6 +24,11 @@ export async function findStudioPauses(file: Blob, start: number, end: number, s
   const noiseFloor = percentile(.2), foreground = percentile(.9);
   const threshold = Math.min(-30, foreground - 10, Math.max(-42, noiseFloor + 12));
   const pauses: StudioPause[] = [];
+  const addPause = (from: number, to: number) => {
+    const previous = pauses.at(-1)?.end ?? start;
+    // A retained fragment must satisfy the Studio clip duration contract.
+    if ((from === start || from - previous >= .1) && (to === end || end - to >= .1)) pauses.push({ start: from, end: to });
+  };
   const hasForeground = windows.reduce((seconds, window) =>
     window.level >= threshold + 6 ? seconds + window.end - window.start : seconds, 0) >= .16;
   if (!hasForeground) return [];
@@ -41,15 +46,15 @@ export async function findStudioPauses(file: Blob, start: number, end: number, s
     if (window.level < threshold) {
       if (heardSound || continuousFromStart) quietSince ??= window.start;
     } else {
-      if (quietSince !== undefined && window.start - quietSince >= minimumPause) {
-        pauses.push({ start: heardSound ? quietSince + breathingRoom : start, end: window.start - breathingRoom });
+      if (quietSince !== undefined && window.start - quietSince >= minimumStudioPause) {
+        addPause(heardSound ? quietSince + breathingRoom : start, window.start - breathingRoom);
       }
       heardSound = true;
       quietSince = undefined;
     }
   }
-  if (heardSound && quietSince !== undefined && end - previousEnd <= .05 && end - quietSince >= minimumPause) {
-    pauses.push({ start: quietSince + breathingRoom, end });
+  if (heardSound && quietSince !== undefined && end - previousEnd <= .05 && end - quietSince >= minimumStudioPause) {
+    addPause(quietSince + breathingRoom, end);
   }
   return pauses;
 }

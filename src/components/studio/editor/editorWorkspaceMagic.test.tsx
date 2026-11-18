@@ -188,20 +188,29 @@ describe('comparação e histórico reais do editor', () => {
   it('Class Edit salva os cortes e o ajuste em uma edição reversível', async () => {
     io.getAsset.mockResolvedValue(new Blob(['original']));
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
-    io.transcribe.mockResolvedValueOnce([{ text: 'A legenda da montagem', start: 3, end: 4 }]);
+    io.transcribe.mockResolvedValueOnce([
+      { text: 'Hoje vamos aprender a editar vídeos pelo celular.', start: 3, end: 4 },
+      { text: 'Hoje nós vamos aprender a editar vídeos pelo celular.', start: 5, end: 6 },
+    ]);
     await click('Class Edit');
     expect(io.save).toHaveBeenCalledOnce();
     expect(saved!.takes.map(take => [take.start, take.end])).toEqual([[0, 2], [3, 6], [7, 10]]);
     expect(latestRecipe().clips.filter(clip => clip.kind === 'video').every(clip => clip.enhancement?.strength === .35 && clip.grade.preset === 'studio')).toBe(true);
     expect(io.transcribe.mock.calls[0][0].takes.map((take: { start: number; end: number }) => [take.start, take.end])).toEqual([[0, 2], [3, 6], [7, 10]]);
     expect(latestRecipe().clips.find(clip => clip.kind === 'caption')?.startTicks).toBe(studioTicks(3));
+    expect(io.transcribe.mock.calls[0][2]).toBe('portuguese');
     expect(host.textContent).toContain('2 pausas encurtadas');
+    expect(host.querySelector('.se-retake-review summary')?.textContent).toContain('takes repetidos (1)');
+    const suggested = host.querySelector<HTMLButtonElement>('.se-retake-group button:has(small)')!;
+    expect(suggested.querySelector('time')?.textContent).toBe('0:05.0');
+    await act(async () => suggested.click());
+    expect(host.textContent).toContain('0:05.0');
     await click('Desfazer');
     expect(latestRecipe().clips).toHaveLength(1);
     expect(latestRecipe().clips[0].enhancement).toBeUndefined();
     expect(latestRecipe().durationTicks).toBe(studioTicks(10));
     await click('Refazer');
-    expect(latestRecipe().clips).toHaveLength(4);
+    expect(latestRecipe().clips).toHaveLength(5);
     expect(latestRecipe().assets.map(asset => asset.id)).toEqual(['video-original']);
     expect(saved!.editing!.assets.map(asset => asset.id)).toEqual(['video-original', 'image-original']);
   });

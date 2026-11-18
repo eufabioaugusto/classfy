@@ -7,6 +7,7 @@ import { getAsset, getExport, putAsset, storeExport, studioAssetUri } from '@/li
 import { inspectStudioMedia } from '@/lib/studio/editor/media';
 import { readStudioWaveform, type StudioWaveform } from '@/lib/studio/editor/audioEnvelope';
 import { downloadStudioOriginal } from '@/lib/studio/editor/originalDownload';
+import { findStudioRetakes, type StudioRetakeGroup } from '@/lib/studio/editor/studioRetakes';
 import { findStudioPauses } from '@/lib/studio/editor/classEdit';
 import { transcribeStudioCaptions } from '@/lib/studio/editor/studioCaptions';
 import { analyzeStudioScene } from '@/lib/studio/editor/sceneAnalysis';
@@ -65,8 +66,9 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const selected = selection.length === 1 ? selection[0] : undefined;
   const setSelected = (id?: string) => setSelection(id ? [id] : []);
   const [tab, setTab] = useState<Tab | null>('media'), [position, setPosition] = useState(0), [playing, setPlaying] = useState(false), [renderLoading, setRenderLoading] = useState(false);
-  const [captionLanguage, setCaptionLanguage] = useState(''), [captionStyle, setCaptionStyle] = useState(0);
+  const [captionLanguage, setCaptionLanguage] = useState('portuguese'), [captionStyle, setCaptionStyle] = useState(0);
   const [autoCaptions, setAutoCaptions] = useState(true);
+  const [reviewRetakes, setReviewRetakes] = useState(true);
   const [colorPreset, setColorPreset] = useState<StudioEffect>('studio'), [colorIntensity, setColorIntensity] = useState(.65);
   const [captionNotice, setCaptionNotice] = useState('');
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState<string | null>(null), [progress, setProgress] = useState(0);
@@ -85,7 +87,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     };
   }, [owner, projectId]);
   const [waveforms, setWaveforms] = useState<ReadonlyMap<string, StudioWaveform>>(new Map());
-  const [classEditResult, setClassEditResult] = useState<{ editing: StudioProject['editing']; cuts: number; removed: number; imageAdjusted: boolean; portraitStatus?: string; finishStatus: string }>();
+  const [classEditResult, setClassEditResult] = useState<{ editing: StudioProject['editing']; cuts: number; removed: number; imageAdjusted: boolean; portraitStatus?: string; finishStatus: string; retakes: StudioRetakeGroup[] }>();
   const [comparing, setComparing] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null), engine = useRef<StudioRenderer | null>(null), input = useRef<HTMLInputElement>(null), captionsInput = useRef<HTMLInputElement>(null);
   const pendingPatch = useRef<{ id: string; patch: StudioWebClipPatch } | null>(null), importTarget = useRef<'main' | 'layer'>('main'), locked = useRef(false), controller = useRef<AbortController | null>(null), alive = useRef(true), seekSequence = useRef(0);
@@ -336,18 +338,25 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       if (!scope(token) || signal.aborted) return;
       let edited = applyClassEdit(snapshot, clip.id, pauses, enhancement, portrait, chosenGrade);
       const finish = colorPreset === 'natural' ? [] : [`Filtro ${colorPresets.find(preset => preset.id === colorPreset)?.label} aplicado`];
-      if (autoCaptions) {
+      let retakes: StudioRetakeGroup[] = [];
+      if (autoCaptions || reviewRetakes) {
         setProgress(0);
         setBusy('Preparando áudio da montagem');
         try {
           const cues = await transcribe(edited, token, signal);
           if (!scope(token) || signal.aborted) return;
-          const captioned = addCaptionTrack(edited, cues, captionStyles[captionStyle].style);
-          finish.push(captioned === edited ? 'Nenhuma fala identificada' : 'Legendas geradas');
-          edited = captioned;
+          if (reviewRetakes) {
+            retakes = findStudioRetakes(cues);
+            if (!retakes.length) finish.push(cues.length ? 'Sem repetições semelhantes detectadas' : 'Sem fala para comparar');
+          }
+          if (autoCaptions) {
+            const captioned = addCaptionTrack(edited, cues, captionStyles[captionStyle].style);
+            finish.push(captioned === edited ? 'Nenhuma fala identificada' : 'Legendas geradas');
+            edited = captioned;
+          }
         } catch {
           if (!scope(token) || signal.aborted) return;
-          finish.push('Legendas indisponíveis. Tente novamente em Legendas ou importe um SRT');
+          finish.push(autoCaptions && reviewRetakes ? 'Legendas e revisão de repetições indisponíveis' : autoCaptions ? 'Legendas indisponíveis' : 'Revisão de repetições indisponível');
         }
       }
       workspace.apply(() => edited);
@@ -355,7 +364,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       setComparing(false);
       setExportReady(false);
       const saved = await workspace.flush();
-      if (scope(token) && saved) setClassEditResult({ editing: saved.editing, cuts: pauses.length, imageAdjusted: !!enhancement, portraitStatus, finishStatus: finish.join(' · '), removed: pauses.reduce((total, pause) => total + pause.end - pause.start, 0) });
+      if (scope(token) && saved) setClassEditResult({ editing: saved.editing, cuts: pauses.length, imageAdjusted: !!enhancement, portraitStatus, retakes, finishStatus: finish.join(' · '), removed: pauses.reduce((total, pause) => total + pause.end - pause.start, 0) });
     });
   };
   const improveScene = () => {
@@ -604,8 +613,23 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     </header>
     {(error || workspace.error) && <div className="se-editor-error" role="alert"><span>{workspace.error || error}</span>{workspace.error && <button onClick={() => void workspace.flush().catch(recordError)}>Tentar salvar</button>}<button className="se-icon" aria-label="Fechar mensagem" onClick={() => setError(null)}><X size={13} /></button></div>}
     {classEditResult && classEditResult.editing === project.editing && <div className="se-class-edit-result" role="status">
-      {classEditResult.cuts === 0 ? 'Nenhum corte aplicado · Não encontrei pausas de pelo menos 0,9 s com queda clara no áudio'
+      {classEditResult.cuts === 0 ? 'Nenhum corte aplicado · Sem pausas de pelo menos 0,35 s com queda clara no áudio'
         : `${classEditResult.cuts === 1 ? '1 pausa encurtada' : `${classEditResult.cuts} pausas encurtadas`} · ${classEditResult.removed.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s removidos`}{classEditResult.imageAdjusted ? ' · Ajuste leve de imagem aplicado' : ''}{classEditResult.portraitStatus ? ` · ${classEditResult.portraitStatus}` : ''}{classEditResult.finishStatus ? ` · ${classEditResult.finishStatus}` : ''}
+      {!!classEditResult.retakes.length && <details className="se-retake-review">
+        <summary>Revisar possíveis takes repetidos ({classEditResult.retakes.length})</summary>
+        <div className="se-retake-list">{classEditResult.retakes.map(group => {
+          const suggested = group.reduce((best, attempt) => attempt.text.split(/\s+/).length >= best.text.split(/\s+/).length ? attempt : best);
+          return <div key={group[0].start} className="se-retake-group">
+            {group.map(attempt => <button key={attempt.start} className="se-button" title={attempt.text} disabled={blocked || !!recorder}
+              onClick={() => {
+                const take = recipe.clips.find(clip => clip.zIndex === 0 && studioTicks(attempt.start) >= clip.startTicks &&
+                  studioTicks(attempt.end) <= clip.startTicks + clip.durationTicks);
+                select(take?.id);
+                void seek(attempt.start);
+              }}><time>{formatStudioEditorTime(attempt.start)}</time><span>{attempt.text}</span>{attempt === suggested && <small>Sugestão</small>}</button>)}
+          </div>;
+        })}</div>
+      </details>}
     </div>}
     <ResizablePanelGroup direction="vertical" className="se-workspace-panels"><ResizablePanel defaultSize={67} minSize={35}><div className="se-library">
       <nav aria-label="Ferramentas do editor">{tools.map(({ id, label, Icon }) => <button key={id} aria-pressed={tab === id}
@@ -649,6 +673,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
             <h3><Sparkles size={15} />Class Edit Premium</h3>
             {premium ? <>
               <label><input type="checkbox" checked={autoCaptions} disabled={blocked} onChange={event => setAutoCaptions(event.target.checked)} /> Gerar legendas com o Class Edit</label>
+              <label><input type="checkbox" checked={reviewRetakes} disabled={blocked} onChange={event => setReviewRetakes(event.target.checked)} /> Sinalizar tomadas repetidas</label>
               <button className="se-button se-primary se-wide" disabled={blocked || !!recorder || !classEditAvailable} onClick={runClassEdit}>Aplicar Class Edit</button>
               {!classEditAvailable && <p className="se-muted">Comece com um único vídeo com áudio e sem camadas.</p>}
             </> : <p className="se-tool-plan">{premiumMessage}</p>}
