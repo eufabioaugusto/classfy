@@ -188,12 +188,27 @@ describe('comparação e histórico reais do editor', () => {
   it('Class Edit salva os cortes e o ajuste em uma edição reversível', async () => {
     io.getAsset.mockResolvedValue(new Blob(['original']));
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
-    io.transcribe.mockResolvedValueOnce([
+    const transcription = deferred<{ text: string; start: number; end: number }[]>();
+    io.transcribe.mockReturnValueOnce(transcription.promise);
+    await click('Class Edit');
+    const modal = host.querySelector('.se-class-edit-progress')!;
+    expect(modal.textContent).toContain('Preparando áudio da montagem');
+    expect(modal.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('58');
+    const onStage = io.transcribe.mock.calls[0][4];
+    await act(async () => onStage('Preparando modelo de voz'));
+    expect(host.querySelector('.se-class-edit-progress')).toBe(modal);
+    expect(modal.textContent).toContain('67%');
+    await act(async () => onStage('Transcrevendo áudio'));
+    expect(host.querySelector('.se-class-edit-progress')).toBe(modal);
+    expect(modal.textContent).toContain('78%');
+    expect(modal.querySelector('progress')).toBeNull();
+    await act(async () => transcription.resolve([
       { text: 'Hoje vamos aprender a editar vídeos pelo celular.', start: .3, end: 1.3 },
       { text: 'Hoje vamos aprender a editar vídeos pelo celular.', start: 3, end: 4 },
       { text: 'Hoje nós vamos aprender a editar vídeos pelo celular.', start: 5, end: 6 },
-    ]);
-    await click('Class Edit');
+    ]));
+    expect(modal.textContent).toContain('100%');
+    await vi.waitFor(() => expect(host.querySelector('.se-class-edit-progress')).toBeNull());
     expect(io.save).toHaveBeenCalledOnce();
     expect(saved!.takes.map(take => [take.start, take.end])).toEqual([[0, 2], [3, 6], [7, 10]]);
     expect(latestRecipe().clips.filter(clip => clip.kind === 'video').every(clip => clip.enhancement?.strength === .35 && clip.grade.preset === 'studio')).toBe(true);
@@ -230,6 +245,7 @@ describe('comparação e histórico reais do editor', () => {
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
     expect(button('Class Edit').getAttribute('aria-disabled')).toBe('false');
     await click('Class Edit');
+    await vi.waitFor(() => expect(host.querySelector('.se-class-edit-progress')).toBeNull());
     expect(latestRecipe().clips.every(clip => clip.enhancement?.strength === priorEnhancement.strength)).toBe(true);
     expect(button('Class Edit').getAttribute('aria-disabled')).toBe('true');
     await click('Desfazer');

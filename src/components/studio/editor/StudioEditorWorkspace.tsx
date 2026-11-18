@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, ChevronDown, Download, Film, Image, Loader2, Mic, Monitor, Music2, Pause, Play, Plus, Redo2, Scissors, SlidersHorizontal, Sparkles, Subtitles, Type, Undo2, Upload, Video, X } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -75,6 +75,8 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const [reviewRetakes, setReviewRetakes] = useState(true);
   const [colorPreset, setColorPreset] = useState<StudioEffect>('studio'), [colorIntensity, setColorIntensity] = useState(.65);
   const [captionNotice, setCaptionNotice] = useState('');
+  const [classEditRunning, setClassEditRunning] = useState(false);
+  const classEditGradient = useId();
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState<string | null>(null), [progress, setProgress] = useState(0);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({}), [recorder, setRecorder] = useState<'camera' | 'screen' | 'audio' | null>(null);
   const [exportMenu, setExportMenu] = useState(false), [exportReady, setExportReady] = useState(false), [rename, setRename] = useState(false), [title, setTitle] = useState('');
@@ -172,7 +174,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     alive.current = true;
     confirmation.current = null; locked.current = false; controller.current = null; recorderEntry.current = null; pendingPatch.current = null;
     clipboard.current = undefined; shuttle.current = 0;
-    setClassEditResults([]); setBusy(null); setRecorder(null); setPreview(null); setSelected(undefined); setExitPreparing(false); setComparing(false);
+    setClassEditResults([]); setClassEditRunning(false); setBusy(null); setRecorder(null); setPreview(null); setSelected(undefined); setExitPreparing(false); setComparing(false);
     return () => { alive.current = false; confirmation.current = null; picker.current = null; controller.current?.abort(); ++seekSequence.current; engine.current?.dispose(); };
   }, [owner, projectId]);
   useEffect(() => { let active = true; getStudioExportCapabilities().then(value => { if (active) setCapabilities(value); }).catch(() => undefined); return () => { active = false; }; }, []);
@@ -203,14 +205,14 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     return () => { window.removeEventListener('beforeunload', before); document.removeEventListener('visibilitychange', visibility); };
   }, [workspace.dirty, recorder, cancelConfirmation]);
   const recordError = (cause: unknown) => { if (cause instanceof DOMException && cause.name === 'AbortError') return; setError(cause instanceof Error ? cause.message : 'Não foi possível concluir a operação.'); };
-  const external = async (label: string, task: (token: number, signal: AbortSignal) => Promise<void>, propagateError = false): Promise<boolean> => {
+  const external = async (label: string, task: (token: number, signal: AbortSignal) => Promise<void>, propagateError = false, classEdit = false): Promise<boolean> => {
     if (locked.current || confirmation.current || !alive.current || document.visibilityState === 'hidden') return false;
     try { settle(); } catch (cause) { if (propagateError) throw cause; return false; }
-    locked.current = true; shuttle.current = 0; ++seekSequence.current; engine.current?.pause(); setBusy(label); setError(null); setProgress(0);
+    locked.current = true; shuttle.current = 0; ++seekSequence.current; engine.current?.pause(); setBusy(label); setClassEditRunning(classEdit); setError(null); setProgress(0);
     const token = workspace.epoch.current, abort = new AbortController(); controller.current = abort;
     try { await workspace.flush(); if (!scope(token) || abort.signal.aborted) return false; await task(token, abort.signal); return scope(token) && !abort.signal.aborted; }
     catch (cause) { if (workspace.isCurrent(token) && alive.current) recordError(cause); if (propagateError) throw cause; return false; }
-    finally { if (workspace.isCurrent(token) && alive.current) { locked.current = false; setBusy(null); if (controller.current === abort) controller.current = null; } }
+    finally { if (workspace.isCurrent(token) && alive.current) { locked.current = false; setBusy(null); setClassEditRunning(false); if (controller.current === abort) controller.current = null; } }
   };
   const downloadOriginal = (asset: StudioAsset) => {
     if (downloadLock.current || locked.current || confirmation.current) return;
@@ -288,9 +290,9 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     const merged = { ...old, ...patch, ...(patch.rect ? { rect: { ...old.rect, ...patch.rect } } : {}), ...(patch.text ? { text: { ...old.text, ...patch.text } } : {}), ...(patch.grade ? { grade: { ...old.grade, ...patch.grade } } : {}) };
     try { const next = patchClip(workspace.current.current, selected, merged); pendingPatch.current = { id: selected, patch: merged }; setPreview(next); } catch (cause) { recordError(cause); }
   };
-  const transcribe = (snapshot: StudioProject, token: number, signal: AbortSignal) =>
+  const transcribe = (snapshot: StudioProject, token: number, signal: AbortSignal, onStage = setBusy) =>
     transcribeStudioCaptions(snapshot, id => getAsset(owner, projectId, id), captionLanguage, signal, stage => {
-      if (scope(token) && !signal.aborted) setBusy(stage);
+      if (scope(token) && !signal.aborted) onStage(stage);
     });
   const generateCaptions = () => {
     if (!premium) return;
@@ -323,9 +325,10 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       let enhancement: Awaited<ReturnType<typeof analyzeStudioScene>> | undefined;
       if (!clip.enhancement) {
         setBusy('Ajustando a imagem');
+        setProgress(.24);
         const current = compileStudioRecipe(snapshot);
         const analysis = await analyzeStudioScene(original, current.clips.find(value => value.id === clip.id)!, current.timebase, {
-          signal, onProgress: value => { if (scope(token) && !signal.aborted) setProgress(value); },
+          signal, onProgress: value => { if (scope(token) && !signal.aborted) setProgress(.24 + .21 * value); },
         });
         enhancement = { ...analysis, strength: .35 };
       }
@@ -334,6 +337,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       let portraitStatus: string | undefined;
       if (!clip.portrait && engine.current) {
         setBusy('Preparando retoque natural');
+        setProgress(.48);
         try {
           await engine.current.preparePortrait(signal);
           portrait = { version: 2, strength: .25 };
@@ -350,10 +354,13 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       const finish = colorPreset === 'natural' ? [] : [`Filtro ${colorPresets.find(preset => preset.id === colorPreset)?.label} aplicado`];
       let retakes: StudioRetakeGroup[] = [];
       if (autoCaptions || reviewRetakes) {
-        setProgress(0);
+        setProgress(.58);
         setBusy('Preparando áudio da montagem');
         try {
-          const cues = await transcribe(edited, token, signal);
+          const cues = await transcribe(edited, token, signal, stage => {
+            setBusy(stage);
+            setProgress(stage === 'Transcrevendo áudio' ? .78 : .67);
+          });
           if (!scope(token) || signal.aborted) return;
           if (reviewRetakes) {
             retakes = findStudioRetakes(cues);
@@ -369,13 +376,20 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
           finish.push(autoCaptions && reviewRetakes ? 'Legendas e revisão de repetições indisponíveis' : autoCaptions ? 'Legendas indisponíveis' : 'Revisão de repetições indisponível');
         }
       }
+      setBusy('Salvando a edição');
+      setProgress(.94);
       workspace.apply(() => edited);
       setSelected(clip.id);
       setComparing(false);
       setExportReady(false);
       const saved = await workspace.flush();
-      if (scope(token) && saved) setClassEditResults([{ key: classEditReviewKey(saved.editing), cuts: pauses.length, imageAdjusted: !!enhancement, portraitStatus, retakes, finishStatus: finish.join(' · '), removed: pauses.reduce((total, pause) => total + pause.end - pause.start, 0) }]);
-    });
+      if (!scope(token) || !saved) return;
+      setBusy('Edição concluída');
+      setProgress(1);
+      // Give the last portion of the border time to reach 100% before revealing the result.
+      await new Promise(resolve => setTimeout(resolve, 320));
+      if (scope(token)) setClassEditResults([{ key: classEditReviewKey(saved.editing), cuts: pauses.length, imageAdjusted: !!enhancement, portraitStatus, retakes, finishStatus: finish.join(' · '), removed: pauses.reduce((total, pause) => total + pause.end - pause.start, 0) }]);
+    }, false, true);
   };
   const keepRetake = (group: StudioRetakeGroup, chosen: StudioRetakeGroup[number]) => {
     const result = classEditResult;
@@ -736,7 +750,22 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     </ResizablePanelGroup></div></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel defaultSize={33} minSize={20} maxSize={65}><StudioDesktopTimeline zoomCommand={timelineZoom} loop={loop} onToggleLoop={() => runShortcut('loop')} shortcuts={<StudioShortcutPanel open={shortcutsOpen} onOpen={setShortcutsOpen} onAction={runShortcut} />} project={effective} position={position} playing={playing} selectedIds={selection} tool={timelineTool} onTool={setTimelineTool} onSelectMany={selectMany} onBlade={splitAt} disabled={blocked || !!recorder} thumbnails={thumbnails} waveforms={waveforms} onSelect={select} onSeek={value => void seek(value)} onPreview={value => { if (confirmation.current) return; engine.current?.pause(); setPreview(value); }} onCommit={apply} onAdd={() => openImport('main')} onMainMute={() => apply(value => setMainMuted(value, !value.editing!.mainMuted))} onLayerHide={id => apply(value => setLayerHidden(value, id, !value.editing!.layers.find(l => l.id === id)?.hidden))} onLayerMute={id => apply(value => setLayerMuted(value, id, !value.editing!.layers.find(l => l.id === id)?.muted))} /></ResizablePanel></ResizablePanelGroup>
     <input ref={input} className="se-sr" tabIndex={-1} type="file" multiple onChange={e => { const files = Array.from(e.target.files ?? []), pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && files.length && pending?.type === 'media' && scope(pending.token)) void importFiles(files, pending.target, pending.at); }} />
     <input ref={captionsInput} className="se-sr" tabIndex={-1} type="file" accept=".srt,text/plain" onChange={e => { const file = e.target.files?.[0], pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && file && pending?.type === 'captions' && scope(pending.token)) void external('Importando legendas', async (token, signal) => { const cues = parseDesktopCaptions(await file.text()); if (!scope(token) || signal.aborted) return; const current = workspace.current.current!, length = studioSeconds(compileStudioRecipe(current).durationTicks); if (cues.some(c => c.start >= length || c.end > length + .01)) throw new Error('Uma legenda ultrapassa a duração da montagem. Revise o arquivo SRT.'); workspace.apply(value => addCaptionTrack(value, cues, captionStyles[captionStyle].style)); await workspace.flush(); }); }} />
-    {busy && <div className="se-modal-backdrop"><section className="se-progress-modal" role="dialog" aria-modal="true" aria-label={busy}><Loader2 size={23} className="se-spin" /><h2>{busy}</h2>{busy !== 'Escolhendo arquivo' && busy !== 'Detectando pausas' && busy !== 'Transcrevendo áudio' && !busy.startsWith('Preparando') && <><progress max={1} value={progress} /><p>{Math.round(progress * 100)}%{busy.startsWith('Exportando') && ' · Mantenha esta aba aberta'}</p></>}<button className="se-button" onClick={() => { if (picker.current) cancelPicker(); else controller.current?.abort(); }}>Cancelar</button></section></div>}
+    {busy && classEditRunning && <div className="se-modal-backdrop">
+      <section className="se-progress-modal se-class-edit-progress" role="dialog" aria-modal="true" aria-label="Class Edit">
+        <svg className="se-class-edit-progress-border" viewBox="0 0 350 192" preserveAspectRatio="none" aria-hidden="true">
+          <defs><linearGradient id={classEditGradient} x2="100%" y2="100%">
+            <stop stopColor="#f176ac" /><stop offset=".5" stopColor="#d73585" /><stop offset="1" stopColor="#ef5066" />
+          </linearGradient></defs>
+          <path d="M175 2 H334 Q348 2 348 16 V176 Q348 190 334 190 H16 Q2 190 2 176 V16 Q2 2 16 2 Z"
+            pathLength={100} fill="none" stroke={`url(#${classEditGradient})`} strokeWidth={3}
+            vectorEffect="non-scaling-stroke" strokeDasharray="100 100" strokeDashoffset={100 - progress * 100} />
+        </svg>
+        <div className="se-class-edit-percent" role="progressbar" aria-label="Progresso do Class Edit" aria-valuenow={Math.round(progress * 100)}>{Math.round(progress * 100)}%</div>
+        <h2 role="status">{busy}</h2>
+        <button className="se-button" disabled={progress >= .94} onClick={() => controller.current?.abort()}>Cancelar</button>
+      </section>
+    </div>}
+    {busy && !classEditRunning && <div className="se-modal-backdrop"><section className="se-progress-modal" role="dialog" aria-modal="true" aria-label={busy}><Loader2 size={23} className="se-spin" /><h2>{busy}</h2>{busy !== 'Escolhendo arquivo' && busy !== 'Detectando pausas' && busy !== 'Transcrevendo áudio' && !busy.startsWith('Preparando') && <><progress max={1} value={progress} /><p>{Math.round(progress * 100)}%{busy.startsWith('Exportando') && ' · Mantenha esta aba aberta'}</p></>}<button className="se-button" onClick={() => { if (picker.current) cancelPicker(); else controller.current?.abort(); }}>Cancelar</button></section></div>}
     {recorder && <div className="se-modal-backdrop"><StudioRecorder key={`${owner}:${projectId}`} scopeKey={`${owner}:${projectId}`} mode={recorder} aspectRatio={project.kind==='short'?'9:16':'16:9'} disabled={blocked} onClose={() => { const entry = recorderEntry.current; if (entry && scope(entry.token)) { recorderEntry.current = null; setRecorder(null); } }} onRecorded={async file => { const entry = recorderEntry.current; if (!entry || !scope(entry.token)) throw new DOMException('Gravação cancelada.', 'AbortError'); const saved = await importFiles([file], entry.mode === 'audio' ? 'layer' : 'main', entry.at, true); if (!saved || !scope(entry.token)) throw new DOMException('A gravação permanece disponível para tentar novamente.', 'AbortError'); }} /></div>}
     {rename && <div className="se-modal-backdrop"><section className="se-modal" role="dialog" aria-modal="true" aria-label="Nome do projeto"><header><h2>Nome do projeto</h2><button className="se-icon" aria-label="Fechar nome" onClick={() => setRename(false)}><X size={17} /></button></header><input autoFocus value={title} maxLength={160} onChange={e => setTitle(e.target.value)} /><button className="se-button se-primary se-wide" disabled={!title.trim()} onClick={() => { apply(value => withStudioTakes({ ...value, editing: value.editing!, title: title.trim() })); setRename(false); }}>Salvar nome</button></section></div>}
     {dialog}
