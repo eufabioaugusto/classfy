@@ -19,6 +19,24 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi
 const toolProps = { tool: 'select' as const, selectedIds: [] as string[], onTool: vi.fn(), onBlade: vi.fn(), onSelectMany: vi.fn() };
 const pointer = (element: Element, type: string, x: number, y: number) => element.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y }));
 describe('componentes reais do editor desktop', () => {
+  it('o zoom muda a largura do clipe e preserva todos os pontos da onda', async () => {
+    const waveforms = new Map([['asset', { duration: 10, peaks: Uint8Array.from({ length: 400 }, (_, i) => i % 255) }]]);
+    await act(async () => root.render(<StudioDesktopTimeline {...toolProps} project={fixture()} position={0} thumbnails={{}} waveforms={waveforms}
+      onSelect={vi.fn()} onSeek={vi.fn()} onPreview={vi.fn()} onCommit={vi.fn()} onAdd={vi.fn()} onMainMute={vi.fn()} onLayerMute={vi.fn()} onLayerHide={vi.fn()} />));
+    const clip = host.querySelector<HTMLElement>('[data-timeline-clip]')!;
+    const svg = clip.querySelector('svg.se-clip-waveform')!;
+    const shape = svg.innerHTML, viewBox = svg.getAttribute('viewBox'), initialWidth = parseFloat(clip.style.width);
+    const zoom = async (action: string) => act(async () => host.querySelector<HTMLButtonElement>(`[aria-label="${action} zoom da montagem"]`)!.click());
+    await zoom('Aumentar');
+    expect(parseFloat(clip.style.width)).toBeGreaterThan(initialWidth);
+    expect(svg.innerHTML).toBe(shape);
+    expect(svg.getAttribute('viewBox')).toBe(viewBox);
+    await zoom('Diminuir');
+    await zoom('Diminuir');
+    expect(parseFloat(clip.style.width)).toBeLessThan(initialWidth);
+    expect(svg.innerHTML).toBe(shape);
+  });
+
   it('seleção na timeline conserva o cursor; apenas régua manda seek', async () => {
     const select = vi.fn(), seek = vi.fn();
     await act(async () => root.render(<StudioDesktopTimeline {...toolProps} project={fixture()} position={3} thumbnails={{}} onSelect={select} onSeek={seek} onPreview={() => {}} onCommit={() => {}} onAdd={() => {}} onMainMute={() => {}} onLayerMute={() => {}} onLayerHide={() => {}} />));

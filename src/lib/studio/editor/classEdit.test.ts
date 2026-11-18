@@ -96,7 +96,10 @@ describe('forma de onda vinculada ao vídeo', () => {
     expect(Math.max(...waveform.peaks)).toBeLessThan(255);
     const firstPeak = waveform.peaks[80], secondPeak = waveform.peaks.at(-1)!;
     expect(secondPeak).toBeGreaterThan(firstPeak);
-    expect(studioWaveformPath(waveform, 2.06, 2.08, 1, 2)).toMatch(/L0 (?:1|2)\.\d/);
+    const maximumGain = studioWaveformPath(waveform, 2.06, 2.08, 1, 4);
+    const peakY = Number(maximumGain.match(/L0 ([\d.]+)/)?.[1]);
+    expect(peakY).toBeGreaterThanOrEqual(4);
+    expect(peakY).toBeLessThan(6);
   });
 
   it('diferencia falta de amostras de um take sem pausas', async () => {

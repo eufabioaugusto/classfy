@@ -21,10 +21,11 @@ type Props = { zoomCommand?: { direction: number }; loop?: boolean; onToggleLoop
   onMainMute(): void; onLayerMute(layerId: string): void; onLayerHide(layerId: string): void };
 type Drag = { pointer: number; id: string; x: number; y: number; clip: ReturnType<typeof compileStudioRecipe>['clips'][number]; base: StudioProject; edge?: 'start' | 'end'; slip?: boolean; roll?: [string, string]; lastX: number; lastY: number; moved: boolean; scale: number };
 
-const ClipWaveform = memo(function ClipWaveform({ waveform, start, end, width, muted, gain }: {
-  waveform: StudioWaveform; start: number; end: number; width: number; muted: boolean; gain: number;
+const ClipWaveform = memo(function ClipWaveform({ waveform, start, end, muted, gain }: {
+  waveform: StudioWaveform; start: number; end: number; muted: boolean; gain: number;
 }) {
-  const columns = Math.max(2, Math.min(4096, Math.ceil(width / 2)));
+  // Keep the sample grid in source time so zoom only stretches the existing path.
+  const columns = Math.max(2, Math.min(4096, Math.ceil((end - start) / waveform.duration * waveform.peaks.length)));
   return <svg className={`se-clip-waveform${muted ? ' muted' : ''}`} viewBox={`0 0 ${columns} 20`}
     preserveAspectRatio="none" role="img" aria-label="Forma de onda do áudio original">
     <path d={studioWaveformPath(waveform, start, end, columns, gain)} />
@@ -213,7 +214,7 @@ export function StudioDesktopTimeline(props: Props) {
       }} onKeyDown={e => { if (e.key === 'Enter' && !disabled) { e.stopPropagation(); onSelect(clip.id); } }}>
       <span>{clip.kind === 'audio' ? <Mic size={13} /> : null}{title}</span>
       {waveform && <ClipWaveform waveform={waveform} start={studioSeconds(clip.sourceStartTicks)}
-        end={studioSeconds(clip.sourceEndTicks)} width={clipWidth} muted={muted} gain={muted ? 0 : gain} />}
+        end={studioSeconds(clip.sourceEndTicks)} muted={muted} gain={muted ? 0 : gain} />}
       {(clip.kind === 'audio' || clip.kind === 'video' && asset?.hasAudio !== false) && <div className="se-volume-overlay">
         <div className="se-clip-volume" role="slider" tabIndex={disabled ? -1 : 0} aria-label={`Volume de ${title}`}
           aria-valuemin={0} aria-valuemax={maximumGain * 100} aria-valuenow={Math.round(gain * 100)}

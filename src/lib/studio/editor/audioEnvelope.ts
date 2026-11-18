@@ -79,7 +79,8 @@ export function studioWaveformPath({ duration, peaks }: StudioWaveform, start: n
     for (let index = Math.max(0, from); index < Math.min(peaks.length, to); index++) peak = Math.max(peak, peaks[index]);
     const normalized = peak / 255;
     const height = gain <= 1 ? normalized * Math.max(0, gain) : 1 - (1 - normalized) ** gain;
-    points.push(`L${column} ${(20 - height * 19).toFixed(1)}`);
+    // Reserve 20% of the strip above even the loudest peak at maximum gain.
+    points.push(`L${column} ${(20 - height * 16).toFixed(1)}`);
   }
   return points.join(' ') + ` H${columns} V20 Z`;
 }
