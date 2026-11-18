@@ -375,3 +375,7 @@
 .se-recording-phone-take-menu>[role=menu]{position:absolute;z-index:24;right:0;bottom:calc(100% + 5px);width:146px;padding:4px;border:1px solid #ffffff24;border-radius:9px;background:#24252d;box-shadow:0 8px 24px #0008}
 .se-recording-phone-take-menu [role=menuitem]{justify-content:flex-start;width:100%;border:0;background:transparent;padding:8px;text-align:left;font-size:10px}.se-recording-phone-take-menu [role=menuitem]:hover{background:#ffffff09}.se-recording-phone-take-menu [role=menuitem]>span{display:grid;gap:4px}.se-recording-phone-take-menu [role=menuitem] small{font-size:9px;line-height:1.4;color:#aaaab4}
 @media(max-width:650px){.se-recording-phone-takes{padding:10px 12px}.se-recording-phone-takes-list>article{flex-basis:156px;width:156px}.se-recording-phone-takes-list{gap:8px}}
+
+.se-recording-next button[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.se-recording-next:has(button[aria-disabled="true"]) > span { display: inline; }
+.se-recording-phone-recovery > summary { padding: 12px 18px; color: var(--sr-muted); cursor: pointer; font-size: 12px; }

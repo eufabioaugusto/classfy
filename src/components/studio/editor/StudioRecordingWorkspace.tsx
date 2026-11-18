@@ -83,7 +83,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
   const [remoteState, setRemoteState] = useState<StudioRemoteView | null>(null), remoteSnapshot = useRef<StudioRemoteView | null>(null);
   const [remoteSaving, setRemoteSaving] = useState<string | null>(null), remoteSaveWork = useRef<Promise<void> | null>(null);
   const phoneDownloadWork = useRef<Promise<void> | null>(null);
-  const [localSegmentSaved, setLocalSegmentSaved] = useState(false);
+  const [recordedPhoneIds, setRecordedPhoneIds] = useState<string[]>([]);
   const importOriginalInput = useRef<HTMLInputElement>(null), importRemoteContext = useRef<{ takeId?: string; token: number; owner: string; session: RecordingSession | null; capture: StudioCaptureController | null }>();
   const [project, setProject] = useState<StudioProject | null>(null), [loading, setLoading] = useState(!!projectId);
   const [captureState, setCaptureState] = useState<StudioCaptureState>(idleCapture), [busy, setBusy] = useState<'save' | 'remove' | null>(null);
@@ -128,7 +128,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     selectionTouched.current = false;
     setCaptureRevision(value => value + 1);
     setPreviewRequested(false);
-    projectSnapshot.current = null; setProject(null); setSelectedTake(undefined); setError(null); setNotice(null); setBusy(null); setLeaving(false); setChangingDevice(false); setTakesExpanded(true); setStage('setup'); setLiveSelected(false); setToolsOpen(false); countdownRef.current = null; setCountdown(null); setGuides(initialRecordingGuides()); setKind(seedKind); setTitle(initialTitle); setMode(seedKind === 'podcast' ? 'camera' : savedSelection?.mode ?? 'camera'); setRemoteScenes(seedKind !== 'podcast' && (savedSelection?.remoteScenes ?? false)); setRemoteState(null); setLocalSegmentSaved(false); setRemoteSaving(null); setLoading(!!projectId);
+    projectSnapshot.current = null; setProject(null); setSelectedTake(undefined); setError(null); setNotice(null); setBusy(null); setLeaving(false); setChangingDevice(false); setTakesExpanded(true); setStage('setup'); setLiveSelected(false); setToolsOpen(false); countdownRef.current = null; setCountdown(null); setGuides(initialRecordingGuides()); setKind(seedKind); setTitle(initialTitle); setMode(seedKind === 'podcast' ? 'camera' : savedSelection?.mode ?? 'camera'); setRemoteScenes(seedKind !== 'podcast' && (savedSelection?.remoteScenes ?? false)); setRemoteState(null); setRecordedPhoneIds([]); setRemoteSaving(null); setLoading(!!projectId);
     const owned = makeSession(seedKind, initialTitle, projectId); let active = true;
     if (projectId) void owned.loadExisting().then(value => {
       if (!active || !live(token) || session.current !== owned) return;
@@ -246,7 +246,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     void work.finally(() => { if (remoteSaveWork.current === work) { remoteSaveWork.current = null; if (current()) setRemoteSaving(null); } }).catch(() => undefined);
     return work;
   };
-  const downloadPhoneOriginal = (takeId: string) => {
+  const receivePhoneOriginal = (takeId: string, openEditor = false) => {
     const owned = remoteCapture.current, token = epoch.current;
     if (phoneDownloadWork.current || remoteSaveWork.current || confirmationOperation.current || exitIntent.current) return;
     const current = () => live(token) && remoteCapture.current === owned && !exitIntent.current;
@@ -254,6 +254,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     const work = (async () => {
       const project = projectSnapshot.current, asset = project?.editing?.assets.find(value => value.id === `remote-${takeId}`);
       if (project && asset) {
+        if (openEditor) return;
         const file = await getAsset(owner, project.id, asset.id);
         if (!current()) return;
         if (!file) throw new Error('O arquivo deste take não está disponível neste navegador. Receba o original do iPhone novamente.');
@@ -265,10 +266,14 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
       // Confirm the project write before offering the same bytes as a download.
       await savePhoneOriginal(master.file, takeId);
       if (!current()) return;
+      if (openEditor) return;
       downloadStudioOriginal(master.file, master.file.name);
       setNotice('Original no projeto e download iniciado. A cópia no iPhone está preservada.');
     })(); phoneDownloadWork.current = work;
-    void work.catch(cause => report(cause, token)).finally(() => { if (phoneDownloadWork.current === work) phoneDownloadWork.current = null; });
+    void work.finally(() => { if (phoneDownloadWork.current === work) phoneDownloadWork.current = null; })
+      .then(() => {
+        if (openEditor && current() && captureSnapshot.current.phase !== 'recording') return leave(true);
+      }).catch(cause => report(cause, token));
   };
   const getPhoneThumbnail = useCallback(async (takeId: string, sessionId: string) => {
     const token = epoch.current;
@@ -503,7 +508,7 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     if (latest.current.stage !== 'production' || confirmationOperation.current || exitWork.current || saveBusy.current || deviceWork.current || screenWork.current || exitIntent.current || captureSnapshot.current.pendingRecovery || captureSnapshot.current.phase !== 'ready' || !authorizeScenes()) return;
     if (!projectSnapshot.current) makeSession(latest.current.kind, latest.current.title);
     saveStudioRecordingSelection(owner, { kind: latest.current.kind, mode, remoteScenes }, projectSnapshot.current?.id);
-    setError(null); setNotice(null); setToolsOpen(false); setLocalSegmentSaved(false);
+    setError(null); setNotice(null); setToolsOpen(false); setRecordedPhoneIds([]);
     try { capture.current?.start(); } catch (cause) { report(cause, epoch.current); }
   };
   const start = () => {
@@ -593,7 +598,11 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     if (confirmationOperation.current || exitWork.current) return;
     const token = epoch.current, owned = remoteCapture.current; setError(null);
     if (isRemote && !remoteScenes && owned?.getEnvelope?.()?.session.deviceState?.capabilities?.localTakeStorage === 1 && owned.finishLocalTake) {
-      void owned.finishLocalTake().then(() => { if (live(token) && remoteCapture.current === owned) { setLocalSegmentSaved(true); setNotice('Take salvo no iPhone. Continue gravando ou envie o original quando quiser.'); } }).catch(cause => report(cause, token));
+      void owned.finishLocalTake().then(take => {
+        if (!live(token) || remoteCapture.current !== owned) return;
+        setRecordedPhoneIds(ids => ids.includes(take.id) ? ids : [...ids, take.id]);
+        setNotice('Take salvo no iPhone. Abra a edição para receber o original neste navegador.');
+      }).catch(cause => report(cause, token));
     } else void capture.current?.stop().then(file => { if (live(token)) return saveCandidate(file); }).catch(cause => report(cause, token));
   };
   const retry = () => { if (confirmationOperation.current || exitWork.current || saveBusy.current) return; const state = captureSnapshot.current; if (candidate.current) void saveCandidate(candidate.current.file); else if (state.file || state.pendingRecovery) stop(); };
@@ -689,7 +698,37 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
     </div>
     {hasScenes && captureState.scenes && <StudioSceneControls state={captureState.scenes} disabled={occupied || pendingFile || !ready} recording={false} onScene={selectScene} onPrepareScreen={prepareScreen} onConfigure={configureScene} />}
   </>;
-  const phoneOriginals = isRemote && remoteState && !hasScenes ? <StudioRemoteLocalTakes owner={owner} state={remoteState} savedIds={new Set(project?.editing?.assets.filter(asset => asset.id.startsWith('remote-')).map(asset => asset.id.slice('remote-'.length)) ?? [])} savingId={remoteSaving} disabled={leaving || confirmationPending || captureState.phase === 'stopping'} recording={recording} onDownload={downloadPhoneOriginal} onImport={importPhoneOriginal} getThumbnail={getPhoneThumbnail} /> : null;
+  const savedPhoneIds = new Set(project?.editing?.assets.filter(asset => asset.id.startsWith('remote-')).map(asset => asset.id.slice('remote-'.length)));
+  const phoneTakes = remoteState?.localTakes ?? [];
+  const isCurrentPhoneTake = (id: string) => recordedPhoneIds.includes(id) || savedPhoneIds.has(id);
+  const currentPhoneTakes = phoneTakes.filter(take => isCurrentPhoneTake(take.id));
+  const recoveryPhoneTakes = phoneTakes.filter(take => (take.localSaved || take.phase === 'uploaded') && !isCurrentPhoneTake(take.id));
+  const pendingPhoneTakes = currentPhoneTakes.filter(take => take.localSaved && !savedPhoneIds.has(take.id));
+  const nextPhoneTake = pendingPhoneTakes.length === 1 ? pendingPhoneTakes[0] : undefined;
+  const phoneTransferActive = !!remoteState && !['idle', 'complete', 'retry'].includes(remoteState.transfer);
+  const canReceiveNextPhoneTake = !!isRemote && !hasScenes && !!nextPhoneTake &&
+    (nextPhoneTake.phase === 'uploaded' || remoteState?.connection === 'connected' &&
+      (!nextPhoneTake.sessionId || nextPhoneTake.sessionId === remoteState.session?.id));
+  const editBlock = remoteSaving || phoneTransferActive ? 'Aguarde o original chegar ao projeto.'
+    : pendingFile ? 'Salve ou resolva o take pendente para abrir o editor.'
+    : occupied ? 'Aguarde a operação atual terminar.'
+    : pendingPhoneTakes.length > 1 ? 'Baixe ou importe os takes do iPhone para adicioná-los ao projeto.'
+    : nextPhoneTake && !canReceiveNextPhoneTake ? 'Reconecte o iPhone ou importe o original para abrir o editor.'
+    : !project?.takes.length && !canReceiveNextPhoneTake ? recoveryPhoneTakes.length
+      ? 'Grave um take ou use Recuperar original do iPhone.'
+      : 'Grave ou importe um take para abrir o editor.'
+    : undefined;
+  const phoneOriginals = isRemote && remoteState && !hasScenes ? <>
+    <StudioRemoteLocalTakes owner={owner} state={{ ...remoteState, localTakes: currentPhoneTakes }} savedIds={savedPhoneIds} savingId={remoteSaving}
+      disabled={leaving || confirmationPending || captureState.phase === 'stopping'} recording={recording}
+      onDownload={receivePhoneOriginal} onImport={importPhoneOriginal} getThumbnail={getPhoneThumbnail} />
+    {!!recoveryPhoneTakes.length && <details className="se-recording-phone-recovery">
+      <summary>Recuperar original do iPhone</summary>
+      <StudioRemoteLocalTakes owner={owner} state={{ ...remoteState, localTakes: recoveryPhoneTakes }} savedIds={savedPhoneIds} savingId={remoteSaving}
+        disabled={leaving || confirmationPending || recording || captureState.phase === 'stopping'} recording={recording}
+        onDownload={receivePhoneOriginal} onImport={importPhoneOriginal} getThumbnail={getPhoneThumbnail} />
+    </details>}
+  </> : null;
   const setupWorking = captureState.phase === 'preparing' || changingDevice || captureState.scenes?.preparingScreen === true;
   const setupCTA = premiumLoading ? 'Confirmando seu plano…' : remoteScreenRequired ? 'Compartilhar tela' : ready ? 'Ir para gravação' : setupWorking ? isRemote ? 'Conectando iPhone…' : 'Preparando prévia…' : mode === 'camera' && kind !== 'podcast' ? 'Ativar câmera' : captureCTA;
   const setupContext = remoteScreenRequired ? 'Seu iPhone está pronto. Compartilhe a tela para completar a cena.' : ready && !remoteAudioReady ? 'Confirme o microfone do iPhone para gravar.' : setupWorking ? changingDevice ? 'Ajustando o enquadramento…' : mode === 'screen' ? 'Escolha uma tela ou aba no navegador.' : isRemote ? 'Abra a câmera remota no app Classfy.' : 'Autorize o acesso para conferir a prévia.' : undefined;
@@ -748,8 +787,15 @@ export function StudioRecordingWorkspace({ owner, initialKind, initialTitle = ''
             {isRemote ? <div className="se-recording-screen-label"><Smartphone size={17} /><span>{captureState.camera?.name ?? 'Meu iPhone'}<small>{hasScenes ? iphoneNarration ? 'Imagem e áudio no iPhone' : 'Imagem do iPhone · áudio no computador' : 'Câmera e áudio no aparelho'}</small></span></div> : kind !== 'podcast' && mode !== 'screen' ? <DeviceSelector label="Câmera" current={captureState.camera} devices={captureState.devices?.cameras ?? []} disabled={occupied || pendingFile} onChange={cameraId => selectDevice({ cameraId })} /> : kind !== 'podcast' ? <div className="se-recording-screen-label"><Monitor size={17} /><span>Tela compartilhada<small>{captureState.stream ? 'Captura ativa' : 'Selecione uma tela ao abrir'}</small></span></div> : null}
             {(!isRemote || hasScenes) && <div className="se-recording-microphone-control"><button className={`se-recording-mute${captureState.microphoneEnabled === false ? ' muted' : ''}`} aria-label={captureState.microphoneEnabled === false ? 'Ativar microfone da gravação' : 'Desativar microfone'} aria-pressed={captureState.microphoneEnabled === false} title={captureState.microphoneEnabled === false ? 'Ativar microfone' : 'Desativar microfone'} disabled={!ready || occupied || pendingFile || !captureState.input} onClick={toggleMicrophone}>{captureState.microphoneEnabled === false ? <MicOff size={19} /> : <Mic size={19} />}</button><DeviceSelector label="Microfone" current={captureState.input} devices={captureState.devices?.microphones ?? []} disabled={occupied || pendingFile} onChange={microphoneId => selectDevice({ microphoneId })} /></div>}
           </div>
-          <div className="se-recording-record-control">{ready ? <><button className="se-recording-rec" aria-label="Iniciar gravação" disabled={occupied || pendingFile || !remoteAudioReady} onClick={start}><i /></button><span>{remoteAudioReady ? localSegmentSaved ? 'Continuar · novo take' : 'Gravar take' : 'Confirme o microfone do iPhone'}</span></> : occupied ? <span className="se-recording-working" role="status"><Loader2 size={18} className="se-spin" />{countdown !== null ? 'Preparando REC…' : changingDevice ? 'Ajustando entrada…' : busy === 'save' ? 'Salvando original…' : busy === 'remove' ? 'Removendo take…' : captureState.phase === 'stopping' ? isRemote ? localFirst ? 'Salvando no iPhone…' : 'Recebendo original do iPhone…' : 'Preparando o take…' : isRemote ? 'Aguardando meu iPhone…' : 'Aguardando permissão…'}</span> : !pendingFile && !permissionCard && <button className="se-recording-button" disabled={occupied || pendingFile} onClick={openCapture}><span className="se-recording-small-dot" />{project?.takes.length ? 'Gravar outro take' : captureCTA}</button>}</div>
-          <div className="se-recording-next"><span>{project?.takes.length ? `${project.takes.length} ${project.takes.length === 1 ? 'take salvo' : 'takes salvos'} · ${formatStudioDuration(total)}` : 'Grave seu primeiro take'}</span><button className="se-recording-button primary" disabled={!project?.takes.length || occupied || pendingFile} onClick={() => void leave(true)}>Ir para edição<ArrowRight size={17} /></button></div>
+          <div className="se-recording-record-control">{ready ? <><button className="se-recording-rec" aria-label="Iniciar gravação" disabled={occupied || pendingFile || !remoteAudioReady} onClick={start}><i /></button><span>{remoteAudioReady ? recordedPhoneIds.length ? 'Continuar · novo take' : 'Gravar take' : 'Confirme o microfone do iPhone'}</span></> : occupied ? <span className="se-recording-working" role="status"><Loader2 size={18} className="se-spin" />{countdown !== null ? 'Preparando REC…' : changingDevice ? 'Ajustando entrada…' : busy === 'save' ? 'Salvando original…' : busy === 'remove' ? 'Removendo take…' : captureState.phase === 'stopping' ? isRemote ? localFirst ? 'Salvando no iPhone…' : 'Recebendo original do iPhone…' : 'Preparando o take…' : isRemote ? 'Aguardando meu iPhone…' : 'Aguardando permissão…'}</span> : !pendingFile && !permissionCard && <button className="se-recording-button" disabled={occupied || pendingFile} onClick={openCapture}><span className="se-recording-small-dot" />{project?.takes.length ? 'Gravar outro take' : captureCTA}</button>}</div>
+          <div className="se-recording-next">
+            <span id="se-recording-edit-hint">{editBlock ?? (nextPhoneTake ? 'O original será recebido do iPhone.' : project?.takes.length ? `${project.takes.length} ${project.takes.length === 1 ? 'take salvo' : 'takes salvos'} · ${formatStudioDuration(total)}` : null)}</span>
+            <button className="se-recording-button primary" aria-disabled={!!editBlock} aria-describedby="se-recording-edit-hint" title={editBlock} onClick={() => {
+              if (editBlock) return;
+              if (nextPhoneTake) receivePhoneOriginal(nextPhoneTake.id, true);
+              else void leave(true);
+            }}>Ir para edição<ArrowRight size={17} /></button>
+          </div>
         </>}
       </div>
     </main>}

@@ -192,7 +192,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(assets.get(key(owner, previous.id, previousAsset))).toBe(previousFile); expect(assets.get(key(owner, previous.id, saved.takes[1].assetId!))).toBe(received);
     expect(io.create).toHaveBeenCalledOnce(); expect(prepare).not.toHaveBeenCalled(); expect(start).not.toHaveBeenCalled(); expect(reconnect).not.toHaveBeenCalled(); expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0);
   });
-  it('STOP local mantém câmera, novo REC sobrevive ao recebimento anterior e AirDrop adiciona outro take sem substituir', async () => {
+  it.each([false, true])('STOP local preserva os takes e permite abrir a edição diretamente: %s', async openEditor => {
     const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     const persist = deferred<void>(), originalSave = io.save.getMockImplementation()!;
     io.save.mockImplementation(async (...args) => { await persist.promise; return originalSave(...args); });
@@ -205,8 +205,9 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     remoteIO.create.mockImplementation(() => {
       const listeners = new Set<(state: StudioCaptureState) => void>(), remoteListeners = new Set<(state: StudioRemoteView) => void>();
       let state: StudioCaptureState = { phase: 'idle', stream: null, file: null, error: null, elapsed: 0, input: null, camera: null, devices: { cameras: [], microphones: [] }, levels: [], microphoneEnabled: true };
-      const device = { capabilities: { localTakeStorage: 1 }, localTakes: [] as any[], width: 1920, height: 1080, fps: 30 };
-      let remote: StudioRemoteView = { pairing: null, connection: 'connected', session: { id: 'remote-session', deviceId: 'iphone', configuration: { resolution: '1080p', fps: 30, cameraFacing: 'back' }, deviceState: device, status: 'ready' } as any, transfer: 'idle', pendingTakeId: null, error: null, localFirst: true, localTakes: [] };
+      const older = { id: 'older-take', sessionId: 'remote-session', metadata: raw, sourceMetadata: raw, phase: 'local_ready' as const, localSaved: true };
+      const device = { capabilities: { localTakeStorage: 1 }, localTakes: [older] as any[], width: 1920, height: 1080, fps: 30 };
+      let remote: StudioRemoteView = { pairing: null, connection: 'connected', session: { id: 'remote-session', deviceId: 'iphone', configuration: { resolution: '1080p', fps: 30, cameraFacing: 'back' }, deviceState: device, status: 'ready' } as any, transfer: 'idle', pendingTakeId: null, error: null, localFirst: true, localTakes: [older] };
       const publish = (patch: Partial<StudioCaptureState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener(state)); };
       const transfer = (patch: Partial<StudioRemoteView>) => { remote = { ...remote, ...patch }; remoteListeners.forEach(listener => listener(remote)); };
       start.mockImplementation(() => { activeTake = ++count === 1 ? firstId : secondId; transfer({ pendingTakeId: activeTake }); publish({ phase: 'recording' }); });
@@ -219,9 +220,27 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
         prepare: async () => publish({ phase: 'ready', stream, width: 1920, height: 1080, frameRate: 30 }), start, stop: legacyStop, finishLocalTake: finish, receiveRemoteTake: receive,
         getEnvelope: () => ({ session: remote.session, takes: [], commands: [], serverAt: '' }), getMicrophoneTrack: () => null, cancel, discardRemoteRecovery() {}, dispose() { listeners.clear(); remoteListeners.clear(); } } as unknown as StudioRemoteCaptureController;
     });
-    function Route() { const location = useLocation(); return <StudioRecordingWorkspace owner={owner} projectId={new URLSearchParams(location.search).get('project') ?? undefined} canUseScenes />; }
+    function Route() { const location = useLocation(); return <><span data-location>{location.pathname}</span><StudioRecordingWorkspace owner={owner} projectId={new URLSearchParams(location.search).get('project') ?? undefined} canUseScenes /></>; }
     await act(async () => root.render(<MemoryRouter><Route /></MemoryRouter>));
-    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); await startTake(); await click('Encerrar gravação');
+    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); await startTake();
+    const currentTakes = () => host.querySelector('main > .se-recording-phone-takes')!;
+    expect(currentTakes().querySelectorAll('article')).toHaveLength(0);
+    expect(host.querySelector<HTMLDetailsElement>('.se-recording-phone-recovery')?.open).toBe(false);
+    await click('Encerrar gravação');
+    expect(currentTakes().querySelectorAll('article')).toHaveLength(1);
+    expect(button('Ir para edição')?.getAttribute('aria-disabled')).toBe('false');
+    if (openEditor) {
+      await click('Ir para edição');
+      expect(receive.mock.calls).toEqual([[firstId]]);
+      await act(async () => receiving.resolve({ file, take: { id: firstId }, metadata: raw }));
+      expect(host.querySelector('[data-location]')?.textContent).not.toMatch(/^\/studio\/projects\//);
+      await act(async () => persist.resolve());
+      const saved = [...projects.values()][0];
+      expect(host.querySelector('[data-location]')?.textContent).toBe(`/studio/projects/${saved.id}`);
+      expect(saved.takes.map(take => take.assetId)).toEqual([`remote-${firstId}`]);
+      expect(download).not.toHaveBeenCalled();
+      return;
+    }
     expect(finish).toHaveBeenCalledOnce(); expect(legacyStop).not.toHaveBeenCalled(); expect(receive).not.toHaveBeenCalled(); expect(io.put).not.toHaveBeenCalled();
     expect(host.textContent).toContain('No iPhone'); expect(button('Iniciar gravação')?.disabled).toBe(false);
     await click('Baixar take 1'); expect(download).not.toHaveBeenCalled(); await click('Iniciar gravação'); expect(activeTake).toBe(secondId);
@@ -553,8 +572,8 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
 
   it('espera salvamento durável, mantém sessão após query replace e concatena dois takes antes de excluir/editar', async () => {
     const saved = deferred<StudioProject>(), originalSave = io.save.getMockImplementation()!; io.save.mockImplementationOnce(async (account, value) => { await saved.promise; return originalSave(account, value); });
-    await mount(); await record(); expect(button('Ir para edição')?.disabled).toBe(true); expect(host.querySelector('.se-recording-take')).toBeNull();
-    await act(async () => saved.resolve(fixture())); expect(button('Ir para edição')?.disabled).toBe(false); expect(host.querySelector('[data-location]')?.textContent).toContain('?project=');
+    await mount(); await record(); expect(button('Ir para edição')?.getAttribute('aria-disabled')).toBe('true'); expect(host.querySelector('.se-recording-take')).toBeNull();
+    await act(async () => saved.resolve(fixture())); expect(button('Ir para edição')?.getAttribute('aria-disabled')).toBe('false'); expect(host.querySelector('[data-location]')?.textContent).toContain('?project=');
     expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production'); expect(activeVisibility()).toBe(2);
     const review = host.querySelector<HTMLVideoElement>('video[aria-label="Reproduzir take salvo"]');
     expect(review).toBeTruthy(); expect(review!.controls).toBe(false); expect(button('Reproduzir take')).toBeTruthy();
@@ -566,7 +585,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
 
   it('erro de escrita mantém o mesmo File/IDs, permite backup e repete sem permissão/REC/duplicação', async () => {
     io.save.mockRejectedValueOnce(new Error('Sem espaço para salvar.')); await mount(); await record(); expect(host.textContent).toContain('Sem espaço');
-    expect(button('Ir para edição')?.disabled).toBe(true); const original = io.put.mock.calls[0][3], assetIds = io.put.mock.calls.map(args => args[2]);
+    expect(button('Ir para edição')?.getAttribute('aria-disabled')).toBe('true'); const original = io.put.mock.calls[0][3], assetIds = io.put.mock.calls.map(args => args[2]);
     const clickDownload = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined); vi.useFakeTimers(); await click('Baixar original'); expect(URL.createObjectURL).toHaveBeenLastCalledWith(original); expect(clickDownload).toHaveBeenCalledTimes(1); await act(async () => vi.advanceTimersByTime(1000)); expect(URL.revokeObjectURL).toHaveBeenCalled(); vi.useRealTimers();
     await click('Salvar take'); expect(io.put.mock.calls.map(args => args[2])).toEqual(assetIds); expect(io.save).toHaveBeenCalledTimes(2); expect(permissions).toHaveBeenCalledTimes(1); expect(Recorder.instances).toHaveLength(1); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1);
   });
@@ -617,7 +636,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
 
   it('Short mantém enquadramento cover e formato carregado após excluir o último take, sem voltar à preparação', async () => {
     initialKind = 'short'; await mount(); await record(); const value = [...projects.values()][0]; expect(value.editing!.main[0].fit).toBe('cover');
-    expect(host.querySelector('.se-recording-stage.short')).toBeTruthy(); await click('Excluir take 1'); await answer('Excluir take'); expect(button('Ir para edição')?.disabled).toBe(true);
+    expect(host.querySelector('.se-recording-stage.short')).toBeTruthy(); await click('Excluir take 1'); await answer('Excluir take'); expect(button('Ir para edição')?.getAttribute('aria-disabled')).toBe('true');
     expect(button('Voltar à preparação')).toBeUndefined(); await click('Configurações da gravação');
     expect(host.querySelectorAll('.se-recording-formats button')).toHaveLength(0); expect(host.querySelector('.se-recording')?.getAttribute('data-stage')).toBe('production');
     await click('Fechar configurações'); await click('Abrir câmera'); expect(permissions.mock.calls.at(-1)![0].video).toBeTruthy(); await startTake(); await click('Encerrar gravação'); expect([...projects.values()][0].kind).toBe('short'); expect(io.create).toHaveBeenCalledTimes(1);
@@ -688,9 +707,9 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     const first = button('Excluir take 1')!, second = button('Excluir take 2')!;
     await act(async () => { first.click(); second.click(); first.click(); });
     expect(confirmation()?.textContent).toContain('Excluir take 1?'); expect(confirmation()?.textContent).toContain('Os demais takes permanecem'); expect(document.querySelectorAll('[role="alertdialog"]')).toHaveLength(1);
-    expect(io.save).toHaveBeenCalledTimes(2); expect(button('Excluir take 2')?.disabled).toBe(true); expect(button('Ir para edição')?.disabled).toBe(true);
+    expect(io.save).toHaveBeenCalledTimes(2); expect(button('Excluir take 2')?.disabled).toBe(true); expect(button('Ir para edição')?.getAttribute('aria-disabled')).toBe('true');
     await click('Ir para edição'); expect(permissions).toHaveBeenCalledTimes(2); expect(host.querySelector('[data-location]')?.textContent).toContain('/studio/record'); expect(host.querySelector('video[aria-label="Reproduzir take salvo"]')?.getAttribute('src')).toBe(source);
-    await answer('Cancelar'); expect(confirmation()).toBeNull(); expect([...projects.values()][0]).toBe(original); expect(button('Ir para edição')?.disabled).toBe(false);
+    await answer('Cancelar'); expect(confirmation()).toBeNull(); expect([...projects.values()][0]).toBe(original); expect(button('Ir para edição')?.getAttribute('aria-disabled')).toBe('false');
     await click('Excluir take 1'); const accept = [...confirmation()!.querySelectorAll('button')].find(value => value.textContent === 'Excluir take')!;
     await act(async () => { accept.click(); accept.click(); });
     expect(io.save).toHaveBeenCalledTimes(3); expect([...projects.values()][0].takes.map(item => item.id)).toEqual([original.takes[1].id]); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1);
@@ -730,7 +749,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     await click('Salvar take'); expect(io.save).toHaveBeenCalledTimes(2); await answer('Cancelar'); expect(button('Baixar original')).toBeTruthy();
     const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined); await click('Baixar original'); expect(URL.createObjectURL).toHaveBeenLastCalledWith(original); expect(download).toHaveBeenCalledTimes(1);
     await click('Descartar trecho'); await answer('Descartar trecho'); expect(button('Baixar original')).toBeUndefined(); expect(host.querySelectorAll('.se-recording-take')).toHaveLength(1); expect([...projects.values()][0]).toBe(saved);
-    expect(io.save).toHaveBeenCalledTimes(2); expect(button('Ir para edição')?.disabled).toBe(false); expect(Recorder.instances).toHaveLength(2);
+    expect(io.save).toHaveBeenCalledTimes(2); expect(button('Ir para edição')?.getAttribute('aria-disabled')).toBe('false'); expect(Recorder.instances).toHaveLength(2);
   });
 
   it('double Back durante o diálogo restaura a entrada e libera apenas o destino final após um salvamento', async () => {
@@ -783,7 +802,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(host.querySelectorAll('[data-testid="recording-toolbar"] button')).toHaveLength(1); expect(button('Encerrar gravação')).toBeTruthy();
     expect(host.querySelectorAll('select')).toHaveLength(0); expect(button('Desativar microfone')).toBeUndefined(); expect(button('Voltar aos projetos')).toBeUndefined();
     expect(host.querySelector('[role="timer"]')).toBeTruthy(); expect(host.querySelector('[aria-label="Microfone em uso: Microfone externo"]')).toBeTruthy();
-    await click('Encerrar gravação'); expect(host.querySelector('.se-recording-takes')).toBeTruthy(); expect(button('Ir para edição')?.disabled).toBe(false);
+    await click('Encerrar gravação'); expect(host.querySelector('.se-recording-takes')).toBeTruthy(); expect(button('Ir para edição')?.getAttribute('aria-disabled')).toBe('false');
     expect(host.querySelector('[data-permission-state]')).toBeNull();
   });
 
