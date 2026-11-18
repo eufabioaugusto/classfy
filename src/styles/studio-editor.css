@@ -711,6 +711,9 @@
   grid-template-columns: 1fr 1fr 1fr;
   gap: 5px;
 }
+.se-inspector .se-ai-action + .se-preset-grid {
+  margin-top: 10px;
+}
 .se-preset-grid button {
   height: 40px;
   border: 1px solid var(--se-line);
