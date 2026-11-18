@@ -1,32 +1,33 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, EyeOff, Keyboard, Magnet, Mic, Minus, MousePointer2, Plus, Scissors, StretchHorizontal, Volume2, VolumeX } from 'lucide-react';
+import { Eye, EyeOff, Hand, Repeat, Magnet, Mic, Minus, MousePointer2, Plus, Scissors, StretchHorizontal, Volume2, VolumeX } from 'lucide-react';
 import { compileStudioRecipe, formatStudioEditorTime, studioSeconds, type StudioProject } from '../../../../shared/studio';
-import { moveLayerClip, moveMainClip, trimLayerClip, trimMainClip } from '@/lib/studio/editor/commands';
+import { moveLayerClip, moveMainClip, patchClip, rollStudioBoundary, trimLayerClip, trimMainClip } from '@/lib/studio/editor/commands';
 import { studioWaveformPath, type StudioWaveform } from '@/lib/studio/editor/audioEnvelope';
 import { clampStudioTime, snapStudioTime, webStudioTrim } from './timelineGeometry';
 
-export type TimelineTool = 'select' | 'blade' | 'trim';
+export type TimelineTool = 'select' | 'blade' | 'trim' | 'hand';
 type Box = { left: number; top: number; width: number; height: number };
 type Marquee = { pointer: number; x: number; y: number; additive: boolean; clips: (Box & { id: string })[]; moved: boolean };
 const timelineTools = [
   { id: 'select', label: 'Seleção', key: 'A', Icon: MousePointer2 },
   { id: 'blade', label: 'Lâmina', key: 'B', Icon: Scissors },
+  { id: 'hand', label: 'Mão', key: 'H', Icon: Hand },
   { id: 'trim', label: 'Encurtar pelas bordas', key: 'T', Icon: StretchHorizontal },
 ] as const;
 
-type Props = { project: StudioProject; position: number; playing?: boolean; selectedIds: string[]; tool: TimelineTool; onTool(tool: TimelineTool): void; disabled?: boolean; thumbnails: Record<string, string>; waveforms?: ReadonlyMap<string, StudioWaveform>;
+type Props = { zoomCommand?: { direction: number }; loop?: boolean; onToggleLoop?(): void; shortcuts?: React.ReactNode; project: StudioProject; position: number; playing?: boolean; selectedIds: string[]; tool: TimelineTool; onTool(tool: TimelineTool): void; disabled?: boolean; thumbnails: Record<string, string>; waveforms?: ReadonlyMap<string, StudioWaveform>;
   onSelect(id?: string): void; onSelectMany(ids: string[]): void; onBlade(time: number, id: string): void; onSeek(seconds: number): void; onPreview(project: StudioProject | null): void;
   onCommit(change: (project: StudioProject) => StudioProject): void; onAdd(): void;
   onMainMute(): void; onLayerMute(layerId: string): void; onLayerHide(layerId: string): void };
-type Drag = { pointer: number; id: string; x: number; y: number; clip: ReturnType<typeof compileStudioRecipe>['clips'][number]; base: StudioProject; edge?: 'start' | 'end'; lastX: number; lastY: number; moved: boolean; scale: number };
+type Drag = { pointer: number; id: string; x: number; y: number; clip: ReturnType<typeof compileStudioRecipe>['clips'][number]; base: StudioProject; edge?: 'start' | 'end'; slip?: boolean; roll?: [string, string]; lastX: number; lastY: number; moved: boolean; scale: number };
 
-const ClipWaveform = memo(function ClipWaveform({ waveform, start, end, width, muted }: {
-  waveform: StudioWaveform; start: number; end: number; width: number; muted: boolean;
+const ClipWaveform = memo(function ClipWaveform({ waveform, start, end, width, muted, gain }: {
+  waveform: StudioWaveform; start: number; end: number; width: number; muted: boolean; gain: number;
 }) {
   const columns = Math.max(2, Math.min(4096, Math.ceil(width / 2)));
   return <svg className={`se-clip-waveform${muted ? ' muted' : ''}`} viewBox={`0 0 ${columns} 20`}
     preserveAspectRatio="none" role="img" aria-label="Forma de onda do áudio original">
-    <path d={studioWaveformPath(waveform, start, end, columns)} />
+    <path d={studioWaveformPath(waveform, start, end, columns, gain)} />
   </svg>;
 });
 
@@ -38,8 +39,18 @@ export function StudioDesktopTimeline(props: Props) {
   const marquee = useRef<Marquee | null>(null);
   const frame = recipe.output.frameRateDenominator / recipe.output.frameRateNumerator;
   const transaction = useRef<Drag | null>(null), scroll = useRef<HTMLDivElement>(null), suppress = useRef(false);
+  const pan = useRef<{ pointer: number; x: number; left: number }>();
+  const volumeDrag = useRef<{ pointer: number; id: string; base: StudioProject; last: number; bounds: DOMRect; maximum: number }>();
+  const zoomCommand = props.zoomCommand;
+  useEffect(() => {
+    if (!zoomCommand) return;
+    if (zoomCommand.direction === 0) {
+      setScale(Math.min(240, Math.max(.001, ((scroll.current?.clientWidth ?? 800) - 55) / Math.max(.1, duration))));
+      if (scroll.current) scroll.current.scrollLeft = 0;
+    } else setScale(value => Math.max(.001, Math.min(240, value * (zoomCommand.direction > 0 ? 1.3 : 1 / 1.3))));
+  }, [zoomCommand]);
   const width = Math.max(800, duration * scale + 160), marks = Math.ceil(Math.max(duration, width / scale));
-  const interval = scale < 30 ? 10 : scale < 60 ? 5 : scale < 120 ? 2 : 1;
+  const interval = scale < 8 ? Math.ceil(60 / scale / 10) * 10 : scale < 30 ? 10 : scale < 60 ? 5 : scale < 120 ? 2 : 1;
   useEffect(() => {
     const view = scroll.current;
     if (!props.playing || disabled || transaction.current || marquee.current || !view?.clientWidth) return;
@@ -91,6 +102,13 @@ export function StudioDesktopTimeline(props: Props) {
   };
   const applyDrag = (draft: Drag, dx: number, dy: number, target: StudioProject) => {
     const clip = draft.clip, start = studioSeconds(clip.startTicks), end = studioSeconds(clip.startTicks + clip.durationTicks);
+    if (draft.roll) return rollStudioBoundary(target, ...draft.roll, dx / draft.scale);
+    if (draft.slip) {
+      const asset = target.editing!.assets.find(item => item.id === clip.assetId)!;
+      const start = studioSeconds(clip.sourceStartTicks), end = studioSeconds(clip.sourceEndTicks);
+      const offset = Math.max(-start, Math.min(studioSeconds(asset.durationTicks) - end, dx / draft.scale * (clip.playbackRate ?? 1)));
+      return trimMainClip(target, clip.id, start + offset, end + offset);
+    }
     if (draft.edge) {
       if (clip.zIndex === 0) {
         const asset = target.editing!.assets.find(a => a.id === clip.assetId)!;
@@ -122,22 +140,27 @@ export function StudioDesktopTimeline(props: Props) {
       props.onBlade(time, id);
       return;
     }
-    if (!edge && (event.shiftKey || event.metaKey || event.ctrlKey)) return;
-    if (tool === 'trim' && !edge) {
+    if (tool !== 'trim' && !edge && (event.shiftKey || event.metaKey || event.ctrlKey)) return;
+    const slip = tool === 'trim' && event.altKey && clip.zIndex === 0 && clip.kind !== 'image';
+    if (tool === 'trim' && !edge && !slip) {
       const bounds = event.currentTarget.getBoundingClientRect();
       edge = event.clientX - bounds.left < bounds.width / 2 ? 'start' : 'end';
     }
+    const mainIndex = project.editing!.main.findIndex(item => item.id === id);
+    const adjacent = mainIndex >= 0 && edge ? project.editing!.main[mainIndex + (edge === 'start' ? -1 : 1)] : undefined;
+    const roll: [string, string] | undefined = tool === 'trim' && event.shiftKey && adjacent
+      ? edge === 'start' ? [adjacent.id, id] : [id, adjacent.id] : undefined;
     onSelect(id);
-    if (clip.zIndex === 0 && !edge) return;
+    if (clip.zIndex === 0 && !edge && !slip) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    transaction.current = { pointer: event.pointerId, id, x: event.clientX, y: event.clientY, clip, base: project, edge, lastX: 0, lastY: 0, moved: false, scale };
+    transaction.current = { pointer: event.pointerId, id, x: event.clientX, y: event.clientY, clip, base: project, edge, slip, roll, lastX: 0, lastY: 0, moved: false, scale };
   };
   const move = (event: React.PointerEvent) => {
     const drag = transaction.current; if (!drag || drag.pointer !== event.pointerId || disabled) return;
     if (!recipe.clips.some(c => c.id === drag.id)) return cancel();
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (Math.hypot(dx, dy) < 3 && !drag.moved) return;
-    if (drag.clip.zIndex === 0 && !drag.edge) return;
+    if (drag.clip.zIndex === 0 && !drag.edge && !drag.slip) return;
     drag.moved = true; drag.lastX = dx; drag.lastY = dy; setDragging(drag.id);
     try { onPreview(applyDrag(drag, dx, dy, drag.base)); } catch { /* Invalid source extensions stop at the last valid range. */ }
   };
@@ -147,6 +170,23 @@ export function StudioDesktopTimeline(props: Props) {
     if (drag.moved && !disabled) { suppress.current = true; try { onCommit(value => applyDrag(drag, drag.lastX, drag.lastY, value)); } catch { /* The command preserves the original when its bounds are invalid. */ } }
   };
   const cancel = () => { transaction.current = null; setDragging(undefined); onPreview(null); };
+  const moveVolume = (event: React.PointerEvent) => {
+    const drag = volumeDrag.current;
+    if (!drag || drag.pointer !== event.pointerId || disabled) return;
+    const { bounds, maximum } = drag;
+    drag.last = Math.round(Math.min(maximum, Math.max(0, ((bounds.bottom - event.clientY) / bounds.height - .04) / .92 * maximum)) * 100) / 100;
+    onPreview(patchClip(drag.base, drag.id, { gain: drag.last }));
+  };
+  const finishVolume = (event: React.PointerEvent, commit: boolean) => {
+    const drag = volumeDrag.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
+    volumeDrag.current = undefined;
+    onPreview(null);
+    if (commit && !disabled) {
+      suppress.current = true;
+      onCommit(value => patchClip(value, drag.id, { gain: drag.last }));
+    }
+  };
   const rows = project.editing!.layers.map((layer, index) => ({ layer, z: index + 1 }));
   const clipView = (clip: typeof recipe.clips[number]) => {
     const asset = project.editing!.assets.find(a => a.id === clip.assetId);
@@ -156,9 +196,15 @@ export function StudioDesktopTimeline(props: Props) {
     const clipWidth = Math.max(8, studioSeconds(clip.durationTicks) * scale);
     const waveform = asset && (clip.kind === 'video' || clip.kind === 'audio') ? props.waveforms?.get(asset.id) : undefined;
     const muted = main ? project.editing!.mainMuted === true : project.editing!.layers[clip.zIndex - 1]?.muted === true;
+    const source = main ? project.editing!.main.find(item => item.id === clip.id) : project.editing!.layers[clip.zIndex - 1]?.items.find(item => item.id === clip.id);
+    const gain = source?.gain ?? 1, maximumGain = Math.max(2, gain);
     return <div role="button" tabIndex={0} key={clip.id} aria-label={`${main ? 'Take' : 'Camada'} ${title}`} aria-pressed={isSelected} data-timeline-clip={clip.id} className={`se-timeline-clip se-clip-${clip.kind} ${isSelected ? 'selected' : ''} ${dragging === clip.id ? 'dragging' : ''}`}
       style={{ left: studioSeconds(clip.startTicks) * scale, width: clipWidth, ...(asset && thumbnails[asset.id] ? { backgroundImage: `url("${thumbnails[asset.id]}")` } : {}) }}
-      onPointerDown={e => begin(e, clip.id)} onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel}
+      onPointerDown={e => begin(e, clip.id)}
+      onPointerMove={event => volumeDrag.current ? moveVolume(event) : move(event)}
+      onPointerUp={event => volumeDrag.current ? finishVolume(event, true) : finish(event)}
+      onPointerCancel={event => volumeDrag.current ? finishVolume(event, false) : cancel()}
+      onLostPointerCapture={event => finishVolume(event, false)}
       draggable={main && !disabled && tool === 'select'} onDragStart={e => { e.dataTransfer.setData('application/classfy-clip', clip.id); cancel(); }} onDragOver={e => { if (main) e.preventDefault(); }} onDrop={e => { if (!main || disabled) return; e.preventDefault(); const from = e.dataTransfer.getData('application/classfy-clip'); if (from) onCommit(value => moveMainClip(value, from, value.editing!.main.findIndex(c => c.id === clip.id))); }}
       onClick={e => { e.stopPropagation(); if (suppress.current) { suppress.current = false; return; } if (disabled || tool === 'blade') return;
         if (e.shiftKey || e.metaKey || e.ctrlKey) props.onSelectMany(selectedIds.includes(clip.id)
@@ -167,7 +213,30 @@ export function StudioDesktopTimeline(props: Props) {
       }} onKeyDown={e => { if (e.key === 'Enter' && !disabled) { e.stopPropagation(); onSelect(clip.id); } }}>
       <span>{clip.kind === 'audio' ? <Mic size={13} /> : null}{title}</span>
       {waveform && <ClipWaveform waveform={waveform} start={studioSeconds(clip.sourceStartTicks)}
-        end={studioSeconds(clip.sourceEndTicks)} width={clipWidth} muted={muted} />}
+        end={studioSeconds(clip.sourceEndTicks)} width={clipWidth} muted={muted} gain={muted ? 0 : gain} />}
+      {(clip.kind === 'audio' || clip.kind === 'video' && asset?.hasAudio !== false) && <div className="se-volume-overlay">
+        <div className="se-clip-volume" role="slider" tabIndex={disabled ? -1 : 0} aria-label={`Volume de ${title}`}
+          aria-valuemin={0} aria-valuemax={maximumGain * 100} aria-valuenow={Math.round(gain * 100)}
+          aria-valuetext={`${Math.round(gain * 100)}%`} title={`Volume ${Math.round(gain * 100)}%`}
+          style={{ bottom: `${4 + gain / maximumGain * 92}%` }}
+          onClick={event => event.stopPropagation()}
+          onPointerDown={event => {
+            if (disabled || tool !== 'select' || event.button !== 0) return;
+            event.stopPropagation(); event.preventDefault();
+            onSelect(clip.id);
+            const overlay = event.currentTarget.parentElement!;
+            volumeDrag.current = { pointer: event.pointerId, id: clip.id, base: project, last: gain,
+              bounds: overlay.getBoundingClientRect(), maximum: maximumGain };
+            overlay.parentElement!.setPointerCapture(event.pointerId);
+          }}
+          onKeyDown={event => {
+            if (disabled || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault(); event.stopPropagation();
+            const value = event.key === 'Home' ? 0 : event.key === 'End' ? maximumGain :
+              gain + (['ArrowUp', 'ArrowRight'].includes(event.key) ? .05 : -.05);
+            onCommit(project => patchClip(project, clip.id, { gain: Math.max(0, Math.min(maximumGain, value)) }));
+          }} />
+      </div>}
       {isSelected && selectedIds.length === 1 && !marqueePreview && tool !== 'blade' && !disabled && <>{(['start', 'end'] as const).map(edge => <span key={edge} role="slider" tabIndex={0} aria-label={`Cortar ${edge === 'start' ? 'início' : 'fim'} de ${title}`} aria-valuenow={studioSeconds(main && asset?.kind !== 'image' ? edge === 'start' ? clip.sourceStartTicks : clip.sourceEndTicks : edge === 'start' ? clip.startTicks : clip.startTicks + clip.durationTicks)} className={`se-trim-handle ${edge}`}
         onPointerDown={e => begin(e, clip.id, edge)} onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel}
         onKeyDown={e => { if (disabled || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); e.stopPropagation(); const fake: Drag = { pointer: 0, id: clip.id, x: 0, y: 0, clip, base: project, edge, lastX: 0, lastY: 0, moved: true, scale }; onCommit(p => applyDrag(fake, (e.key === 'ArrowRight' ? 1 : -1) * scale * frame, 0, p)); }} />)}</>}
@@ -178,17 +247,27 @@ export function StudioDesktopTimeline(props: Props) {
       {timelineTools.map(({ id, label, key, Icon }) => <button key={id} className={`se-icon ${tool === id ? 'active' : ''}`}
         aria-pressed={tool === id} aria-label={label} aria-keyshortcuts={key} title={`${label} (${key})`} disabled={disabled}
         onClick={() => props.onTool(id)}><Icon size={16} /></button>)}
-      <details className="se-timeline-shortcuts"><summary aria-label="Atalhos da montagem" title="Atalhos da montagem"><Keyboard size={16} /></summary>
-        <dl>{[['A', 'Seleção'], ['B', 'Lâmina'], ['T', 'Encurtar pelas bordas'], ['Q / W', 'Encurtar início / fim até o cursor'], ['⌘ ou Ctrl + B', 'Dividir no cursor'], ['⌘ ou Ctrl + A', 'Selecionar todos'], ['Delete', 'Excluir seleção'], ['Espaço', 'Reproduzir / pausar'], ['← / →', 'Avançar ou voltar um quadro'], ['⌘ ou Ctrl + Z', 'Desfazer'], ['⌘ ou Ctrl + Shift + Z', 'Refazer']].map(([key, label]) =>
-          <div key={key}><dt><kbd>{key}</kbd></dt><dd>{label}</dd></div>)}</dl>
-      </details><button className={`se-icon ${snapping ? 'active' : ''}`} aria-label={snapping ? 'Desativar alinhamento' : 'Ativar alinhamento'} aria-pressed={snapping} onClick={() => setSnapping(!snapping)}><Magnet size={16} /></button><button className="se-icon" aria-label="Diminuir zoom da montagem" onClick={() => setScale(s => Math.max(12, s / 1.3))}><Minus size={16} /></button><input aria-label="Zoom da montagem" type="range" min="12" max="240" value={scale} onChange={e => setScale(+e.target.value)} /><button className="se-icon" aria-label="Aumentar zoom da montagem" onClick={() => setScale(s => Math.min(240, s * 1.3))}><Plus size={16} /></button></div></header>
+      {props.shortcuts}{props.onToggleLoop && <button className={`se-icon ${props.loop ? 'active' : ''}`} aria-pressed={!!props.loop}
+        aria-label="Reprodução em loop" onClick={props.onToggleLoop}><Repeat size={16} /></button>}<button className={`se-icon ${snapping ? 'active' : ''}`} aria-label={snapping ? 'Desativar alinhamento' : 'Ativar alinhamento'} aria-pressed={snapping} onClick={() => setSnapping(!snapping)}><Magnet size={16} /></button><button className="se-icon" aria-label="Diminuir zoom da montagem" onClick={() => setScale(s => Math.max(.001, s / 1.3))}><Minus size={16} /></button><input aria-label="Zoom da montagem" type="range" min=".001" max="240" step="any" value={scale} onChange={e => setScale(+e.target.value)} /><button className="se-icon" aria-label="Aumentar zoom da montagem" onClick={() => setScale(s => Math.min(240, s * 1.3))}><Plus size={16} /></button></div></header>
     <div className="se-timeline-body"><aside className="se-track-rail"><div className="se-ruler-space" />{rows.map(({ layer, z }) => <div className="se-track-control" key={layer.id}><span>{z}</span>{layer.kind !== 'audio' && <button className="se-icon" disabled={disabled} aria-label={`${layer.hidden ? 'Mostrar' : 'Ocultar'} faixa ${z}`} onClick={() => props.onLayerHide(layer.id)}>{layer.hidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>}{(layer.kind === 'video' || layer.kind === 'audio') && <button className="se-icon" disabled={disabled} aria-label={`${layer.muted ? 'Ativar' : 'Silenciar'} áudio da faixa ${z}`} onClick={() => props.onLayerMute(layer.id)}>{layer.muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>}</div>)}<div className="se-track-control se-main-control"><button className="se-icon" disabled={disabled} aria-label={project.editing?.mainMuted ? 'Ativar áudio principal' : 'Silenciar áudio principal'} onClick={props.onMainMute}>{project.editing?.mainMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button></div></aside>
-      <div className="se-timeline-scroll" ref={scroll}><div className={`se-timeline-content tool-${tool}`} style={{ width }} tabIndex={-1}
+      <div className={`se-timeline-scroll ${tool === 'hand' ? 'hand' : ''}`} ref={scroll}
+        onPointerDownCapture={event => {
+          if (tool !== 'hand' || disabled || event.button !== 0) return;
+          event.stopPropagation(); event.preventDefault();
+          const view = event.currentTarget;
+          pan.current = { pointer: event.pointerId, x: event.clientX, left: view.scrollLeft };
+          view.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={event => {
+          const drag = pan.current;
+          if (drag?.pointer === event.pointerId) event.currentTarget.scrollLeft = drag.left + drag.x - event.clientX;
+        }}
+        onLostPointerCapture={event => { if (pan.current?.pointer === event.pointerId) pan.current = undefined; }}><div className={`se-timeline-content tool-${tool}`} style={{ width }} tabIndex={-1}
         onPointerDown={beginMarquee} onPointerMove={updateMarquee} onPointerUp={finishMarquee}
         onPointerCancel={cancelMarquee} onLostPointerCapture={event => { if (event.target === event.currentTarget) cancelMarquee(); }}
         onKeyDown={event => { if (event.key === 'Escape') cancelMarquee(); }}><div className="se-ruler" role="slider" tabIndex={0} aria-label="Posição da montagem" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position}
         onPointerDown={e => { if (disabled) return; e.currentTarget.setPointerCapture(e.pointerId); onSeek(clampStudioTime((e.clientX - e.currentTarget.getBoundingClientRect().left) / scale, duration)); }} onPointerMove={e => { if (e.buttons === 1 && !disabled) onSeek(clampStudioTime((e.clientX - e.currentTarget.getBoundingClientRect().left) / scale, duration)); }}
-        onKeyDown={e => { if (!disabled && ['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); onSeek(clampStudioTime(position + (e.key === 'ArrowRight' ? frame : -frame), duration)); } }}>
+        onKeyDown={e => { if (!disabled && ['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); onSeek(clampStudioTime(position + (e.key === 'ArrowRight' ? frame : -frame) * (e.shiftKey ? 10 : 1), duration)); } }}>
         {Array.from({ length: Math.ceil(marks / interval) + 1 }, (_, i) => <span key={i} style={{ left: i * interval * scale }}>{formatStudioEditorTime(i * interval).replace('.0', '')}</span>)}</div>
         {rows.map(({ layer, z }) => <div className={`se-track ${layer.hidden ? 'hidden' : ''}`} key={layer.id} >{recipe.clips.filter(c => c.zIndex === z).map(clipView)}</div>)}
         <div className="se-track se-main-track">{recipe.clips.filter(c => c.zIndex === 0).map(clipView)}<button className="se-append" style={{ left: duration * scale + 8 }} aria-label="Adicionar take" disabled={disabled} onClick={props.onAdd}><Plus size={20} /></button></div>

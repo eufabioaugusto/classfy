@@ -227,6 +227,7 @@ export type StudioEditing = {
   canvas: { aspectRatio: 'landscape' | 'portrait' | 'square'; backgroundColor: string }; output: StudioOutputProfile;
   /** Mute the complete main sequence without replacing clip gains. */
   mainMuted?: boolean;
+  clipGroups?: string[][];
 };
 export type StudioRecipeClip = {
   id: string; kind: StudioLayerKind; assetId?: string; startTicks: number; durationTicks: number;

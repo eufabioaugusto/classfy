@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { compileStudioRecipe, studioSeconds, type StudioProject, type StudioRect } from '../../../../shared/studio';
 import { patchClip } from '@/lib/studio/editor/commands';
 
-type Props = { project: StudioProject; selectedId?: string; position: number; disabled?: boolean; canvasRef: React.RefObject<HTMLCanvasElement>;
+type Props = { zoom?: number | 'actual'; showGuides?: boolean; project: StudioProject; selectedId?: string; position: number; disabled?: boolean; canvasRef: React.RefObject<HTMLCanvasElement>;
   onSelect(id?: string): void; onEditText(id: string): void; onBegin(): void; onPreview(project: StudioProject | null): void;
   onCommit(change: (project: StudioProject) => StudioProject): void };
 type Transaction = { id: string; base: StudioProject; rect: StudioRect; startX: number; startY: number; width: number; height: number; mode: 'move' | 'nw' | 'ne' | 'sw' | 'se'; next: StudioRect; pinch?: { distance: number; rect: StudioRect } };
@@ -71,8 +71,10 @@ export function StudioDesktopCanvas(props: Props) {
     transaction.current = null; setGuides({ x: false, y: false }); onPreview(null);
     if (!disabled) onCommit(value => patchClip(value, id, { rect }));
   };
-  return <div className="se-preview-shell" ref={shell}><div className="se-canvas" ref={viewport} style={{ width: size.width, height: size.height }} onClick={() => { if (!disabled) onSelect(undefined); }}>
+  const zoom = props.zoom === 'actual' ? recipe.output.width / size.width : props.zoom ?? 1;
+  return <div className="se-preview-shell se-zoom-shell" ref={shell}><div className="se-canvas" ref={viewport} style={{ width: size.width * zoom, height: size.height * zoom }} onClick={() => { if (!disabled) onSelect(undefined); }}>
     <canvas ref={canvasRef} width={recipe.output.width} height={recipe.output.height} aria-label="Prévia da montagem" />
+    {props.showGuides && <div className="se-preview-grid" aria-hidden="true" />}
     <div className="se-canvas-items">{active.map(clip => <div key={clip.id} className={`se-canvas-hit ${clip.id === selectedId ? 'selected' : ''}`} role="button" tabIndex={0} aria-label={`Selecionar ${clip.text?.content || (clip.zIndex === 0 ? 'vídeo principal' : 'camada')}`} aria-pressed={clip.id === selectedId}
       style={{ left: `${clip.rect.x * 100}%`, top: `${clip.rect.y * 100}%`, width: `${clip.rect.width * 100}%`, height: `${clip.rect.height * 100}%`, transform: `rotate(${clip.rotationDegrees}deg)` }}
       onClick={e => { e.stopPropagation(); if (!disabled) onSelect(clip.id); }} onDoubleClick={e => { e.stopPropagation(); if (clip.text && !disabled) props.onEditText(clip.id); }}

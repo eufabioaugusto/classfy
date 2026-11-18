@@ -1574,42 +1574,37 @@
 .se-timeline-content.tool-trim .se-timeline-clip {
   cursor: ew-resize;
 }
-.se-timeline-shortcuts {
-  position: relative;
-}
-.se-timeline-shortcuts summary {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  cursor: pointer;
-  color: var(--se-muted);
-  list-style: none;
-}
-.se-timeline-shortcuts summary::-webkit-details-marker { display: none; }
-.se-timeline-shortcuts dl {
-  position: absolute;
-  right: 0;
-  top: 100%;
-  z-index: 15;
-  width: max-content;
-  max-width: 85vw;
-  max-height: min(220px, 18vh);
-  overflow-y: auto;
-  margin: 4px 0 0;
-  padding: 8px 10px;
-  border: 1px solid var(--se-line);
-  border-radius: 7px;
-  background: var(--se-panel);
-  box-shadow: 0 6px 20px #0006;
-  font-size: 11px;
-}
-.se-timeline-shortcuts dl div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 0;
-}
-.se-timeline-shortcuts dd { margin: 0; }
-
 .se-library .se-tools-layout { min-width: 0; flex: 1; }
+
+.se-shortcut-panel {
+  position: fixed;
+  z-index: 70;
+  bottom: 36vh;
+  right: 16px;
+  width: min(430px, calc(100vw - 32px));
+  padding: 14px;
+  border: 1px solid var(--se-line);
+  border-radius: 10px;
+  background: var(--se-panel);
+  box-shadow: 0 12px 36px #0009;
+  color: var(--se-ink);
+}
+.se-shortcut-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.se-shortcut-panel h2 { margin: 0; font-size: 15px; }
+.se-shortcut-search { display: flex; align-items: center; gap: 8px; padding: 0 9px; background: var(--se-bg); border: 1px solid var(--se-line); border-radius: 6px; }
+.se-shortcut-panel .se-shortcut-search input { flex: 1; width: auto; min-width: 0; height: 34px; background: transparent; border: 0; }
+.se-shortcut-results { max-height: min(320px, 32vh); overflow-y: auto; margin-top: 9px; }
+.se-shortcut-results button { display: flex; width: 100%; justify-content: space-between; gap: 12px; padding: 8px; border-bottom: 1px solid var(--se-line); text-align: left; font-size: 12px; }
+.se-shortcut-results button:hover { background: var(--se-elevated); }
+.se-shortcut-results kbd { white-space: nowrap; color: var(--se-muted); }
+.se-preview-grid { position: absolute; inset: 0; z-index: 2; pointer-events: none; background:
+  linear-gradient(90deg, transparent calc(33.33% - .5px), #fff8 33.33%, transparent calc(33.33% + .5px), transparent calc(66.67% - .5px), #fff8 66.67%, transparent calc(66.67% + .5px)),
+  linear-gradient(transparent calc(33.33% - .5px), #fff8 33.33%, transparent calc(33.33% + .5px), transparent calc(66.67% - .5px), #fff8 66.67%, transparent calc(66.67% + .5px)); }
+.se-zoom-shell { overflow: hidden; }
+.se-timeline-scroll.hand, .se-timeline-scroll.hand * { cursor: grab; }
+.se-timeline-scroll.hand:active, .se-timeline-scroll.hand:active * { cursor: grabbing; }
+.se-volume-overlay { position: absolute; bottom: 0; left: 5px; right: 5px; height: 16px; pointer-events: none; z-index: 3; }
+.se-clip-volume { position: absolute; left: 0; right: 0; height: 7px; transform: translateY(50%); cursor: ns-resize; opacity: 0; touch-action: none; }
+.se-clip-volume::after { content: ''; position: absolute; left: 0; right: 0; top: 3px; height: 1px; background: #ffe278; box-shadow: 0 0 2px #000; }
+.tool-select .se-timeline-clip:hover .se-clip-volume, .tool-select .se-clip-volume:focus-visible { opacity: 1; pointer-events: auto; }
+.se-zoom-shell .se-canvas { flex-shrink: 0; max-width: none; max-height: none; }

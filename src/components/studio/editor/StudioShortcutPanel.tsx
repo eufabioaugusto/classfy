@@ -1,0 +1,33 @@
+import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Keyboard, Search, X } from 'lucide-react';
+import { studioShortcuts, studioShortcutLabel, type StudioShortcut } from './studioShortcuts';
+
+const normalized = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
+
+export function StudioShortcutPanel({ open, onOpen, onAction }: {
+  open: boolean; onOpen(open: boolean): void; onAction(command: StudioShortcut): void;
+}) {
+  const [query, setQuery] = useState('');
+  const trigger = useRef<HTMLButtonElement>(null);
+  const close = () => { onOpen(false); setQuery(''); trigger.current?.focus(); };
+  const aliases: Partial<Record<StudioShortcut, string>> = { search: '?', loop: 'mod+shift+l', similar: 'alt+shift+a', remove: 'delete' };
+  const display = (command: StudioShortcut, keys: string) => [studioShortcutLabel(keys), aliases[command] && studioShortcutLabel(aliases[command])].filter(Boolean).join(' / ');
+  const rows = studioShortcuts.filter(([command, name, keys]) => normalized(name + ' ' + display(command, keys)).includes(normalized(query)));
+  return <>
+    <button ref={trigger} className="se-icon" aria-label="Atalhos da montagem" title="Atalhos de teclado" aria-expanded={open}
+      onClick={() => { setQuery(''); onOpen(!open); }}><Keyboard size={18} /></button>
+    {open && createPortal(<section className="se-shortcut-panel" role="dialog" aria-labelledby="se-shortcut-title" onKeyDown={event => {
+      if (event.key === 'Escape') { event.stopPropagation(); close(); }
+    }}>
+      <header><h2 id="se-shortcut-title">Atalhos de teclado</h2><button className="se-icon" aria-label="Fechar atalhos" onClick={close}><X size={16} /></button></header>
+      <label className="se-shortcut-search"><Search size={16} /><input autoFocus aria-label="Pesquisar ferramentas e atalhos" placeholder="Pesquisar ações ou teclas" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <div className="se-shortcut-results">
+        {rows.map(([command, name, keys]) => <button key={command} onClick={() => { close(); onAction(command); }}>
+          <span>{name}</span><kbd>{display(command, keys)}</kbd>
+        </button>)}
+        {!rows.length && <p>Nenhuma ação encontrada.</p>}
+      </div>
+    </section>, trigger.current?.closest('.se-editor') ?? document.body)}
+  </>;
+}

@@ -62,20 +62,24 @@ export async function readStudioWaveform(file: Blob, duration: number, signal: A
   const floor = strong - background >= 12 ? Math.min(-27, Math.max(-55, background + 5)) : -55;
   const ceiling = Math.min(0, Math.max(-18, strong, floor + 16));
   const peaks = Uint8Array.from(levels, level => {
-    const intensity = Math.max(0, Math.min(1, (level - floor) / (ceiling - floor)));
-    return Math.round(intensity ** 1.25 * 255);
+    const intensity = Math.max(0, (level - floor) / (ceiling - floor));
+    // Leave headroom above the reference percentile instead of flattening loud syllables.
+    const height = intensity <= 1 ? .73 * intensity ** 1.25 : .73 + .23 * (1 - Math.exp(-(intensity - 1) * 2));
+    return Math.round(height * 255);
   });
   return { duration, peaks };
 }
 
-export function studioWaveformPath({ duration, peaks }: StudioWaveform, start: number, end: number, columns: number): string {
+export function studioWaveformPath({ duration, peaks }: StudioWaveform, start: number, end: number, columns: number, gain = 1): string {
   const points = ['M0 20'];
   for (let column = 0; column < columns; column++) {
     const from = Math.floor((start + (end - start) * column / columns) / duration * peaks.length);
     const to = Math.ceil((start + (end - start) * (column + 1) / columns) / duration * peaks.length);
     let peak = 0;
     for (let index = Math.max(0, from); index < Math.min(peaks.length, to); index++) peak = Math.max(peak, peaks[index]);
-    points.push(`L${column} ${(20 - peak / 255 * 19).toFixed(1)}`);
+    const normalized = peak / 255;
+    const height = gain <= 1 ? normalized * Math.max(0, gain) : 1 - (1 - normalized) ** gain;
+    points.push(`L${column} ${(20 - height * 19).toFixed(1)}`);
   }
   return points.join(' ') + ` H${columns} V20 Z`;
 }

@@ -51,6 +51,21 @@ describe('componentes reais do editor desktop', () => {
     expect(seek).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
   });
+  it('arrastar a linha de volume aplica um único commit e mantém a onda dentro da faixa', async () => {
+    const project = fixture(), commit = vi.fn(), preview = vi.fn();
+    await act(async () => root.render(<StudioDesktopTimeline {...toolProps} project={project} position={1} thumbnails={{}}
+      onSelect={vi.fn()} onSeek={vi.fn()} onPreview={preview} onCommit={commit}
+      onAdd={vi.fn()} onMainMute={vi.fn()} onLayerMute={vi.fn()} onLayerHide={vi.fn()} />));
+    const volume = host.querySelector('[aria-label="Volume de Professor"]')!;
+    volume.parentElement!.getBoundingClientRect = () => DOMRect.fromRect({ x: 20, y: 100, width: 100, height: 20 });
+    await act(async () => { pointer(volume, 'pointerdown', 50, 110); pointer(volume, 'pointermove', 50, 102); });
+    expect(preview.mock.calls.at(-1)?.[0].editing.main[0].gain).toBeGreaterThan(1.8);
+    expect(commit).not.toHaveBeenCalled();
+    await act(async () => pointer(volume, 'pointerup', 50, 102));
+    expect(commit).toHaveBeenCalledOnce();
+    expect(commit.mock.calls[0][0](project).editing.main[0].gain).toBeGreaterThan(1.8);
+  });
+
   it('corte pelo teclado trabalha na fonte selecionada sem buscar outro tempo', async () => {
     let current = fixture(); const seek = vi.fn(), commit = vi.fn((change: (p: StudioProject) => StudioProject) => { current = change(current); });
     await act(async () => root.render(<StudioDesktopTimeline {...toolProps} project={current} selectedIds={['clip']} position={3} thumbnails={{}} onSelect={() => {}} onSeek={seek} onPreview={() => {}} onCommit={commit} onAdd={() => {}} onMainMute={() => {}} onLayerMute={() => {}} onLayerHide={() => {}} />));

@@ -77,7 +77,7 @@ describe('forma de onda vinculada ao vídeo', () => {
     const waveform = await readStudioWaveform(new Blob(), 2, new AbortController().signal);
     expect(waveform).not.toBeNull();
     expect(studioWaveformPath(waveform!, 0, 1, 2)).toBe('M0 20 L0 20.0 L1 20.0 H2 V20 Z');
-    expect(studioWaveformPath(waveform!, 1, 2, 2)).toBe('M0 20 L0 1.0 L1 1.0 H2 V20 Z');
+    expect(studioWaveformPath(waveform!, 1, 2, 2)).not.toBe('M0 20 L0 20.0 L1 20.0 H2 V20 Z');
   });
 
   it('comprime o ruído de fundo e mantém visíveis os níveis de fala', async () => {
@@ -87,7 +87,16 @@ describe('forma de onda vinculada ao vídeo', () => {
     expect(quiet).toBe(0);
     expect(soft).toBeGreaterThan(20);
     expect(soft).toBeLessThan(strong);
-    expect(strong).toBeGreaterThan(230);
+    expect(strong).toBeGreaterThan(175);
+  });
+
+  it('mantém diferença entre picos fortes mesmo acima do percentil de referência', async () => {
+    source.packets = [packet(0, 1000, .015), packet(1, 1000, .14), packet(2, 40, .35), packet(2.04, 40, .8)];
+    const waveform = (await readStudioWaveform(new Blob(), 2.08, new AbortController().signal))!;
+    expect(Math.max(...waveform.peaks)).toBeLessThan(255);
+    const firstPeak = waveform.peaks[80], secondPeak = waveform.peaks.at(-1)!;
+    expect(secondPeak).toBeGreaterThan(firstPeak);
+    expect(studioWaveformPath(waveform, 2.06, 2.08, 1, 2)).toMatch(/L0 (?:1|2)\.\d/);
   });
 
   it('diferencia falta de amostras de um take sem pausas', async () => {

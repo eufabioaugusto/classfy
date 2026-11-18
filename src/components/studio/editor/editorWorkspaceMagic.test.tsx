@@ -158,6 +158,33 @@ describe('comparação e histórico reais do editor', () => {
     ]);
   });
 
+  it('pesquisa ações no painel e executa recorte, colagem e agrupamento pelo teclado', async () => {
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    const press = (key: string, extra?: KeyboardEventInit) => act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...extra }));
+    });
+    const waitForSave = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 375)); });
+    await click('Atalhos da montagem');
+    expect(host.querySelector('[aria-label="Pesquisar ferramentas e atalhos"]')).toBeTruthy();
+    await click('Fechar atalhos');
+    await press('a', { metaKey: true });
+    await press('d', { metaKey: true });
+    expect(latestRecipe().clips).toHaveLength(2);
+    await press('a', { metaKey: true });
+    await press('g', { metaKey: true });
+    await waitForSave();
+    expect(saved!.editing!.clipGroups?.[0]).toHaveLength(2);
+    await press('x', { metaKey: true });
+    expect(latestRecipe().clips).toHaveLength(0);
+    await press('v', { metaKey: true });
+    expect(latestRecipe().clips).toHaveLength(2);
+    await waitForSave();
+    expect(saved!.editing!.clipGroups?.[0]).toHaveLength(2);
+    await press('g', { metaKey: true, shiftKey: true });
+    await waitForSave();
+    expect(saved!.editing!.clipGroups).toEqual([]);
+  });
+
   it('Class Edit salva os cortes e o ajuste em uma edição reversível', async () => {
     io.getAsset.mockResolvedValue(new Blob(['original']));
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
