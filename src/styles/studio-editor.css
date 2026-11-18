@@ -244,7 +244,7 @@
   width: 19px;
   height: 22px;
 }
-.se-editor-brand > span:not(.se-header-divider) {
+.se-editor-brand > span:not(.se-header-divider, .se-save-state) {
   font-weight: 600;
   font-size: 14px;
 }
@@ -1330,8 +1330,13 @@
   margin-bottom: 10px;
 }
 @media (max-width: 1100px) {
-  .se-save-state {
-    display: none;
+  .se-save-state > span {
+    position: absolute;
+    clip-path: inset(50%);
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    white-space: nowrap;
   }
   .se-library nav {
     width: 55px;
@@ -1586,19 +1591,7 @@
 }
 .se-library .se-tools-layout { min-width: 0; flex: 1; }
 
-.se-shortcut-panel {
-  position: fixed;
-  z-index: 70;
-  bottom: 36vh;
-  right: 16px;
-  width: min(430px, calc(100vw - 32px));
-  padding: 14px;
-  border: 1px solid var(--se-line);
-  border-radius: 10px;
-  background: var(--se-panel);
-  box-shadow: 0 12px 36px #0009;
-  color: var(--se-ink);
-}
+.se-toolbar-popover.se-shortcut-panel { width: min(420px, calc(100vw - 24px)); }
 .se-shortcut-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .se-shortcut-panel h2 { margin: 0; font-size: 15px; }
 .se-shortcut-search { display: flex; align-items: center; gap: 8px; padding: 0 9px; background: var(--se-bg); border: 1px solid var(--se-line); border-radius: 6px; }
@@ -1648,3 +1641,51 @@
 @media (prefers-reduced-motion: reduce) {
   .se-class-edit-progress-border path { transition: none; }
 }
+
+.se-header-video-tools {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--se-line);
+  border-radius: 10px;
+  background: #191b21;
+}
+.se-header-video-tools .se-icon { width: 32px; height: 30px; }
+.se-header-video-tools .se-icon[aria-expanded="true"] { background: #432733; color: #ff91ad; }
+.se-header-video-tools .se-quality-trigger { display: grid; place-content: center; gap: 1px; min-width: 38px; font-size: 10px; font-weight: 750; line-height: 1; }
+.se-quality-trigger small { font-size: 9px; color: var(--se-muted); }
+.se-toolbar-anchor { position: relative; }
+.se-toolbar-popover {
+  position: absolute;
+  inset: calc(100% + 12px) 0 auto auto;
+  z-index: 75;
+  width: min(258px, calc(100vw - 24px));
+  max-height: calc(100dvh - 72px);
+  overflow: auto;
+  padding: 14px;
+  color: var(--se-ink);
+  border: 1px solid #53404d;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #30242e, #1c1e24 62%);
+  box-shadow: 0 12px 36px #0009;
+}
+.se-toolbar-popover-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13px; }
+.se-toolbar-popover-title > :last-child:not(strong) { color: #ff9bb5; font-variant-numeric: tabular-nums; }
+.se-toolbar-popover input[type="range"] { width: 100%; accent-color: #ef5066; }
+.se-zoom-presets { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.se-ratio-options { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.se-ratio-options button { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid transparent; border-radius: 8px; text-align: left; background: #ffffff08; font-size: 12px; }
+.se-ratio-options button:hover { background: #ffffff12; }
+.se-ratio-options button[aria-pressed="true"] { border-color: #d1517f; color: #ffc4d3; background: #71304744; }
+.se-ratio-icon { width: 25px; height: 25px; display: grid; place-items: center; }
+.se-ratio-icon i { display: block; border: 1px solid currentColor; border-radius: 3px; background: #ffffff17; }
+.se-toolbar-popover.se-quality-popover { width: min(315px, calc(100vw - 24px)); }
+.se-video-options { padding: 0; margin: 0 0 10px; border: 0; }
+.se-video-options legend { color: var(--se-muted); font-size: 11px; margin-bottom: 5px; }
+.se-video-options > div { display: flex; gap: 3px; padding: 3px; border-radius: 8px; background: #11121899; }
+.se-video-options button { flex: 1; border-radius: 6px; padding: 6px 3px; font-size: 11px; white-space: nowrap; }
+.se-video-options button:hover:not(:disabled) { background: #ffffff18; }
+.se-video-options button[aria-pressed="true"] { background: #74364e; color: #fff; }
+.se-video-options button:disabled { opacity: .4; }
+.se-quality-summary { display: flex; justify-content: space-between; color: var(--se-muted); font-size: 11px; }

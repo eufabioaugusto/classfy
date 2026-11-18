@@ -3,6 +3,9 @@ import { assertStudioRenderFeatures, compileStudioRecipe, validateStudioRecipe, 
 import { assertStudioActive, inspectStudioMedia, studioCanvas, type StudioAssetResolver } from './media';
 import { StudioRenderKernel, studioBrowserFont, STUDIO_WEB_RENDER_FEATURES } from './renderer';
 import { getStudioAACDelay, StudioAACSource } from './exportAudio';
+import { studioExportBitrate } from './outputQuality';
+
+export { studioExportBitrate } from './outputQuality';
 
 export type StudioBrowserExportCapabilities = {
   available: boolean; reason?: string; audio: boolean; colorSpace: 'rec709';
@@ -11,7 +14,6 @@ export type StudioBrowserExportCapabilities = {
 const cleanup = new WeakMap<File, () => Promise<void>>();
 let capabilities: Promise<StudioBrowserExportCapabilities> | null = null;
 const audioQuality = new Quality({ bitrate: 192000 });
-export function studioExportBitrate(width: number, height: number, fps: number) { return Math.max(2500000, Math.min(50000000, Math.round(width * height * fps * .11))); }
 /** A support probe, not a promise that a thermally constrained encoder will complete. */
 export function getStudioExportCapabilities(): Promise<StudioBrowserExportCapabilities> {
   return capabilities ??= (async () => {
@@ -55,7 +57,7 @@ export async function exportStudioRecipe(inputRecipe: StudioRenderRecipe, resolv
   const duration = recipe.durationTicks / recipe.timebase, fps = recipe.output.frameRateNumerator / recipe.output.frameRateDenominator;
   if (!duration || !Number.isFinite(duration)) throw new Error('Adicione conteúdo antes de exportar.');
   const hasAudio = recipe.mediaType === 'audio' || recipe.clips.some(c => c.kind === 'audio' || c.kind === 'video' && recipe.assets.find(a => a.id === c.assetId)?.hasAudio !== false);
-  const bitrate = studioExportBitrate(recipe.output.width,recipe.output.height,fps), quality = new Quality({bitrate});
+  const bitrate = studioExportBitrate(recipe.output.width,recipe.output.height,fps,recipe.output.selection?.quality), quality = new Quality({bitrate});
   if (recipe.mediaType === 'video' && !await canEncodeVideo('avc',{width:recipe.output.width,height:recipe.output.height,frameRate:fps,quality})) throw new Error('O encoder deste navegador não suporta esta resolução e cadência. Escolha HD a30fps ou outro navegador.');
   if (hasAudio && !await canEncodeAudio('aac',{numberOfChannels:2,sampleRate:48000,quality:audioQuality})) throw new Error('Este navegador não oferece encoder AAC para o áudio da montagem. Use Chrome, Edge ou Safari atualizado.');
   const audioDelay = hasAudio ? await getStudioAACDelay(signal) : 0;

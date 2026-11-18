@@ -208,7 +208,14 @@ export type StudioLayer = {
   /** Reversible track switches; source opacity and gain stay on each item. */
   hidden?: boolean; muted?: boolean;
 };
-export type StudioOutputSelection = { resolution: 'original' | '720p' | 'hd' | '2k' | '4k'; frameRate: 'original' | 24 | 30 | 60 };
+export const studioCanvasRatios = {
+  portrait: [9, 16], landscape: [16, 9], '4:5': [4, 5], square: [1, 1],
+  '5:4': [5, 4], '4:3': [4, 3], '3:4': [3, 4],
+} as const;
+export type StudioCanvasRatio = keyof typeof studioCanvasRatios;
+export type StudioVideoQuality = 'low' | 'medium' | 'high';
+
+export type StudioOutputSelection = { resolution: 'original' | '720p' | 'hd' | '2k' | '4k'; frameRate: 'original' | 24 | 30 | 60; quality?: StudioVideoQuality };
 export type StudioOutputWarning = { code: 'upscale' | 'downscale' | 'fps-conversion' | 'sdr-conversion' | 'unknown-source'; message: string; assetIds: string[] };
 /** Structural bridge contract; old binaries expose only their proven 1080p30 profile. */
 export type StudioOutputCapabilities = {
@@ -224,7 +231,7 @@ export type StudioOutputProfile = {
 };
 export type StudioEditing = {
   version: 2; timebase: typeof STUDIO_TIMEBASE; assets: StudioAsset[]; main: StudioMainClip[]; layers: StudioLayer[];
-  canvas: { aspectRatio: 'landscape' | 'portrait' | 'square'; backgroundColor: string }; output: StudioOutputProfile;
+  canvas: { aspectRatio: StudioCanvasRatio; backgroundColor: string }; output: StudioOutputProfile;
   /** Mute the complete main sequence without replacing clip gains. */
   mainMuted?: boolean;
   clipGroups?: string[][];
@@ -560,7 +567,7 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
   if (recipe.requiredFeatures !== undefined && !Array.isArray(recipe.requiredFeatures)
     || !Array.isArray(declared) || declared.length !== requiredFeatures.length || requiredFeatures.some(feature => !declared.includes(feature))
     || new Set(declared).size !== declared.length || recipe.version !== (requiredFeatures.length ? 3 : 2)) push('A versão e os recursos de renderização da montagem não correspondem aos efeitos.');
-  if (!recipe.canvas || !['landscape', 'portrait', 'square'].includes(recipe.canvas.aspectRatio) || !studioColor(recipe.canvas.backgroundColor)) push('O enquadramento da montagem não é válido.');
+  if (!recipe.canvas || !Object.hasOwn(studioCanvasRatios, recipe.canvas.aspectRatio) || !studioColor(recipe.canvas.backgroundColor)) push('O enquadramento da montagem não é válido.');
   const assets = new Map<string, StudioAsset>();
   for (const asset of recipe.assets) {
     if (!asset.id || assets.has(asset.id) || !['image', 'video', 'audio'].includes(asset.kind) || !asset.uri?.startsWith('file://')
@@ -686,13 +693,17 @@ const studioOutputRates = [
 ] as const;
 function validStudioOutputSelection(value: StudioOutputSelection) {
   return !!value && ['original', '720p', 'hd', '2k', '4k'].includes(value.resolution)
-    && (value.frameRate === 'original' || [24, 30, 60].includes(value.frameRate));
+    && (value.frameRate === 'original' || [24, 30, 60].includes(value.frameRate))
+    && (value.quality === undefined || ['low', 'medium', 'high'].includes(value.quality));
 }
 function validStudioOutputDimensions(output: StudioOutputProfile, aspect: StudioEditing['canvas']['aspectRatio']) {
   const { width, height } = output;
   if (![width, height].every(value => Number.isSafeInteger(value) && value >= 64 && value % 2 === 0)
     || Math.max(width, height) > 3840 || Math.min(width, height) > 2160 || width * height > 3840 * 2160) return false;
-  return aspect === 'square' ? width === height : aspect === 'portrait' ? Math.abs(height - width * 16 / 9) <= 2 : Math.abs(width - height * 16 / 9) <= 2;
+  if (!Object.hasOwn(studioCanvasRatios, aspect)) return false;
+  const [x, y] = studioCanvasRatios[aspect];
+  if (x === y) return width === height;
+  return x > y ? Math.abs(width - height * x / y) <= 2 : Math.abs(height - width * y / x) <= 2;
 }
 function studioRate(rate: number) {
   const fraction = studioOutputRates.find(value => value.denominator === 1001 && Math.abs(rate - value.numerator / value.denominator) < 0.02);
@@ -706,16 +717,19 @@ function resolveStudioOutput(editing: StudioEditing, activeAssets: readonly Stud
   if (!validStudioOutputSelection(stored.selection)) throw new Error('A escolha de resolução ou FPS precisa de recuperação.');
   const { resolution, frameRate } = stored.selection;
   const visual = activeAssets.filter(asset => asset.kind !== 'audio');
-  const edges = visual.filter(asset => asset.width && asset.height).map(asset => editing.canvas.aspectRatio === 'portrait'
-    ? Math.max(asset.width!, asset.height! * 9 / 16) : editing.canvas.aspectRatio === 'square'
-      ? Math.max(asset.width!, asset.height!) : Math.max(asset.height!, asset.width! * 9 / 16)).filter(value => Number.isFinite(value) && value > 0);
+  const aspect = editing.canvas.aspectRatio;
+  if (!Object.hasOwn(studioCanvasRatios, aspect)) throw new Error('O enquadramento da montagem não é válido.');
+  const [x, y] = studioCanvasRatios[aspect];
+  const portrait = x < y, ratio = Math.max(x, y) / Math.min(x, y);
+  const edges = visual.filter(asset => asset.width && asset.height)
+    .map(asset => portrait ? Math.max(asset.width!, asset.height! / ratio) : Math.max(asset.height!, asset.width! / ratio))
+    .filter(value => Number.isFinite(value) && value > 0);
   const shortEdge = resolution === 'original' ? Math.max(64, Math.min(2160, Math.ceil((edges.length ? Math.max(...edges) : 1080) / 2) * 2))
     : resolution === '4k' ? 2160 : resolution === '2k' ? 1440 : resolution === '720p' ? 720 : 1080;
-  const longEdge = Math.min(3840, Math.round(shortEdge * 16 / 9 / 2) * 2);
-  const portrait = editing.canvas.aspectRatio === 'portrait', square = editing.canvas.aspectRatio === 'square';
+  const longEdge = Math.min(3840, Math.round(shortEdge * ratio / 2) * 2);
   const sources = activeAssets.filter(asset => asset.kind === 'video').map(asset => asset.frameRate ?? 0).filter(value => Number.isFinite(value) && value > 0);
   const rate = studioRate(frameRate === 'original' ? Math.min(60, sources.length ? Math.max(...sources) : 30) : frameRate);
-  return { profile: 'standard', width: portrait || square ? shortEdge : longEdge, height: portrait ? longEdge : shortEdge,
+  return { profile: 'standard', width: portrait ? shortEdge : longEdge, height: portrait ? longEdge : shortEdge,
     frameRateNumerator: rate.numerator, frameRateDenominator: rate.denominator, colorSpace: 'rec709', selection: { ...stored.selection } };
 }
 export function withStudioOutputSelection(editing: StudioEditing, selection: StudioOutputSelection): StudioEditing {

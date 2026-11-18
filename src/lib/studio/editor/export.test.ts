@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { exportStudioRecipe } from './export';
 import type { StudioRenderRecipe } from '../../../../shared/studio';
 const mocks=vi.hoisted(()=>({order:[]as string[],canVideo:vi.fn(),canAudio:vi.fn(),cancel:vi.fn(),inspect:vi.fn(),recipes:[]as any[],audioChannels:[]as any[],onVideo:null as null|(()=>Promise<void>)}));
-vi.mock('mediabunny',()=>({Quality:class{},Mp4OutputFormat:class{},BufferTarget:class{buffer=new Uint8Array([1,2,3]).buffer;},StreamTarget:class{},
+vi.mock('mediabunny',()=>({Quality:class{constructor(public options:{bitrate:number}){}},Mp4OutputFormat:class{},BufferTarget:class{buffer=new Uint8Array([1,2,3]).buffer;},StreamTarget:class{},
   canEncodeVideo:mocks.canVideo,canEncodeAudio:mocks.canAudio,
   Output:class{addVideoTrack(){}addAudioTrack(){}start=async()=>{mocks.order.push('start');};finalize=async()=>{mocks.order.push('finalize');};cancel=mocks.cancel;},
   CanvasSource:class{async add(at:number){mocks.order.push(`video:${at}`);if(mocks.onVideo)await mocks.onVideo();}close(){mocks.order.push('video-close');}},
@@ -35,4 +35,16 @@ it('recusa um compositor externo que não declarou suporte ao retoque, antes de 
   const input=recipe(); input.version=3; input.requiredFeatures=['portrait-v1']; input.clips[0].portrait={version:1,strength:.4};
   const factory=vi.fn(); await expect(exportStudioRecipe(input,async()=>new Blob(),{kernelFactory:factory})).rejects.toThrow('não oferece os efeitos');
   expect(factory).not.toHaveBeenCalled(); expect(mocks.canVideo).not.toHaveBeenCalled(); expect(mocks.order).toEqual([]);
+});
+
+it('encaminha proporção, cadência e qualidade escolhidas para o encoder', async () => {
+  const input = recipe();
+  input.canvas.aspectRatio = '4:5';
+  input.output = { ...input.output, width: 1440, height: 1800, frameRateNumerator: 60,
+    selection: { resolution: '2k', frameRate: 60, quality: 'high' } };
+  mocks.inspect.mockResolvedValue({ duration: 1, width: 1440, height: 1800, hasAudio: true, frameRate: 60 });
+  await exportStudioRecipe(input, async () => new Blob());
+  expect(mocks.canVideo).toHaveBeenCalledWith('avc', {
+    width: 1440, height: 1800, frameRate: 60, quality: expect.objectContaining({ options: { bitrate: 24883200 } }),
+  });
 });

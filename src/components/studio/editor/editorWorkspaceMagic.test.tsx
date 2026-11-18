@@ -15,7 +15,7 @@ vi.mock('@/lib/studio/editor/storage', () => ({
   studioAssetUri: (owner: string, project: string, id: string, name: string) => `file://classfy-studio/${owner}/${project}/${id}/${name}`,
 }));
 vi.mock('@/lib/studio/editor/export', () => ({
-  getStudioExportCapabilities: vi.fn(async () => ({ available: true, audio: true, colorSpace: 'rec709', profiles: [] })),
+  getStudioExportCapabilities: vi.fn(async () => ({ available: true, audio: true, colorSpace: 'rec709', profiles: [{ resolution: '2k', width: 2560, height: 1440, frameRate: 60 }] })),
   exportStudioProject: vi.fn(), releaseStudioExport: vi.fn(),
 }));
 vi.mock('@/lib/studio/editor/renderer', () => ({ createStudioRenderer: vi.fn(async () => ({
@@ -183,6 +183,22 @@ describe('comparação e histórico reais do editor', () => {
     await press('g', { metaKey: true, shiftKey: true });
     await waitForSave();
     expect(saved!.editing!.clipGroups).toEqual([]);
+  });
+
+  it('configura palco, resolução e compressão pelo cabeçalho', async () => {
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
+    expect(host.querySelector('.se-editor-brand .se-save-state')).toBeTruthy();
+    expect(host.querySelector('.se-editor-header button[aria-label="Atalhos da montagem"]')).toBeTruthy();
+    await click('Proporção do palco');
+    await click('4:5');
+    expect(latestRecipe().canvas.aspectRatio).toBe('4:5');
+    await click('Proporção do palco');
+    await click('Qualidade do vídeo');
+    await click('2K');
+    await click('60');
+    await click('Alta');
+    expect(latestRecipe().output).toMatchObject({ width: 1440, height: 1800, frameRateNumerator: 60,
+      selection: { resolution: '2k', frameRate: 60, quality: 'high' } });
   });
 
   it('Class Edit salva os cortes e o ajuste em uma edição reversível', async () => {
