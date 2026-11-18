@@ -61,6 +61,35 @@ function text(project: StudioProject, content: string, atSeconds: number, durati
   const item = createStudioTextItem({ id: itemId, content, kind, ...bounds });
   return edit(project, addStudioLayerItem(studioEditing(project), item, ids.layerId ?? `layer:item:${itemId}`));
 }
+/** Prototype scope: a single video before overlays or timing effects are added. */
+export function classEditTarget(project: StudioProject) {
+  const editing = studioEditing(project);
+  const clip = editing.main[0];
+  if (editing.main.length !== 1 || editing.layers.some(layer => layer.items.length)
+    || clip.enhancement || clip.signature || (clip.playbackRate ?? 1) !== 1
+    || clip.fadeInTicks || clip.fadeOutTicks || (clip.motion && clip.motion !== 'none')) return;
+  const asset = editing.assets.find(value => value.id === clip.assetId);
+  if (asset?.kind === 'video' && asset.hasAudio !== false) return { clip, asset };
+}
+
+export function applyClassEdit(project: StudioProject, clipId: string,
+  pauses: readonly { start: number; end: number }[], enhancement: StudioEnhancement): StudioProject {
+  const target = classEditTarget(project);
+  if (!target || target.clip.id !== clipId) throw new Error('A montagem mudou durante a análise do Class Edit.');
+  const editing = studioEditing(project);
+  const adjusted = patchStudioClipEnhancement(editing, clipId, enhancement);
+  const clip = adjusted.main[0];
+  let cursor = clip.sourceStartTicks;
+  const main = pauses.map(pause => {
+    const start = studioTicks(pause.start), end = studioTicks(pause.end);
+    if (start <= cursor || end <= start || end >= clip.sourceEndTicks) throw new Error('Revise os limites dos cortes do Class Edit.');
+    const segment = { ...clip, id: cursor === clip.sourceStartTicks ? clipId : uuid(), sourceStartTicks: cursor, sourceEndTicks: start };
+    cursor = end;
+    return segment;
+  });
+  main.push({ ...clip, id: main.length ? uuid() : clipId, sourceStartTicks: cursor });
+  return edit(project, { ...adjusted, main });
+}
 export function trimMainClip(project: StudioProject, id: string, sourceStartSeconds: number, sourceEndSeconds: number): StudioProject {
   const takes = deriveStudioTakes(studioEditing(project)), index = takes.findIndex(value => value.id === id);
   if (index < 0) throw new Error('Este clip não está mais na montagem.');

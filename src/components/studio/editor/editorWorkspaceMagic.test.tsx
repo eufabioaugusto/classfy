@@ -28,6 +28,13 @@ vi.mock('@/components/ui/resizable', () => ({
   ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>, ResizableHandle: () => <div />,
 }));
 
+vi.mock('@/lib/studio/editor/classEdit', () => ({
+  findStudioPauses: vi.fn(async () => [{ start: 2, end: 3 }, { start: 6, end: 7 }]),
+}));
+vi.mock('@/lib/studio/editor/sceneAnalysis', () => ({
+  analyzeStudioScene: vi.fn(async () => priorEnhancement),
+}));
+
 let host: HTMLDivElement, root: Root, saved: StudioProject | undefined;
 const priorEnhancement: StudioEnhancement = { version: 1, strength: .5, exposure: .2, contrast: 0, saturation: 0, temperature: 0, tint: 0, shadows: 0, highlights: 0, analyzedFrames: 1 };
 const selectiveSample = () => ({
@@ -83,6 +90,24 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
 describe('comparação e histórico reais do editor', () => {
+  it('Class Edit salva os cortes e o ajuste em uma edição reversível', async () => {
+    io.getAsset.mockResolvedValue(new Blob(['original']));
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    await click('Class Edit');
+    expect(io.save).toHaveBeenCalledOnce();
+    expect(saved!.takes.map(take => [take.start, take.end])).toEqual([[0, 2], [3, 6], [7, 10]]);
+    expect(latestRecipe().clips.every(clip => clip.enhancement?.strength === .35)).toBe(true);
+    expect(host.textContent).toContain('2 pausas encurtadas');
+    await click('Desfazer');
+    expect(latestRecipe().clips).toHaveLength(1);
+    expect(latestRecipe().clips[0].enhancement).toBeUndefined();
+    expect(latestRecipe().durationTicks).toBe(studioTicks(10));
+    await click('Refazer');
+    expect(latestRecipe().clips).toHaveLength(3);
+    expect(latestRecipe().assets.map(asset => asset.id)).toEqual(['video-original']);
+    expect(saved!.editing!.assets.map(asset => asset.id)).toEqual(['video-original', 'image-original']);
+  });
+
   it('comparar não persiste o original e Undo da inserção remove o alvo sem derrubar o workspace', async () => {
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
     const image = Array.from(host.querySelectorAll('.se-asset-grid article')).find(article => article.textContent?.includes('Retrato.jpg'))!;

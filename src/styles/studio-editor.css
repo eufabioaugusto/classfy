@@ -1402,3 +1402,8 @@
     font-size: 11px;
   }
 }
+
+.se-class-edit-result {
+  padding: .5rem 1rem;
+  font-size: .8125rem;
+}
