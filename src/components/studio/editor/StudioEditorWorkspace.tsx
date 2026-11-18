@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, ChevronDown, Download, Film, Image, Loader2, Mic, Monitor, Music2, Pause, Play, Plus, Redo2, Scissors, SlidersHorizontal, Sparkles, Subtitles, Type, Undo2, Upload, Video, X } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { addCaption, addCaptionTrack, addLayerAsset, addMainAsset, addText, applyClassEdit, classEditTarget, duplicateClip, copyStudioClips, pasteStudioClips, groupStudioClips, patchClip, removeClip, setLayerHidden, setLayerMuted, setMainMuted, splitLayerClip, splitMainClip, trimMainClip, trimLayerClip, type StudioWebClipPatch } from '@/lib/studio/editor/commands';
+import { addCaption, addCaptionTrack, addLayerAsset, addMainAsset, addText, applyClassEdit, classEditTarget, duplicateClip, copyStudioClips, pasteStudioClips, groupStudioClips, patchClip, removeClassEditRetakes, removeClip, setLayerHidden, setLayerMuted, setMainMuted, splitLayerClip, splitMainClip, trimMainClip, trimLayerClip, type StudioWebClipPatch } from '@/lib/studio/editor/commands';
 import { getAsset, getExport, putAsset, storeExport, studioAssetUri } from '@/lib/studio/editor/storage';
 import { inspectStudioMedia } from '@/lib/studio/editor/media';
 import { readStudioWaveform, type StudioWaveform } from '@/lib/studio/editor/audioEnvelope';
@@ -49,6 +49,10 @@ const colorPresets = [
   { id: 'cinematic', label: 'Cinema' },
 ] as const;
 type RecordingImport = { asset: StudioAsset; thumbnail?: Blob; warnings: string[]; clipId: string; target: 'main' | 'layer'; at: number; originalStored?: boolean; thumbnailStored?: boolean };
+function classEditReviewKey(editing: StudioProject['editing']) {
+  return editing ? JSON.stringify([editing.main, editing.layers, editing.mainMuted]) : '';
+}
+
 export function StudioEditorWorkspace({ owner, projectId, premium = false, premiumLoading = false, premiumError }: { owner: string; projectId: string; premium?: boolean; premiumLoading?: boolean; premiumError?: string | null }) {
   const navigate = useNavigate(), workspace = useStudioWorkspace(owner, projectId);
   const { project } = workspace;
@@ -87,7 +91,9 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     };
   }, [owner, projectId]);
   const [waveforms, setWaveforms] = useState<ReadonlyMap<string, StudioWaveform>>(new Map());
-  const [classEditResult, setClassEditResult] = useState<{ editing: StudioProject['editing']; cuts: number; removed: number; imageAdjusted: boolean; portraitStatus?: string; finishStatus: string; retakes: StudioRetakeGroup[] }>();
+  const [classEditResults, setClassEditResults] = useState<{ key: string; cuts: number; removed: number; imageAdjusted: boolean; portraitStatus?: string; finishStatus: string; retakes: StudioRetakeGroup[] }[]>([]);
+  const reviewKey = useMemo(() => classEditResults.length ? classEditReviewKey(project?.editing) : '', [project?.editing, classEditResults.length]);
+  const classEditResult = classEditResults.find(result => result.key === reviewKey);
   const [comparing, setComparing] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null), engine = useRef<StudioRenderer | null>(null), input = useRef<HTMLInputElement>(null), captionsInput = useRef<HTMLInputElement>(null);
   const pendingPatch = useRef<{ id: string; patch: StudioWebClipPatch } | null>(null), importTarget = useRef<'main' | 'layer'>('main'), locked = useRef(false), controller = useRef<AbortController | null>(null), alive = useRef(true), seekSequence = useRef(0);
@@ -150,19 +156,23 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     try { settle(); setComparing(false); setSelection([...new Set(ids.flatMap(id => project?.editing?.clipGroups?.find(group => group.includes(id)) ?? [id]))]); } catch { /* Preserve the draft and selection. */ }
   };
   const select = (id?: string) => selectMany(id ? [id] : []);
-  const seek = async (seconds: number) => {
+  const seek = async (seconds: number, previewEnd?: number) => {
     shuttle.current = 0;
     if (locked.current || confirmation.current) return;
     try { settle(); } catch { return; }
     engine.current?.pause(); const token = ++seekSequence.current;
     setPlaying(false); setPosition(Math.max(0, Math.min(duration, seconds)));
-    try { await engine.current?.seek(seconds); } catch (cause) { if (alive.current && token === seekSequence.current) setError(cause instanceof Error ? cause.message : 'Não foi possível mostrar este quadro.'); }
+    try {
+      const renderer = engine.current;
+      await renderer?.seek(seconds);
+      if (previewEnd !== undefined && token === seekSequence.current && alive.current && renderer === engine.current && !locked.current && !confirmation.current) await renderer?.play(1, previewEnd);
+    } catch (cause) { if (alive.current && token === seekSequence.current) setError(cause instanceof Error ? cause.message : 'Não foi possível mostrar este quadro.'); }
   };
   useEffect(() => {
     alive.current = true;
     confirmation.current = null; locked.current = false; controller.current = null; recorderEntry.current = null; pendingPatch.current = null;
     clipboard.current = undefined; shuttle.current = 0;
-    setClassEditResult(undefined); setBusy(null); setRecorder(null); setPreview(null); setSelected(undefined); setExitPreparing(false); setComparing(false);
+    setClassEditResults([]); setBusy(null); setRecorder(null); setPreview(null); setSelected(undefined); setExitPreparing(false); setComparing(false);
     return () => { alive.current = false; confirmation.current = null; picker.current = null; controller.current?.abort(); ++seekSequence.current; engine.current?.dispose(); };
   }, [owner, projectId]);
   useEffect(() => { let active = true; getStudioExportCapabilities().then(value => { if (active) setCapabilities(value); }).catch(() => undefined); return () => { active = false; }; }, []);
@@ -196,7 +206,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const external = async (label: string, task: (token: number, signal: AbortSignal) => Promise<void>, propagateError = false): Promise<boolean> => {
     if (locked.current || confirmation.current || !alive.current || document.visibilityState === 'hidden') return false;
     try { settle(); } catch (cause) { if (propagateError) throw cause; return false; }
-    locked.current = true; shuttle.current = 0; engine.current?.pause(); setBusy(label); setError(null); setProgress(0);
+    locked.current = true; shuttle.current = 0; ++seekSequence.current; engine.current?.pause(); setBusy(label); setError(null); setProgress(0);
     const token = workspace.epoch.current, abort = new AbortController(); controller.current = abort;
     try { await workspace.flush(); if (!scope(token) || abort.signal.aborted) return false; await task(token, abort.signal); return scope(token) && !abort.signal.aborted; }
     catch (cause) { if (workspace.isCurrent(token) && alive.current) recordError(cause); if (propagateError) throw cause; return false; }
@@ -364,7 +374,27 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       setComparing(false);
       setExportReady(false);
       const saved = await workspace.flush();
-      if (scope(token) && saved) setClassEditResult({ editing: saved.editing, cuts: pauses.length, imageAdjusted: !!enhancement, portraitStatus, retakes, finishStatus: finish.join(' · '), removed: pauses.reduce((total, pause) => total + pause.end - pause.start, 0) });
+      if (scope(token) && saved) setClassEditResults([{ key: classEditReviewKey(saved.editing), cuts: pauses.length, imageAdjusted: !!enhancement, portraitStatus, retakes, finishStatus: finish.join(' · '), removed: pauses.reduce((total, pause) => total + pause.end - pause.start, 0) }]);
+    });
+  };
+  const keepRetake = (group: StudioRetakeGroup, chosen: StudioRetakeGroup[number]) => {
+    const result = classEditResult;
+    if (!result) return;
+    void external('Removendo takes repetidos', async (token, signal) => {
+      const snapshot = workspace.current.current;
+      if (!snapshot || classEditReviewKey(snapshot.editing) !== result.key || !scope(token) || signal.aborted) return;
+      const cuts = group.filter(attempt => attempt !== chosen);
+      const next = removeClassEditRetakes(snapshot, cuts);
+      const shift = (time: number) => time - cuts.reduce((removed, cut) => removed + Math.max(0, Math.min(time, cut.end) - cut.start), 0);
+      const retakes = result.retakes.filter(other => other !== group).map(other => other.map(attempt => ({
+        ...attempt, start: shift(attempt.start), end: shift(attempt.end),
+      })));
+      workspace.apply(() => next);
+      setSelection([]);
+      setExportReady(false);
+      const saved = await workspace.flush();
+      if (saved && scope(token)) setClassEditResults(results => [{ ...result, key: classEditReviewKey(saved.editing), retakes,
+        finishStatus: [result.finishStatus, `${cuts.length} ${cuts.length === 1 ? 'take removido' : 'takes removidos'}`].filter(Boolean).join(' · ') }, ...results.slice(0, 79)]);
     });
   };
   const improveScene = () => {
@@ -612,7 +642,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
         {capabilities?.reason && <p role="status">{capabilities.reason}</p>}<button disabled={!capabilities?.available && project.kind !== 'podcast'} onClick={() => exportFile(false)}><Download size={16} />Baixar arquivo</button><button disabled={!capabilities?.available && project.kind !== 'podcast'} onClick={() => exportFile(true)}><Upload size={16} />Preparar publicação</button></div>}
     </header>
     {(error || workspace.error) && <div className="se-editor-error" role="alert"><span>{workspace.error || error}</span>{workspace.error && <button onClick={() => void workspace.flush().catch(recordError)}>Tentar salvar</button>}<button className="se-icon" aria-label="Fechar mensagem" onClick={() => setError(null)}><X size={13} /></button></div>}
-    {classEditResult && classEditResult.editing === project.editing && <div className="se-class-edit-result" role="status">
+    {classEditResult && <div className="se-class-edit-result" role="status">
       {classEditResult.cuts === 0 ? 'Nenhum corte aplicado · Sem pausas de pelo menos 0,35 s com queda clara no áudio'
         : `${classEditResult.cuts === 1 ? '1 pausa encurtada' : `${classEditResult.cuts} pausas encurtadas`} · ${classEditResult.removed.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s removidos`}{classEditResult.imageAdjusted ? ' · Ajuste leve de imagem aplicado' : ''}{classEditResult.portraitStatus ? ` · ${classEditResult.portraitStatus}` : ''}{classEditResult.finishStatus ? ` · ${classEditResult.finishStatus}` : ''}
       {!!classEditResult.retakes.length && <details className="se-retake-review">
@@ -620,13 +650,12 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
         <div className="se-retake-list">{classEditResult.retakes.map(group => {
           const suggested = group.reduce((best, attempt) => attempt.text.split(/\s+/).length >= best.text.split(/\s+/).length ? attempt : best);
           return <div key={group[0].start} className="se-retake-group">
-            {group.map(attempt => <button key={attempt.start} className="se-button" title={attempt.text} disabled={blocked || !!recorder}
-              onClick={() => {
-                const take = recipe.clips.find(clip => clip.zIndex === 0 && studioTicks(attempt.start) >= clip.startTicks &&
-                  studioTicks(attempt.end) <= clip.startTicks + clip.durationTicks);
-                select(take?.id);
-                void seek(attempt.start);
-              }}><time>{formatStudioEditorTime(attempt.start)}</time><span>{attempt.text}</span>{attempt === suggested && <small>Sugestão</small>}</button>)}
+            {group.map(attempt => <div className="se-retake-option" key={attempt.start}>
+              <button className="se-button" title={attempt.text} disabled={blocked || !!recorder}
+                onClick={() => void seek(attempt.start, attempt.end)}><Play size={13} />Ouvir <time>{formatStudioEditorTime(attempt.start)}</time><span>{attempt.text}</span>{attempt === suggested && <small>Sugestão</small>}</button>
+              <button className="se-button" disabled={blocked || !!recorder} aria-label={`Manter take de ${formatStudioEditorTime(attempt.start)} e remover os demais`}
+                onClick={() => keepRetake(group, attempt)}>Manter este</button>
+            </div>)}
           </div>;
         })}</div>
       </details>}

@@ -60,6 +60,18 @@ describe('detecção de pausas do Class Edit', () => {
     expect(pauses[0].end).toBeCloseTo(2.795);
   });
 
+  it('corta as pontas mesmo quando batidas curtas interrompem o silêncio', async () => {
+    source.packets = [
+      packet(0, 600, .002), packet(.6, 60, .08), packet(.66, 500, .002),
+      packet(1.16, 900, .16), packet(2.06, 400, .002), packet(2.46, 80, .08), packet(2.54, 460, .002),
+    ];
+    const pauses = await findStudioPauses(new Blob(), 0, 3, new AbortController().signal);
+    expect(pauses).toHaveLength(2);
+    expect(pauses[0].end).toBeCloseTo(1.155);
+    expect(pauses[1].start).toBeCloseTo(2.065);
+    expect(pauses[1].end).toBe(3);
+  });
+
   it('preserva voz baixa quando fica próxima do nível de fundo', async () => {
     source.packets = [packet(0, 1500, .04), packet(1.5, 1500, .022), packet(3, 1500, .04)];
     expect(await findStudioPauses(new Blob(), 0, 4.5, new AbortController().signal)).toEqual([]);

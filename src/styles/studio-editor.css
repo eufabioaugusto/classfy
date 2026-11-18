@@ -1446,7 +1446,8 @@
 .se-retake-review { margin-top: 6px; }
 .se-retake-review summary { color: #ffd494; cursor: pointer; }
 .se-retake-list { max-height: 180px; overflow: auto; padding: 6px 2px; }
-.se-retake-group { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0; }
+.se-retake-group { display: grid; gap: 6px; padding: 4px 0; }
+.se-retake-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .se-retake-group .se-button { max-width: 100%; min-width: 0; }
 .se-retake-group .se-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .se-retake-group time { font-variant-numeric: tabular-nums; color: #ffafb9; }

@@ -296,3 +296,40 @@ async function restoreHistory(history: StudioCommandHistory, project: StudioProj
 }
 export function undoProject(project: StudioProject, history: StudioCommandHistory, persist: (project: StudioProject) => Promise<StudioProject>) { return restoreHistory(history, project, 'undo', persist); }
 export function redoProject(project: StudioProject, history: StudioCommandHistory, persist: (project: StudioProject) => Promise<StudioProject>) { return restoreHistory(history, project, 'redo', persist); }
+
+/** Removes montage-time ranges from a Class Edit result and closes them across captions. */
+export function removeClassEditRetakes(project: StudioProject, ranges: readonly { start: number; end: number }[]): StudioProject {
+  const editing = studioEditing(project), recipe = compileStudioRecipe(project);
+  const cuts = ranges.map(({ start, end }) => [studioTicks(start), studioTicks(end)] as const).sort(([a], [b]) => a - b);
+  const minimum = studioTicks(.1);
+  if (!cuts.length || cuts.some(([start, end], i) => start < (cuts[i - 1]?.[1] ?? 0) || end <= start || end > recipe.durationTicks)
+    || editing.layers.some(layer => layer.kind !== 'caption' && layer.items.length)) throw new Error('Revise os limites dos takes antes de remover.');
+  const shift = (time: number) => time - cuts.reduce((total, [start, end]) => total + Math.max(0, Math.min(time, end) - start), 0);
+  const mainClips = recipe.clips.filter(clip => clip.zIndex === 0);
+  const main = editing.main.flatMap((clip, index) => {
+    const { startTicks, durationTicks } = mainClips[index];
+    const endTicks = startTicks + durationTicks;
+    const kept: StudioEditing['main'] = [];
+    const keep = (start: number, end: number) => {
+      if (end <= start) return;
+      if (end - start < minimum) throw new Error('Este corte deixaria um fragmento menor que 0,1 s. Revise os limites na linha do tempo.');
+      kept.push({ ...clip, id: kept.length ? uuid() : clip.id,
+        sourceStartTicks: clip.sourceStartTicks + start - startTicks,
+        sourceEndTicks: clip.sourceStartTicks + end - startTicks });
+    };
+    let cursor = startTicks;
+    for (const [start, end] of cuts) {
+      if (end <= cursor || start >= endTicks) continue;
+      keep(cursor, start);
+      cursor = Math.min(end, endTicks);
+    }
+    keep(cursor, endTicks);
+    return kept;
+  });
+  if (!main.length) throw new Error('Mantenha pelo menos um trecho na montagem.');
+  const layers = editing.layers.map(layer => ({ ...layer, items: layer.items.flatMap(item => {
+    const atTicks = shift(item.atTicks), durationTicks = shift(item.atTicks + item.durationTicks) - atTicks;
+    return durationTicks >= minimum ? [{ ...item, atTicks, durationTicks }] : [];
+  }) }));
+  return edit(project, { ...editing, main, layers });
+}

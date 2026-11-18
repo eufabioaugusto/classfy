@@ -32,29 +32,32 @@ export async function findStudioPauses(file: Blob, start: number, end: number, s
   const hasForeground = windows.reduce((seconds, window) =>
     window.level >= threshold + 6 ? seconds + window.end - window.start : seconds, 0) >= .16;
   if (!hasForeground) return [];
-  let heardSound = false;
-  let continuousFromStart = windows[0].start - start <= .05;
-  let quietSince: number | undefined;
-  let previousEnd = start;
+  const runs: (StudioAudioWindow & { quiet: boolean })[] = [];
   for (const window of windows) {
-    if (window.start - previousEnd > .03) {
-      heardSound = false;
-      continuousFromStart = false;
-      quietSince = undefined;
-    }
-    previousEnd = window.end;
-    if (window.level < threshold) {
-      if (heardSound || continuousFromStart) quietSince ??= window.start;
-    } else {
-      if (quietSince !== undefined && window.start - quietSince >= minimumStudioPause) {
-        addPause(heardSound ? quietSince + breathingRoom : start, window.start - breathingRoom);
-      }
-      heardSound = true;
-      quietSince = undefined;
-    }
+    const quiet = window.level < threshold;
+    const last = runs.at(-1);
+    if (last?.quiet === quiet && window.start - last.end <= .03) last.end = window.end;
+    else runs.push({ ...window, quiet });
   }
-  if (heardSound && quietSince !== undefined && end - previousEnd <= .05 && end - quietSince >= minimumStudioPause) {
-    addPause(quietSince + breathingRoom, end);
+
+  // A click or bump inside otherwise sustained room tone should not keep a silent clip.
+  for (let i = 1; i + 1 < runs.length;) {
+    const [left, spike, right] = runs.slice(i - 1, i + 2);
+    if (left.quiet && !spike.quiet && right.quiet && spike.end - spike.start <= .1
+      && spike.start - left.end <= .03 && right.start - spike.end <= .03
+      && right.end - left.start >= minimumStudioPause) {
+      left.end = right.end;
+      runs.splice(i, 2);
+    } else i++;
+  }
+  for (const [i, run] of runs.entries()) {
+    if (!run.quiet || run.end - run.start < minimumStudioPause) continue;
+    const leading = i === 0 && run.start - start <= .05;
+    const trailing = i === runs.length - 1 && end - run.end <= .05;
+    if (leading && trailing) continue;
+    if (!leading && (!runs[i - 1] || run.start - runs[i - 1].end > .03)) continue;
+    if (!trailing && (!runs[i + 1] || runs[i + 1].start - run.end > .03)) continue;
+    addPause(leading ? start : run.start + breathingRoom, trailing ? end : run.end - breathingRoom);
   }
   return pauses;
 }

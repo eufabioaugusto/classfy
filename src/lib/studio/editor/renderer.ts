@@ -13,7 +13,7 @@ export type StudioRenderer = {
   prepareSignature(signal?: AbortSignal): Promise<void>;
   measureSignature(source: CanvasImageSource, width: number, height: number, signal?: AbortSignal): Promise<StudioSignatureSample>;
   draw(canvas: HTMLCanvasElement, seconds: number): Promise<void>;
-  seek(seconds: number): Promise<void>; play(rate?: number): Promise<void>; pause(): void; setLoop?(enabled: boolean): void;
+  seek(seconds: number): Promise<void>; play(rate?: number, endSeconds?: number): Promise<void>; pause(): void; setLoop?(enabled: boolean): void;
   setRecipe(recipe: StudioRenderRecipe): Promise<void>; dispose(): void;
   subscribe(listener: (state: StudioRendererState) => void): () => void;
 };
@@ -340,14 +340,14 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
   const portraits = createStudioPortraitSurface(), signatures = createStudioSignatureSurface();
   let kernel = new StudioRenderKernel(recipe, resolveAsset, undefined, portraits, signatures), bound = canvas, state: StudioRendererState = { position: 0, playing: false, loading: false, error: null };
   let epoch = 0, closed = false, raf = 0, context: AudioContext | null = null, anchorTime = 0, anchorPosition = 0, scheduled = 0, audioBusy = false, drawing = false;
-  let playbackRate = 1, loop = false;
+  let playbackRate = 1, loop = false, previewEnd: number | undefined;
   let drawWork: Promise<void> = Promise.resolve(), playWork: Promise<void> | null = null;
   let resizeFrame = 0, resizeObserver: ResizeObserver | null = null;
   let primedAudio: { start:number; samples:Float32Array[] } | null = null;
   const nodes = new Set<AudioBufferSourceNode>(), listeners = new Set<(state: StudioRendererState) => void>();
   const publish = (patch: Partial<StudioRendererState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener({ ...state })); };
   const duration = () => kernel.recipe.durationTicks / kernel.recipe.timebase;
-  const position = () => state.playing ? clamp(anchorPosition + Math.max(0, (context ? context.currentTime : performance.now()/1000) - anchorTime) * playbackRate, 0, duration()) : state.position;
+  const position = () => state.playing ? clamp(anchorPosition + Math.max(0, (context ? context.currentTime : performance.now()/1000) - anchorTime) * playbackRate, 0, previewEnd ?? duration()) : state.position;
   const stopAudio = () => { nodes.forEach(node => { try { node.stop(); } catch {/* An ended source cannot be stopped again. */} node.disconnect(); }); nodes.clear(); };
   const draw = (target: HTMLCanvasElement, seconds: number) => {
     const generation = epoch, owned = kernel;
@@ -368,7 +368,7 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
     if (audioBusy || !context || !state.playing) return; audioBusy = true; const generation = epoch;
     try {
       const rate = Math.abs(playbackRate), forward = playbackRate > 0;
-      const limit = forward ? duration() : 0;
+      const limit = forward ? previewEnd ?? duration() : 0;
       const horizon = () => Math.min(Math.abs(limit - anchorPosition), Math.abs(position() - anchorPosition) + .6 * rate);
       while (scheduled < horizon() && generation === epoch && !closed) {
         const length = Math.min(.25 * rate, Math.abs(limit - anchorPosition) - scheduled);
@@ -392,10 +392,10 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
   const tick = () => {
     if (closed || !state.playing) return; const seconds = position(); publish({ position: seconds }); void scheduleAudio();
     if (bound && !drawing) { const generation = epoch; drawing = true; void draw(bound, seconds).catch(error => { if (generation === epoch && !closed) { pause(); publish({ error: String(error.message ?? error) }); } }).finally(() => { drawing = false; }); }
-    if (playbackRate > 0 ? seconds >= duration() : seconds <= 0) {
+    if (playbackRate > 0 ? seconds >= (previewEnd ?? duration()) : seconds <= 0) {
       const rate = playbackRate;
       pause();
-      if (loop) void engine.play(rate).catch(() => {});
+      if (loop && previewEnd === undefined) void engine.play(rate).catch(() => {});
       return;
     }
     raf = requestAnimationFrame(tick);
@@ -421,17 +421,19 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
     measureSignature(source, width, height, signal) { return measureStudioSignature(source, width, height, signal, signatures); },
     bindCanvas(target) { cancelAnimationFrame(resizeFrame); resizeFrame = 0; bound = target; observeCanvas(); if (target) void seek(state.position).catch(() => {}); }, draw,
     seek, pause, setLoop(enabled) { loop = enabled; },
-    play(rate = 1) {
+    play(rate = 1, endSeconds) {
       if (closed || !duration()) return Promise.resolve();
-      if (rate !== playbackRate && (state.playing || playWork)) pause();
+      if ((rate !== playbackRate || endSeconds !== previewEnd) && (state.playing || playWork)) pause();
       if (state.playing) return Promise.resolve();
       if (playWork) return playWork;
       playbackRate = rate;
+      previewEnd = endSeconds === undefined ? undefined : clamp(endSeconds, 0, duration());
       const generation = ++epoch; context ??= new AudioContext({ sampleRate:48000 });
       const resumed = context.resume();
       const task = (async () => {
         const forward = rate > 0;
-        const boundary = forward ? duration() : 0;
+        const boundary = forward ? previewEnd ?? duration() : 0;
+        if (previewEnd !== undefined && state.position >= previewEnd) return;
         if (Math.abs(state.position - boundary) < .0001) {
           const restart = forward ? 0 : duration();
           publish({ position: restart });
@@ -448,7 +450,7 @@ export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAs
       })().catch(error => { if (closed || generation !== epoch) return; publish({playing:false,loading:false,error:String(error.message ?? error)}); throw error; }).finally(() => { if (playWork === task) playWork = null; });
       playWork = task; return task;
     },
-    async setRecipe(next) { const wasPlaying = state.playing, current = position(); pause(); const replacement = new StudioRenderKernel(next,resolveAsset,undefined,portraits,signatures); kernel.dispose(); kernel = replacement; const seeking = seek(Math.min(current,duration())), generation = epoch; await seeking; if (wasPlaying && !closed && generation === epoch) await engine.play(playbackRate); },
+    async setRecipe(next) { const resume = state.playing && previewEnd === undefined, current = position(); pause(); const replacement = new StudioRenderKernel(next,resolveAsset,undefined,portraits,signatures); kernel.dispose(); kernel = replacement; const seeking = seek(Math.min(current,duration())), generation = epoch; await seeking; if (resume && !closed && generation === epoch) await engine.play(playbackRate); },
     dispose() { if (closed) return; pause(); closed=true; epoch++; cancelAnimationFrame(resizeFrame); resizeObserver?.disconnect(); window.removeEventListener('resize',refreshSize); kernel.dispose(); portraits.dispose(); signatures.dispose(); listeners.clear(); document.removeEventListener('visibilitychange',visibility); void context?.close(); staging.width=1; staging.height=1; },
     subscribe(listener) { listeners.add(listener); listener({ ...state }); return () => listeners.delete(listener); },
   };

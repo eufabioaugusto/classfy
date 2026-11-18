@@ -8,7 +8,7 @@ import { addLayerAsset, addMainAsset, patchClip } from '@/lib/studio/editor/comm
 import { StudioEditorWorkspace } from './StudioEditorWorkspace';
 import { initializeStudioExitGuard } from './useStudioExitGuard';
 
-const io = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), getAsset: vi.fn(), setRecipe: vi.fn(), preparePortrait: vi.fn(), prepareSignature: vi.fn(), measureSignature: vi.fn(), transcribe: vi.fn() }));
+const io = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), getAsset: vi.fn(), setRecipe: vi.fn(), preparePortrait: vi.fn(), prepareSignature: vi.fn(), measureSignature: vi.fn(), transcribe: vi.fn(), play: vi.fn(async () => undefined) }));
 vi.mock('@/lib/studio/editor/storage', () => ({
   getProject: io.get, saveProject: io.save, getAsset: io.getAsset, putAsset: vi.fn(),
   getExport: vi.fn(async () => null), storeExport: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock('@/lib/studio/editor/export', () => ({
 vi.mock('@/lib/studio/editor/renderer', () => ({ createStudioRenderer: vi.fn(async () => ({
   setRecipe: io.setRecipe, preparePortrait: io.preparePortrait, prepareSignature: io.prepareSignature, measureSignature: io.measureSignature,
   subscribe: (callback: (state: unknown) => void) => { callback({ position: 0, playing: false, loading: false, error: null }); return () => undefined; },
-  seek: vi.fn(async () => undefined), play: vi.fn(async () => undefined), pause: vi.fn(), dispose: vi.fn(),
+  seek: vi.fn(async () => undefined), play: io.play, pause: vi.fn(), dispose: vi.fn(),
 })) }));
 vi.mock('@/components/ui/resizable', () => ({
   ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -189,6 +189,7 @@ describe('comparação e histórico reais do editor', () => {
     io.getAsset.mockResolvedValue(new Blob(['original']));
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
     io.transcribe.mockResolvedValueOnce([
+      { text: 'Hoje vamos aprender a editar vídeos pelo celular.', start: .3, end: 1.3 },
       { text: 'Hoje vamos aprender a editar vídeos pelo celular.', start: 3, end: 4 },
       { text: 'Hoje nós vamos aprender a editar vídeos pelo celular.', start: 5, end: 6 },
     ]);
@@ -197,7 +198,7 @@ describe('comparação e histórico reais do editor', () => {
     expect(saved!.takes.map(take => [take.start, take.end])).toEqual([[0, 2], [3, 6], [7, 10]]);
     expect(latestRecipe().clips.filter(clip => clip.kind === 'video').every(clip => clip.enhancement?.strength === .35 && clip.grade.preset === 'studio')).toBe(true);
     expect(io.transcribe.mock.calls[0][0].takes.map((take: { start: number; end: number }) => [take.start, take.end])).toEqual([[0, 2], [3, 6], [7, 10]]);
-    expect(latestRecipe().clips.find(clip => clip.kind === 'caption')?.startTicks).toBe(studioTicks(3));
+    expect(latestRecipe().clips.find(clip => clip.kind === 'caption')?.startTicks).toBe(studioTicks(.3));
     expect(io.transcribe.mock.calls[0][2]).toBe('portuguese');
     expect(host.textContent).toContain('2 pausas encurtadas');
     expect(host.querySelector('.se-retake-review summary')?.textContent).toContain('takes repetidos (1)');
@@ -205,12 +206,20 @@ describe('comparação e histórico reais do editor', () => {
     expect(suggested.querySelector('time')?.textContent).toBe('0:05.0');
     await act(async () => suggested.click());
     expect(host.textContent).toContain('0:05.0');
+    expect(io.play).toHaveBeenLastCalledWith(1, 6);
+    await click('Manter take de 0:05.0 e remover os demais');
+    expect(latestRecipe().durationTicks).toBe(studioTicks(6));
+    expect(latestRecipe().clips.filter(clip => clip.kind === 'caption').map(clip => clip.startTicks)).toEqual([studioTicks(3)]);
+    expect(host.textContent).toContain('2 takes removidos');
+    await click('Desfazer');
+    expect(latestRecipe().clips).toHaveLength(6);
+    expect(host.querySelector('.se-retake-review summary')).toBeTruthy();
     await click('Desfazer');
     expect(latestRecipe().clips).toHaveLength(1);
     expect(latestRecipe().clips[0].enhancement).toBeUndefined();
     expect(latestRecipe().durationTicks).toBe(studioTicks(10));
     await click('Refazer');
-    expect(latestRecipe().clips).toHaveLength(5);
+    expect(latestRecipe().clips).toHaveLength(6);
     expect(latestRecipe().assets.map(asset => asset.id)).toEqual(['video-original']);
     expect(saved!.editing!.assets.map(asset => asset.id)).toEqual(['video-original', 'image-original']);
   });
