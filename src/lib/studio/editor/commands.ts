@@ -56,6 +56,20 @@ export function addText(project: StudioProject, content: string, atSeconds: numb
 export function addCaption(project: StudioProject, content: string, atSeconds: number, durationSeconds: number, ids: StudioWebItemIds = {}): StudioProject {
   return text(project, content, atSeconds, durationSeconds, 'caption', ids);
 }
+export function addCaptionTrack(project: StudioProject, cues: readonly { text: string; start: number; end: number }[],
+  style: Partial<StudioTextStyle>): StudioProject {
+  const editing = studioEditing(project);
+  const duration = compileStudioRecipe(project).durationTicks;
+  const items = cues.flatMap(cue => {
+    const atTicks = studioTicks(cue.start);
+    const durationTicks = Math.min(duration, studioTicks(cue.end)) - atTicks;
+    if (atTicks < 0 || durationTicks < studioTicks(.1)) return [];
+    const item = createStudioTextItem({ id: uuid(), content: cue.text, kind: 'caption', atTicks, durationTicks });
+    return [{ ...item, text: { ...item.text!, ...style, content: cue.text } }];
+  });
+  if (!items.length) return project;
+  return edit(project, { ...editing, layers: [...editing.layers, { id: `captions:${uuid()}`, kind: 'caption', items }] });
+}
 function text(project: StudioProject, content: string, atSeconds: number, durationSeconds: number, kind: 'text' | 'caption', ids: StudioWebItemIds) {
   const itemId = ids.itemId ?? uuid(), bounds = extent(project, atSeconds, durationSeconds);
   const item = createStudioTextItem({ id: itemId, content, kind, ...bounds });
@@ -73,12 +87,12 @@ export function classEditTarget(project: StudioProject) {
 }
 
 export function applyClassEdit(project: StudioProject, clipId: string,
-  pauses: readonly { start: number; end: number }[], enhancement?: StudioEnhancement, portrait?: StudioPortrait): StudioProject {
+  pauses: readonly { start: number; end: number }[], enhancement?: StudioEnhancement, portrait?: StudioPortrait, grade?: StudioGrade): StudioProject {
   const target = classEditTarget(project);
   if (!target || target.clip.id !== clipId) throw new Error('A montagem mudou durante a análise do Class Edit.');
-  if (!pauses.length && !enhancement && !portrait) return project;
+  if (!pauses.length && !enhancement && !portrait && !grade) return project;
   const editing = studioEditing(project);
-  const clip = { ...target.clip, ...(enhancement ? { enhancement } : {}), ...(portrait ? { portrait } : {}) };
+  const clip = { ...target.clip, ...(enhancement ? { enhancement } : {}), ...(portrait ? { portrait } : {}), ...(grade ? { grade, effect: grade.preset } : {}) };
   let cursor = clip.sourceStartTicks;
   const main: StudioEditing['main'] = [];
   const keep = (end: number) => {

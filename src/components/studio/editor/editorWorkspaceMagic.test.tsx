@@ -8,7 +8,7 @@ import { addLayerAsset, addMainAsset, patchClip } from '@/lib/studio/editor/comm
 import { StudioEditorWorkspace } from './StudioEditorWorkspace';
 import { initializeStudioExitGuard } from './useStudioExitGuard';
 
-const io = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), getAsset: vi.fn(), setRecipe: vi.fn(), preparePortrait: vi.fn(), prepareSignature: vi.fn(), measureSignature: vi.fn() }));
+const io = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), getAsset: vi.fn(), setRecipe: vi.fn(), preparePortrait: vi.fn(), prepareSignature: vi.fn(), measureSignature: vi.fn(), transcribe: vi.fn() }));
 vi.mock('@/lib/studio/editor/storage', () => ({
   getProject: io.get, saveProject: io.save, getAsset: io.getAsset, putAsset: vi.fn(),
   getExport: vi.fn(async () => null), storeExport: vi.fn(),
@@ -28,6 +28,7 @@ vi.mock('@/components/ui/resizable', () => ({
   ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>, ResizableHandle: () => <div />,
 }));
 
+vi.mock('@/lib/studio/editor/studioCaptions', () => ({ transcribeStudioCaptions: io.transcribe }));
 vi.mock('@/lib/studio/editor/classEdit', () => ({
   findStudioPauses: vi.fn(async () => [{ start: 2, end: 3 }, { start: 6, end: 7 }]),
 }));
@@ -78,6 +79,7 @@ beforeEach(() => {
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host); saved = undefined;
+  io.transcribe.mockReset().mockResolvedValue([]);
   io.get.mockReset().mockResolvedValue(initialProject());
   io.save.mockReset().mockImplementation(async (_owner: string, value: StudioProject) => {
     saved = withStudioTakes({ ...value, editing: value.editing!, revision: value.revision + 1 }); return saved;
@@ -90,20 +92,36 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
 describe('comparação e histórico reais do editor', () => {
+  it('abre o painel compartilhado e direciona contas Free para o Premium', async () => {
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    const panel = host.querySelector('.se-library-content');
+    await click('Class Edit');
+    expect(host.querySelector('.se-library-content')).toBe(panel);
+    expect(panel?.querySelector('a')?.getAttribute('href')).toBe('/planos');
+    expect(io.save).not.toHaveBeenCalled();
+    await click('Legendas');
+    expect(host.querySelector('.se-library-content')).toBe(panel);
+    expect(button('Gerar legendas').disabled).toBe(true);
+    expect(button('Importar SRT').disabled).toBe(false);
+  });
+
   it('Class Edit salva os cortes e o ajuste em uma edição reversível', async () => {
     io.getAsset.mockResolvedValue(new Blob(['original']));
-    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
+    io.transcribe.mockResolvedValueOnce([{ text: 'A legenda da montagem', start: 3, end: 4 }]);
     await click('Class Edit');
     expect(io.save).toHaveBeenCalledOnce();
     expect(saved!.takes.map(take => [take.start, take.end])).toEqual([[0, 2], [3, 6], [7, 10]]);
-    expect(latestRecipe().clips.every(clip => clip.enhancement?.strength === .35)).toBe(true);
+    expect(latestRecipe().clips.filter(clip => clip.kind === 'video').every(clip => clip.enhancement?.strength === .35 && clip.grade.preset === 'studio')).toBe(true);
+    expect(io.transcribe.mock.calls[0][0].takes.map((take: { start: number; end: number }) => [take.start, take.end])).toEqual([[0, 2], [3, 6], [7, 10]]);
+    expect(latestRecipe().clips.find(clip => clip.kind === 'caption')?.startTicks).toBe(studioTicks(3));
     expect(host.textContent).toContain('2 pausas encurtadas');
     await click('Desfazer');
     expect(latestRecipe().clips).toHaveLength(1);
     expect(latestRecipe().clips[0].enhancement).toBeUndefined();
     expect(latestRecipe().durationTicks).toBe(studioTicks(10));
     await click('Refazer');
-    expect(latestRecipe().clips).toHaveLength(3);
+    expect(latestRecipe().clips).toHaveLength(4);
     expect(latestRecipe().assets.map(asset => asset.id)).toEqual(['video-original']);
     expect(saved!.editing!.assets.map(asset => asset.id)).toEqual(['video-original', 'image-original']);
   });
@@ -111,7 +129,7 @@ describe('comparação e histórico reais do editor', () => {
   it('mantém Class Edit e o ajuste existente ao refazer os cortes', async () => {
     io.get.mockResolvedValue(patchClip(initialProject(), 'main', { enhancement: priorEnhancement }));
     io.getAsset.mockResolvedValue(new Blob(['original']));
-    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
     expect(button('Class Edit').getAttribute('aria-disabled')).toBe('false');
     await click('Class Edit');
     expect(latestRecipe().clips.every(clip => clip.enhancement?.strength === priorEnhancement.strength)).toBe(true);

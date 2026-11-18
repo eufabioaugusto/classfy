@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
+  worker: { format: "es" },
   build: {
     // Target ES2020 for BigInt support (mapbox-gl) while maintaining Safari/iOS compatibility
     target: "es2020",
