@@ -1,3 +1,4 @@
+import { StudioColorPicker } from './StudioColorPicker';
 import { useRef, useState } from 'react';
 import { StudioFontPicker } from './StudioFontPicker';
 import { StudioSelect } from './StudioSelect';
@@ -6,8 +7,8 @@ import { AlignCenter, AlignLeft, AlignRight, AlignStartVertical, AlignCenterVert
 import { studioGrade, studioSeconds, type StudioRecipeClip } from '../../../../shared/studio';
 
 export type StudioInspectorTrackProperty = 'style' | 'transform' | 'opacity';
-type Props = { owner?: string; clip?: StudioRecipeClip; disabled?: boolean; canSplit: boolean; canApplyTrack?: boolean; onApplyTrack?(property: StudioInspectorTrackProperty): void; outputHeight: number; comparing?: boolean; onExtractAudio?(): void; onRemovePauses?(): void; onCompare?(): void; onSignature?(): void; onEnhance?(): void; onPortrait?(): void; onDraft(patch: Record<string, unknown>): void; onCommit(): void; onRemove(): void; onDuplicate(): void; onSplit(): void };
-export function StudioDesktopInspector({ owner = '', clip, disabled, canSplit, canApplyTrack, onApplyTrack, outputHeight, comparing, onExtractAudio, onRemovePauses, onCompare, onSignature, onEnhance, onPortrait, onDraft, onCommit, onRemove, onDuplicate, onSplit }: Props) {
+type Props = { owner?: string; getColorCanvas?(): HTMLCanvasElement | null; clip?: StudioRecipeClip; disabled?: boolean; canSplit: boolean; canApplyTrack?: boolean; onApplyTrack?(property: StudioInspectorTrackProperty): void; outputHeight: number; comparing?: boolean; onExtractAudio?(): void; onRemovePauses?(): void; onCompare?(): void; onSignature?(): void; onEnhance?(): void; onPortrait?(): void; onDraft(patch: Record<string, unknown>): void; onCommit(): void; onRemove(): void; onDuplicate(): void; onSplit(): void };
+export function StudioDesktopInspector({ owner = '', getColorCanvas, clip, disabled, canSplit, canApplyTrack, onApplyTrack, outputHeight, comparing, onExtractAudio, onRemovePauses, onCompare, onSignature, onEnhance, onPortrait, onDraft, onCommit, onRemove, onDuplicate, onSplit }: Props) {
   const [textTab, setTextTab] = useState('style');
   const [soundTab, setSoundTab] = useState('volume');
   const [adjustmentTab, setAdjustmentTab] = useState('light');
@@ -20,10 +21,8 @@ export function StudioDesktopInspector({ owner = '', clip, disabled, canSplit, c
   const applyToTrack = (property: StudioInspectorTrackProperty) => canApplyTrack && <button type="button" className="se-inspector-apply"
     disabled={disabled} onClick={() => onApplyTrack?.(property)}>Aplicar à faixa</button>;
   const color = (label: string, value: string, field: 'color' | 'backgroundColor' | 'secondaryColor') =>
-    <label className="se-field"><span>{label}</span><span className="se-inspector-color">
-      <span>{value.slice(0, 7).toUpperCase()}</span><input type="color" aria-label={label} value={value.slice(0, 7)} disabled={disabled}
-        onChange={event => onDraft({ text: { [field]: event.target.value } })} onBlur={onCommit} />
-    </span></label>;
+    <StudioColorPicker key={`${clip.id}:${field}`} label={label} value={value} disabled={disabled} getCanvas={getColorCanvas}
+      onDraft={color => onDraft({ text: { [field]: color } })} onCommit={onCommit} />;
   return <aside className="se-inspector"><header>{text ? clip.kind === 'caption' ? 'Legenda' : 'Texto' : clip.kind === 'audio' ? 'Áudio' : 'Imagem e vídeo'}<span className="se-inspector-tools"><button className="se-icon" aria-label="Duplicar elemento" disabled={disabled} onClick={onDuplicate}><Copy size={16} /></button><button className="se-icon" aria-label="Dividir no cursor" disabled={disabled || !canSplit} onClick={onSplit}><Scissors size={16} /></button><button className="se-icon se-danger" aria-label="Excluir elemento" disabled={disabled} onClick={onRemove}><Trash2 size={16} /></button></span></header>
     <div className="se-inspector-content">
       {text && <section><h3><Captions size={16} />{clip.kind === 'caption' ? 'Texto da legenda' : 'Conteúdo'}{applyToTrack('style')}</h3><textarea aria-label="Texto da cena" data-studio-text-input value={clip.text!.content} disabled={disabled} onChange={e => onDraft({ text: { content: e.target.value } })} onBlur={onCommit} />
