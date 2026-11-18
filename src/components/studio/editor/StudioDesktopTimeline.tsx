@@ -208,17 +208,15 @@ export function StudioDesktopTimeline(props: Props) {
       onPointerUp={event => volumeDrag.current ? finishVolume(event, true) : finish(event)}
       onPointerCancel={event => volumeDrag.current ? finishVolume(event, false) : cancel()}
       onLostPointerCapture={event => finishVolume(event, false)}
-      draggable={main && !disabled && tool === 'select'} onDragStart={e => {
-        // The draggable parent must not steal an active trim from its handle.
-        if (transaction.current?.id === clip.id) { e.preventDefault(); return; }
-        e.dataTransfer.setData('application/classfy-clip', clip.id);
-      }} onDragOver={e => { if (main) e.preventDefault(); }} onDrop={e => { if (!main || disabled) return; e.preventDefault(); const from = e.dataTransfer.getData('application/classfy-clip'); if (from) onCommit(value => moveMainClip(value, from, value.editing!.main.findIndex(c => c.id === clip.id))); }}
+      onDragOver={e => { if (main) e.preventDefault(); }} onDrop={e => { if (!main || disabled) return; e.preventDefault(); const from = e.dataTransfer.getData('application/classfy-clip'); if (from) onCommit(value => moveMainClip(value, from, value.editing!.main.findIndex(c => c.id === clip.id))); }}
       onClick={e => { e.stopPropagation(); if (suppress.current) { suppress.current = false; return; } if (disabled || tool === 'blade') return;
         if (e.shiftKey || e.metaKey || e.ctrlKey) props.onSelectMany(selectedIds.includes(clip.id)
           ? selectedIds.filter(id => id !== clip.id) : [...selectedIds, clip.id]);
         else onSelect(clip.id);
       }} onKeyDown={e => { if (e.key === 'Enter' && !disabled) { e.stopPropagation(); onSelect(clip.id); } }}>
-      <span>{clip.kind === 'audio' ? <Mic size={13} /> : null}{title}</span>
+      <span className="se-clip-body" draggable={main && !disabled && tool === 'select'} onDragStart={event => {
+        event.dataTransfer.setData('application/classfy-clip', clip.id);
+      }}>{clip.kind === 'audio' ? <Mic size={13} /> : null}{title}</span>
       {waveform && <ClipWaveform waveform={waveform} start={studioSeconds(clip.sourceStartTicks)}
         end={studioSeconds(clip.sourceEndTicks)} muted={muted} gain={muted ? 0 : gain} />}
       {(clip.kind === 'audio' || clip.kind === 'video' && asset?.hasAudio !== false) && <div className="se-volume-overlay">
@@ -244,7 +242,7 @@ export function StudioDesktopTimeline(props: Props) {
             onCommit(project => patchClip(project, clip.id, { gain: Math.max(0, Math.min(maximumGain, value)) }));
           }} />
       </div>}
-      {isSelected && selectedIds.length === 1 && !marqueePreview && tool !== 'blade' && !disabled && <>{(['start', 'end'] as const).map(edge => <span key={edge} role="slider" tabIndex={0} aria-label={`Cortar ${edge === 'start' ? 'início' : 'fim'} de ${title}`} aria-valuenow={studioSeconds(main && asset?.kind !== 'image' ? edge === 'start' ? clip.sourceStartTicks : clip.sourceEndTicks : edge === 'start' ? clip.startTicks : clip.startTicks + clip.durationTicks)} className={`se-trim-handle ${edge}`}
+      {!marqueePreview && (tool === 'select' || tool === 'trim') && !disabled && <>{(['start', 'end'] as const).map(edge => <span key={edge} role="slider" tabIndex={0} aria-label={`Cortar ${edge === 'start' ? 'início' : 'fim'} de ${title}`} aria-valuenow={studioSeconds(main && asset?.kind !== 'image' ? edge === 'start' ? clip.sourceStartTicks : clip.sourceEndTicks : edge === 'start' ? clip.startTicks : clip.startTicks + clip.durationTicks)} className={`se-trim-handle ${edge}`} draggable={false} onDragStart={event => event.preventDefault()}
         onPointerDown={e => begin(e, clip.id, edge)} onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel}
         onLostPointerCapture={event => { if (transaction.current?.pointer === event.pointerId) cancel(); }}
         onKeyDown={e => { if (disabled || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); e.stopPropagation(); const fake: Drag = { pointer: 0, id: clip.id, x: 0, y: 0, clip, base: project, edge, lastX: 0, lastY: 0, moved: true, scale }; onCommit(p => applyDrag(fake, (e.key === 'ArrowRight' ? 1 : -1) * scale * frame, 0, p)); }} />)}</>}

@@ -30,6 +30,25 @@ describe('compositor compartilhado',()=>{
     expect([...result[0]]).toEqual([0,.25,.5,.25]);expect([...result[1]]).toEqual([...result[0]]);kernel.dispose();
     const muted=new StudioRenderKernel(recipe([clip({gain:0})]),async()=>new Blob(['original']));expect([...((await muted.mixAudio(0,.5,4))[0])]).toEqual([0,0]);muted.dispose();
   });
+  it('suaviza a emenda descontínua sem baixar o volume de um corte que preserva a continuidade', async () => {
+    const samples = new Float32Array(4000).fill(.5);
+    sources.audio = { timestamp: 0, duration: 4, buffer: {
+      sampleRate: 1000, length: samples.length, numberOfChannels: 1, getChannelData: () => samples,
+    } };
+    const first = clip({ durationTicks: 120000, sourceEndTicks: 120000 });
+    const second = clip({ id: 'next', startTicks: 120000, durationTicks: 120000, sourceStartTicks: 240000, sourceEndTicks: 360000 });
+    const kernel = new StudioRenderKernel(recipe([first, second]), async () => new Blob());
+    const [mixed] = await kernel.mixAudio(.99, .02, 1000);
+    expect(mixed[4]).toBe(.5);
+    expect(mixed[9]).toBeCloseTo(.1);
+    expect(mixed[10]).toBe(0);
+    expect(mixed[16]).toBe(.5);
+    kernel.dispose();
+    const joined = new StudioRenderKernel(recipe([first, { ...second, sourceStartTicks: 120000, sourceEndTicks: 240000 }]), async () => new Blob());
+    const [continuous] = await joined.mixAudio(.99, .02, 1000);
+    expect([...continuous]).toEqual(Array(20).fill(.5));
+    joined.dispose();
+  });
   it('podcast com20originais descarta Inputs fora da janela sem exigir draw',async()=>{
     const clips=Array.from({length:20},(_,i)=>clip({id:`clip-${i}`,assetId:`audio-${i}`,kind:'audio',startTicks:i*120000,durationTicks:120000,sourceEndTicks:120000}));
     const input={...recipe(clips),mediaType:'audio' as const,durationTicks:2400000,assets:clips.map(c=>({id:c.assetId!,kind:'audio' as const,name:c.id,uri:`file://${c.id}`,durationTicks:120000,hasAudio:true}))};

@@ -137,10 +137,12 @@ describe('componentes reais do editor desktop', () => {
     const nativeDrag = new Event('dragstart', { bubbles: true, cancelable: true });
     await act(async () => {
       pointer(handle, 'pointerdown', 288, 50);
-      clip.dispatchEvent(nativeDrag);
+      handle.dispatchEvent(nativeDrag);
       pointer(handle, 'pointermove', 324, 50);
       pointer(handle, 'pointerup', 324, 50);
     });
+    expect(clip.hasAttribute('draggable')).toBe(false);
+    expect(clip.querySelector('.se-clip-body')?.getAttribute('draggable')).toBe('true');
     expect(nativeDrag.defaultPrevented).toBe(true);
     expect(commit).toHaveBeenCalledOnce();
     expect(current.takes.at(-1)).toMatchObject({ assetId: 'asset', start: 5, end: 7.5, duration: 10 });

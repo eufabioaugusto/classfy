@@ -287,6 +287,11 @@ export class StudioRenderKernel {
   private async mixAudioBlock(start: number, duration: number, sampleRate: number): Promise<Float32Array[]> {
     this.assert(); const count = Math.max(1, Math.round(duration * sampleRate)), result = [new Float32Array(count), new Float32Array(count)];
     const timebase = this.recipe.timebase;
+    const primary = this.recipe.clips.filter(clip => clip.zIndex === 0);
+    const neighbors = new Map(primary.map((clip, i) => [clip.id, [primary[i - 1], primary[i + 1]]] as const));
+    const continuous = (left?: StudioRecipeClip, right?: StudioRecipeClip) => !!left && !!right &&
+      left.assetId === right.assetId && left.sourceEndTicks === right.sourceStartTicks &&
+      left.startTicks + left.durationTicks === right.startTicks && left.gain === right.gain && (left.playbackRate ?? 1) === (right.playbackRate ?? 1);
     for (const clip of this.recipe.clips) {
       if (!clip.assetId || clip.gain <= 0 || clip.kind === 'image' || clip.kind === 'text' || clip.kind === 'caption') continue;
       const from = Math.max(start, clip.startTicks / timebase), end = Math.min(start + duration, (clip.startTicks + clip.durationTicks) / timebase); if (end <= from) continue;
@@ -295,6 +300,13 @@ export class StudioRenderKernel {
         if (clip.kind === 'audio' || this.recipe.assets.find(asset => asset.id === clip.assetId)?.hasAudio === true) throw new Error('Uma faixa de áudio do original está ausente. Reimporte o arquivo para recuperar a montagem.');
         continue;
       }
+      // Ease discontinuous source cuts over a few milliseconds to avoid audible clicks.
+      const [previous, nextClip] = neighbors.get(clip.id) ?? [];
+      const originalDuration = this.recipe.assets.find(asset => asset.id === clip.assetId)?.durationTicks;
+      const ramp = Math.min(timebase * .005, clip.durationTicks / 2);
+      const canSoften = clip.zIndex === 0 && ramp * sampleRate / timebase >= 2;
+      const softenStart = canSoften && (clip.sourceStartTicks > 0 || !!previous) && !continuous(previous, clip);
+      const softenEnd = canSoften && (clip.sourceEndTicks < (originalDuration ?? 0) || !!nextClip) && !continuous(clip, nextClip);
       const rate = clip.playbackRate ?? 1, sourceFrom = studioClipSourceSeconds(clip, from, timebase), sourceEnd = studioClipSourceSeconds(clip, end, timebase);
       const iterator = resource.audio.buffers(Math.max(0, sourceFrom), sourceEnd + 1 / sampleRate);
       try { for await (const wrapped of iterator) {
@@ -305,7 +317,10 @@ export class StudioRenderKernel {
         for (let i = first; i < last; i++) {
           const seconds = start + i / sampleRate, sourceIndex = (studioClipSourceSeconds(clip, seconds, timebase) - wrapped.timestamp) * buffer.sampleRate;
           const index = Math.max(0, Math.min(buffer.length - 1, Math.floor(sourceIndex))), fraction = sourceIndex - Math.floor(sourceIndex), next = Math.min(buffer.length - 1, index + 1);
-          const gain = clip.gain * studioClipEnvelope(clip, seconds * timebase - clip.startTicks);
+          const local = seconds * timebase - clip.startTicks;
+          const gain = clip.gain * Math.min(studioClipEnvelope(clip, local),
+            softenStart ? clamp(local / ramp) : 1,
+            softenEnd ? clamp((clip.durationTicks - local) / ramp) : 1);
           for (let c = 0; c < 2; c++) result[c][i] += (channels[c][index] * (1 - fraction) + channels[c][next] * fraction) * gain;
         }
       } } finally { await iterator.return(); }

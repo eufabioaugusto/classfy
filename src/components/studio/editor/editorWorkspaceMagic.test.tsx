@@ -238,6 +238,12 @@ describe('comparação e histórico reais do editor', () => {
     expect(latestRecipe().clips.find(clip => clip.kind === 'caption')?.startTicks).toBe(studioTicks(.3));
     expect(io.transcribe.mock.calls[0][2]).toBe('portuguese');
     expect(host.textContent).toContain('2 pausas encurtadas');
+    const entry = button('Class Edit');
+    entry.focus();
+    const space = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true });
+    await act(async () => entry.dispatchEvent(space));
+    expect(space.defaultPrevented).toBe(true);
+    expect(io.play).toHaveBeenCalled();
     expect(host.querySelector('.se-retake-review summary')?.textContent).toContain('takes repetidos (1)');
     const suggested = host.querySelector<HTMLButtonElement>('.se-retake-group button:has(small)')!;
     expect(suggested.querySelector('time')?.textContent).toBe('0:05.0');

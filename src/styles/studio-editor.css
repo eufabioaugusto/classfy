@@ -872,9 +872,11 @@
 .se-main-track .se-timeline-clip {
   height: 56px;
 }
-.se-timeline-clip > span:first-child {
+.se-timeline-clip > .se-clip-body {
+  position: absolute;
+  inset: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 5px;
   font-size: 9px;
   white-space: nowrap;
@@ -908,26 +910,28 @@
   position: absolute;
   top: -2px;
   bottom: -2px;
-  width: 8px;
+  width: min(9px, 38%);
+  opacity: 0;
   background: #ffdb00;
   cursor: ew-resize;
   z-index: 5;
   touch-action: none;
 }
+.se-timeline-clip:is(:hover, .selected) .se-trim-handle,
+.se-trim-handle:focus-visible { opacity: 1; }
 .se-trim-handle:after {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -6px;
-  right: -6px;
+  inset-inline: 0;
 }
 .se-trim-handle.start {
-  left: -4px;
+  left: 0;
   border-radius: 3px 0 0 3px;
 }
 .se-trim-handle.end {
-  right: -4px;
+  right: 0;
   border-radius: 0 3px 3px 0;
 }
 .se-playhead {

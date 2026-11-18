@@ -647,7 +647,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
         target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]') ||
         blocked || recorder) return;
       const command = studioShortcutFor(event);
-      if (!command || (command === 'play' || command === 'restart') && target instanceof Element && target.closest('button, summary, a')) return;
+      if (!command || command === 'restart' && target instanceof Element && target.closest('button, summary, a')) return;
       event.preventDefault();
       if (!event.repeat || ['nextFrame', 'previousFrame', 'nextTen', 'previousTen', 'timelineIn', 'timelineOut'].includes(command)) runShortcut(command);
     };
