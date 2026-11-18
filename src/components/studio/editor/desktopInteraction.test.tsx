@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { compileStudioRecipe, emptyStudioEditing, studioTicks, withStudioTakes, type StudioProject } from '../../../../shared/studio';
-import { splitMainClip, addCaption } from '@/lib/studio/editor/commands';
+import { applyClassEdit, splitMainClip, addCaption } from '@/lib/studio/editor/commands';
 import { StudioDesktopTimeline } from './StudioDesktopTimeline';
 import { StudioDesktopCanvas } from './StudioDesktopCanvas';
 
@@ -124,6 +124,30 @@ describe('componentes reais do editor desktop', () => {
     await act(async () => root.render(<StudioDesktopTimeline {...toolProps} {...props} selectedIds={['clip']} position={5.1} playing />)); expect(scrollTo).toHaveBeenCalledTimes(1);
     await act(async () => root.render(<StudioDesktopTimeline {...toolProps} {...props} selectedIds={['clip']} position={6} />)); expect(scrollTo).toHaveBeenCalledTimes(1); expect(seek).not.toHaveBeenCalled();
   });
+  it('estende o último corte do Class Edit usando o original mesmo quando o clipe tenta iniciar um arraste', async () => {
+    let current = applyClassEdit(fixture(), 'clip', [{ start: 4, end: 5 }, { start: 7, end: 8 }]);
+    const last = current.editing!.main.at(-1)!;
+    current = addCaption(current, 'Até o próximo vídeo.', 2, 2);
+    const preview = vi.fn(), commit = vi.fn((change: (project: StudioProject) => StudioProject) => { current = change(current); });
+    await act(async () => root.render(<StudioDesktopTimeline {...toolProps} project={current} selectedIds={[last.id]} position={4}
+      thumbnails={{}} onSelect={vi.fn()} onSeek={vi.fn()} onPreview={preview} onCommit={commit} onAdd={vi.fn()}
+      onMainMute={vi.fn()} onLayerMute={vi.fn()} onLayerHide={vi.fn()} />));
+    const clip = host.querySelector(`[data-timeline-clip="${last.id}"]`)!;
+    const handle = clip.querySelector('.se-trim-handle.end')!;
+    const nativeDrag = new Event('dragstart', { bubbles: true, cancelable: true });
+    await act(async () => {
+      pointer(handle, 'pointerdown', 288, 50);
+      clip.dispatchEvent(nativeDrag);
+      pointer(handle, 'pointermove', 324, 50);
+      pointer(handle, 'pointerup', 324, 50);
+    });
+    expect(nativeDrag.defaultPrevented).toBe(true);
+    expect(commit).toHaveBeenCalledOnce();
+    expect(current.takes.at(-1)).toMatchObject({ assetId: 'asset', start: 5, end: 7.5, duration: 10 });
+    expect(compileStudioRecipe(current).durationTicks).toBe(studioTicks(4.5));
+    expect(current.editing!.layers[0].items[0].durationTicks).toBe(studioTicks(2));
+  });
+
   it('alças alteram duração de imagem principal sem mudar o original e cancelam sem outro commit', async () => {
     const editing = emptyStudioEditing('aula'); editing.assets = [{ id: 'image', kind: 'image', name: 'Slide', uri: 'file://slide', durationTicks: 0, width: 1920, height: 1080 }]; editing.main = [{ id: 'still', assetId: 'image', sourceStartTicks: 0, sourceEndTicks: 0, durationTicks: studioTicks(3) }];
     let current: StudioProject = withStudioTakes({ ...fixture(), editing }); const preview = vi.fn(), seek = vi.fn(), commit = vi.fn((change: (p: StudioProject) => StudioProject) => { current = change(current); });

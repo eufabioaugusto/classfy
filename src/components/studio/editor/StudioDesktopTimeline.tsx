@@ -154,6 +154,7 @@ export function StudioDesktopTimeline(props: Props) {
       ? edge === 'start' ? [adjacent.id, id] : [id, adjacent.id] : undefined;
     onSelect(id);
     if (clip.zIndex === 0 && !edge && !slip) return;
+    if (edge) event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     transaction.current = { pointer: event.pointerId, id, x: event.clientX, y: event.clientY, clip, base: project, edge, slip, roll, lastX: 0, lastY: 0, moved: false, scale };
   };
@@ -207,7 +208,11 @@ export function StudioDesktopTimeline(props: Props) {
       onPointerUp={event => volumeDrag.current ? finishVolume(event, true) : finish(event)}
       onPointerCancel={event => volumeDrag.current ? finishVolume(event, false) : cancel()}
       onLostPointerCapture={event => finishVolume(event, false)}
-      draggable={main && !disabled && tool === 'select'} onDragStart={e => { e.dataTransfer.setData('application/classfy-clip', clip.id); cancel(); }} onDragOver={e => { if (main) e.preventDefault(); }} onDrop={e => { if (!main || disabled) return; e.preventDefault(); const from = e.dataTransfer.getData('application/classfy-clip'); if (from) onCommit(value => moveMainClip(value, from, value.editing!.main.findIndex(c => c.id === clip.id))); }}
+      draggable={main && !disabled && tool === 'select'} onDragStart={e => {
+        // The draggable parent must not steal an active trim from its handle.
+        if (transaction.current?.id === clip.id) { e.preventDefault(); return; }
+        e.dataTransfer.setData('application/classfy-clip', clip.id);
+      }} onDragOver={e => { if (main) e.preventDefault(); }} onDrop={e => { if (!main || disabled) return; e.preventDefault(); const from = e.dataTransfer.getData('application/classfy-clip'); if (from) onCommit(value => moveMainClip(value, from, value.editing!.main.findIndex(c => c.id === clip.id))); }}
       onClick={e => { e.stopPropagation(); if (suppress.current) { suppress.current = false; return; } if (disabled || tool === 'blade') return;
         if (e.shiftKey || e.metaKey || e.ctrlKey) props.onSelectMany(selectedIds.includes(clip.id)
           ? selectedIds.filter(id => id !== clip.id) : [...selectedIds, clip.id]);
@@ -241,6 +246,7 @@ export function StudioDesktopTimeline(props: Props) {
       </div>}
       {isSelected && selectedIds.length === 1 && !marqueePreview && tool !== 'blade' && !disabled && <>{(['start', 'end'] as const).map(edge => <span key={edge} role="slider" tabIndex={0} aria-label={`Cortar ${edge === 'start' ? 'início' : 'fim'} de ${title}`} aria-valuenow={studioSeconds(main && asset?.kind !== 'image' ? edge === 'start' ? clip.sourceStartTicks : clip.sourceEndTicks : edge === 'start' ? clip.startTicks : clip.startTicks + clip.durationTicks)} className={`se-trim-handle ${edge}`}
         onPointerDown={e => begin(e, clip.id, edge)} onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel}
+        onLostPointerCapture={event => { if (transaction.current?.pointer === event.pointerId) cancel(); }}
         onKeyDown={e => { if (disabled || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); e.stopPropagation(); const fake: Drag = { pointer: 0, id: clip.id, x: 0, y: 0, clip, base: project, edge, lastX: 0, lastY: 0, moved: true, scale }; onCommit(p => applyDrag(fake, (e.key === 'ArrowRight' ? 1 : -1) * scale * frame, 0, p)); }} />)}</>}
     </div>;
   };
