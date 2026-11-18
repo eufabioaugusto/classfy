@@ -108,6 +108,19 @@ describe('comparação e histórico reais do editor', () => {
     expect(saved!.editing!.assets.map(asset => asset.id)).toEqual(['video-original', 'image-original']);
   });
 
+  it('mantém Class Edit e o ajuste existente ao refazer os cortes', async () => {
+    io.get.mockResolvedValue(patchClip(initialProject(), 'main', { enhancement: priorEnhancement }));
+    io.getAsset.mockResolvedValue(new Blob(['original']));
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    expect(button('Class Edit').getAttribute('aria-disabled')).toBe('false');
+    await click('Class Edit');
+    expect(latestRecipe().clips.every(clip => clip.enhancement?.strength === priorEnhancement.strength)).toBe(true);
+    expect(button('Class Edit').getAttribute('aria-disabled')).toBe('true');
+    await click('Desfazer');
+    expect(latestRecipe().clips[0].enhancement).toEqual(priorEnhancement);
+    expect(button('Class Edit').getAttribute('aria-disabled')).toBe('false');
+  });
+
   it('comparar não persiste o original e Undo da inserção remove o alvo sem derrubar o workspace', async () => {
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
     const image = Array.from(host.querySelectorAll('.se-asset-grid article')).find(article => article.textContent?.includes('Retrato.jpg'))!;

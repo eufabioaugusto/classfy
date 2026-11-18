@@ -66,18 +66,19 @@ export function classEditTarget(project: StudioProject) {
   const editing = studioEditing(project);
   const clip = editing.main[0];
   if (editing.main.length !== 1 || editing.layers.some(layer => layer.items.length)
-    || clip.enhancement || clip.signature || (clip.playbackRate ?? 1) !== 1
+    || clip.signature || (clip.playbackRate ?? 1) !== 1
     || clip.fadeInTicks || clip.fadeOutTicks || (clip.motion && clip.motion !== 'none')) return;
   const asset = editing.assets.find(value => value.id === clip.assetId);
   if (asset?.kind === 'video' && asset.hasAudio !== false) return { clip, asset };
 }
 
 export function applyClassEdit(project: StudioProject, clipId: string,
-  pauses: readonly { start: number; end: number }[], enhancement: StudioEnhancement): StudioProject {
+  pauses: readonly { start: number; end: number }[], enhancement?: StudioEnhancement): StudioProject {
   const target = classEditTarget(project);
   if (!target || target.clip.id !== clipId) throw new Error('A montagem mudou durante a análise do Class Edit.');
   const editing = studioEditing(project);
-  const adjusted = patchStudioClipEnhancement(editing, clipId, enhancement);
+  if (!pauses.length && !enhancement) return project;
+  const adjusted = enhancement ? patchStudioClipEnhancement(editing, clipId, enhancement) : editing;
   const clip = adjusted.main[0];
   let cursor = clip.sourceStartTicks;
   const main = pauses.map(pause => {
