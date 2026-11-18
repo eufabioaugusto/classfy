@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, ChevronDown, Download, Film, Image, Loader2, Mic, Monitor, Music2, Pause, Play, Plus, Redo2, Scissors, SlidersHorizontal, Sparkles, Subtitles, Type, Undo2, Upload, Video, X } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { addCaption, addCaptionTrack, addLayerAsset, addMainAsset, addText, applyClassEdit, classEditTarget, duplicateClip, patchClip, removeClip, setLayerHidden, setLayerMuted, setMainMuted, splitLayerClip, splitMainClip, type StudioWebClipPatch } from '@/lib/studio/editor/commands';
+import { addCaption, addCaptionTrack, addLayerAsset, addMainAsset, addText, applyClassEdit, classEditTarget, duplicateClip, patchClip, removeClip, setLayerHidden, setLayerMuted, setMainMuted, splitLayerClip, splitMainClip, trimMainClip, trimLayerClip, type StudioWebClipPatch } from '@/lib/studio/editor/commands';
 import { getAsset, getExport, putAsset, storeExport, studioAssetUri } from '@/lib/studio/editor/storage';
 import { inspectStudioMedia } from '@/lib/studio/editor/media';
 import { readStudioWaveform, type StudioWaveform } from '@/lib/studio/editor/audioEnvelope';
@@ -15,7 +15,7 @@ import { createStudioRenderer, type StudioRenderer } from '@/lib/studio/editor/r
 import { exportStudioProject, getStudioExportCapabilities, releaseStudioExport, type StudioBrowserExportCapabilities } from '@/lib/studio/editor/export';
 import { compileStudioRecipe, formatStudioEditorTime, studioGrade, studioSeconds, studioTicks, withStudioOutputSelection, withStudioTakes, type StudioAsset, type StudioEffect, type StudioOutputSelection, type StudioProject, type StudioTextStyle } from '../../../../shared/studio';
 import { StudioDesktopCanvas } from './StudioDesktopCanvas';
-import { StudioDesktopTimeline } from './StudioDesktopTimeline';
+import { StudioDesktopTimeline, type TimelineTool } from './StudioDesktopTimeline';
 import { StudioDesktopInspector } from './StudioDesktopInspector';
 import { StudioRecorder } from './StudioRecorder';
 import { useStudioWorkspace } from './useStudioWorkspace';
@@ -46,8 +46,12 @@ type RecordingImport = { asset: StudioAsset; thumbnail?: Blob; warnings: string[
 export function StudioEditorWorkspace({ owner, projectId, premium = false, premiumLoading = false, premiumError }: { owner: string; projectId: string; premium?: boolean; premiumLoading?: boolean; premiumError?: string | null }) {
   const navigate = useNavigate(), workspace = useStudioWorkspace(owner, projectId);
   const { project } = workspace;
-  const [preview, setPreview] = useState<StudioProject | null>(null), [selected, setSelected] = useState<string>();
-  const [tab, setTab] = useState<Tab>('media'), [position, setPosition] = useState(0), [playing, setPlaying] = useState(false), [renderLoading, setRenderLoading] = useState(false);
+  const [preview, setPreview] = useState<StudioProject | null>(null);
+  const [selection, setSelection] = useState<string[]>([]);
+  const [timelineTool, setTimelineTool] = useState<TimelineTool>('select');
+  const selected = selection.length === 1 ? selection[0] : undefined;
+  const setSelected = (id?: string) => setSelection(id ? [id] : []);
+  const [tab, setTab] = useState<Tab | null>('media'), [position, setPosition] = useState(0), [playing, setPlaying] = useState(false), [renderLoading, setRenderLoading] = useState(false);
   const [captionLanguage, setCaptionLanguage] = useState(''), [captionStyle, setCaptionStyle] = useState(0);
   const [autoCaptions, setAutoCaptions] = useState(true);
   const [colorPreset, setColorPreset] = useState<StudioEffect>('studio'), [colorIntensity, setColorIntensity] = useState(.65);
@@ -83,7 +87,12 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const previewRecipe = useMemo(() => comparing && selected && effective && recipe?.clips.some(clip => clip.id === selected && (clip.kind === 'video' || clip.kind === 'image')) ? compileStudioRecipe(patchClip(effective, selected, { signature: null, enhancement: null, portrait: null, grade: studioGrade(), effect: 'natural' })) : recipe, [comparing, selected, effective, recipe]);
   const latestRecipe = useRef(previewRecipe); latestRecipe.current = previewRecipe;
   const selectedClip = recipe?.clips.find(c => c.id === selected), duration = recipe ? studioSeconds(recipe.durationTicks) : 0;
-  useEffect(() => { if (selected && recipe && !recipe.clips.some(clip => clip.id === selected)) { setSelected(undefined); setComparing(false); } }, [selected, recipe]);
+  useEffect(() => {
+    if (!recipe || preview) return;
+    const visible = new Set(recipe.clips.map(clip => clip.id));
+    setSelection(current => current.every(id => visible.has(id)) ? current : current.filter(id => visible.has(id)));
+    if (selected && !visible.has(selected)) setComparing(false);
+  }, [selected, recipe, preview]);
   const waveformAssets = JSON.stringify(project?.editing?.assets.filter(asset =>
     (asset.kind === 'video' || asset.kind === 'audio') && asset.hasAudio !== false && asset.durationTicks > 0)
     .map(asset => [asset.id, asset.durationTicks]) ?? []);
@@ -121,7 +130,11 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     try { workspace.apply(value => patchClip(value, draft.id, draft.patch)); setPreview(null); setExportReady(false); }
     catch (cause) { pendingPatch.current = draft; setError(cause instanceof Error ? cause.message : 'Não foi possível concluir esta edição.'); throw cause; }
   };
-  const select = (id?: string) => { if (locked.current || confirmation.current) return; try { settle(); setComparing(false); setSelected(id); } catch { /* Keep the draft and its original selection. */ } };
+  const selectMany = (ids: string[]) => {
+    if (locked.current || confirmation.current) return;
+    try { settle(); setComparing(false); setSelection(ids); } catch { /* Preserve the draft and selection. */ }
+  };
+  const select = (id?: string) => selectMany(id ? [id] : []);
   const seek = async (seconds: number) => {
     if (locked.current || confirmation.current) return;
     try { settle(); } catch { return; }
@@ -373,9 +386,41 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       workspace.apply(value => patchClip(value, id, { portrait: { version: 2, strength: .45 } })); setComparing(false); setExportReady(false); await workspace.flush();
     });
   };
-  const canSplit = !!selectedClip && position > studioSeconds(selectedClip.startTicks) + .1 && position < studioSeconds(selectedClip.startTicks + selectedClip.durationTicks) - .1;
-  const split = () => { if (confirmation.current || locked.current || !selectedClip || !canSplit) return; try { settle(); } catch { return; } apply(value => selectedClip.zIndex === 0 ? splitMainClip(value, selectedClip.id, position) : splitLayerClip(value, selectedClip.id, position)); setSelected(undefined); };
-  const remove = () => { if (confirmation.current || locked.current || !selected) return; try { settle(); } catch { return; } apply(value => removeClip(value, selected)); setSelected(undefined); };
+  const atCursor = (clip: NonNullable<typeof selectedClip>, time: number) =>
+    time >= studioSeconds(clip.startTicks) + .1 && time <= studioSeconds(clip.startTicks + clip.durationTicks) - .1;
+  const canSplit = !!selectedClip && atCursor(selectedClip, position);
+  const splitAt = (time: number, id?: string) => {
+    if (confirmation.current || locked.current) return;
+    const targets = recipe?.clips.filter(clip => atCursor(clip, time) &&
+      (id ? clip.id === id : selection.length ? selection.includes(clip.id) : clip.zIndex === 0));
+    if (!targets?.length) return;
+    try { settle(); } catch { return; }
+    apply(value => targets.reduce((next, clip) => clip.zIndex === 0
+      ? splitMainClip(next, clip.id, time) : splitLayerClip(next, clip.id, time), value));
+  };
+  const split = () => { if (selected && canSplit) splitAt(position, selected); };
+  const trimAtCursor = (edge: 'start' | 'end') => {
+    const clip = selectedClip ?? (!selection.length ? recipe?.clips.find(item => item.zIndex === 0 &&
+      position > studioSeconds(item.startTicks) && position < studioSeconds(item.startTicks + item.durationTicks)) : undefined);
+    if (!clip) return;
+    const start = studioSeconds(clip.startTicks), end = studioSeconds(clip.startTicks + clip.durationTicks);
+    if (position <= start || position >= end || (edge === 'start' ? end - position : position - start) < .1) return;
+    try { settle(); } catch { return; }
+    apply(value => {
+      if (clip.zIndex > 0) return trimLayerClip(value, clip.id, edge === 'start' ? position : start, edge === 'end' ? position : end);
+      if (clip.kind === 'image') return trimMainClip(value, clip.id, 0, edge === 'start' ? end - position : position - start);
+      const sourcePosition = studioSeconds(clip.sourceStartTicks) + (position - start) * (clip.playbackRate ?? 1);
+      return trimMainClip(value, clip.id, edge === 'start' ? sourcePosition : studioSeconds(clip.sourceStartTicks),
+        edge === 'end' ? sourcePosition : studioSeconds(clip.sourceEndTicks));
+    });
+    if (edge === 'start' && clip.zIndex === 0) void seek(start);
+  };
+  const remove = () => {
+    if (confirmation.current || locked.current || !selection.length) return;
+    try { settle(); } catch { return; }
+    const targets = recipe?.clips.filter(clip => selection.includes(clip.id)).sort((a, b) => b.zIndex - a.zIndex) ?? [];
+    apply(value => targets.reduce((next, clip) => removeClip(next, clip.id), value));
+  };
   const toggle = () => { if (locked.current || confirmation.current || recorder) return; try { settle(); } catch { return; } if (playing) engine.current?.pause(); else void engine.current?.play().catch(recordError); };
   const exportFile = (publication: boolean) => void external('Exportando arquivo', async (token, signal) => {
     const snapshot = workspace.current.current!; let file: File | null = null;
@@ -428,15 +473,26 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   });
   useEffect(() => {
     const keys = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement; if (target?.closest('input, textarea, select, [contenteditable="true"]') || locked.current || confirmation.current || recorder) return;
+      const target = event.target;
+      if (event.defaultPrevented || event.isComposing || event.altKey ||
+        target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]') ||
+        locked.current || confirmation.current || recorder) return;
       const modifier = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
       if (modifier && event.key.toLowerCase() === 'z') { event.preventDefault(); try { settle(); } catch { return; } if (event.shiftKey) workspace.redo(); else workspace.undo(); }
       else if (modifier && event.key.toLowerCase() === 'y') { event.preventDefault(); workspace.redo(); }
-      else if (event.code === 'Space') { event.preventDefault(); toggle(); }
-      else if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); remove(); }
-      else if (!modifier && event.key.toLowerCase() === 's') { event.preventDefault(); split(); }
-      else if (event.key === 'Escape') select(undefined);
-      else if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') { event.preventDefault(); void seek(position + (event.key === 'ArrowRight' ? 1 : -1) / 30); }
+      else if (modifier && key === 'b') { event.preventDefault(); if (!event.repeat) splitAt(position); }
+      else if (modifier && key === 'a') { event.preventDefault(); selectMany(recipe?.clips.map(clip => clip.id) ?? []); }
+      else if (modifier) return;
+      else if (key === 'a' || key === 'b' || key === 't') {
+        event.preventDefault(); setTimelineTool(key === 'a' ? 'select' : key === 'b' ? 'blade' : 'trim');
+      }
+      else if (key === 'q' || key === 'w') { event.preventDefault(); if (!event.repeat) trimAtCursor(key === 'q' ? 'start' : 'end'); }
+      else if (event.code === 'Space' && !(target instanceof Element && target.closest('button, summary'))) { event.preventDefault(); toggle(); }
+      else if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); if (!event.repeat) remove(); }
+      else if (!modifier && event.key.toLowerCase() === 's') { event.preventDefault(); if (!event.repeat) splitAt(position); }
+      else if (event.key === 'Escape') { setTimelineTool('select'); select(undefined); }
+      else if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') { event.preventDefault(); void seek(position + (event.key === 'ArrowRight' ? 1 : -1) * (recipe ? recipe.output.frameRateDenominator / recipe.output.frameRateNumerator : 1 / 30)); }
     };
     window.addEventListener('keydown', keys); return () => window.removeEventListener('keydown', keys);
   });
@@ -446,7 +502,9 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const hasCaptions = project.editing!.layers.some(layer => layer.kind === 'caption' && layer.items.length);
   const hasAudio = recipe.clips.some(clip => clip.gain > 0 && (clip.kind === 'audio' ||
     clip.kind === 'video' && recipe.assets.find(asset => asset.id === clip.assetId)?.hasAudio !== false));
-  const colorTargets = selectedClip && (selectedClip.kind === 'video' || selectedClip.kind === 'image')
+  const colorTargets = selection.length > 1
+    ? recipe.clips.filter(clip => selection.includes(clip.id) && (clip.kind === 'video' || clip.kind === 'image')).map(clip => clip.id)
+    : selectedClip && (selectedClip.kind === 'video' || selectedClip.kind === 'image')
     ? [selectedClip.id]
     : project.editing!.main.filter(clip => project.editing!.assets.some(asset => asset.id === clip.assetId && asset.kind !== 'audio')).map(clip => clip.id);
   const premiumMessage = premiumLoading ? 'Verificando seu plano…' : premiumError || <Link to="/planos">Conhecer o Premium</Link>;
@@ -463,9 +521,13 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       {classEditResult.cuts === 0 ? 'Nenhum corte aplicado · Não encontrei pausas de pelo menos 0,9 s com queda clara no áudio'
         : `${classEditResult.cuts === 1 ? '1 pausa encurtada' : `${classEditResult.cuts} pausas encurtadas`} · ${classEditResult.removed.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s removidos`}{classEditResult.imageAdjusted ? ' · Ajuste leve de imagem aplicado' : ''}{classEditResult.portraitStatus ? ` · ${classEditResult.portraitStatus}` : ''}{classEditResult.finishStatus ? ` · ${classEditResult.finishStatus}` : ''}
     </div>}
-    <ResizablePanelGroup direction="vertical" className="se-workspace-panels"><ResizablePanel defaultSize={67} minSize={35}><ResizablePanelGroup direction="horizontal">
-      <ResizablePanel defaultSize={23} minSize={15} maxSize={35}><aside className="se-library"><nav aria-label="Ferramentas do editor">{tools.map(({ id, label, Icon }) => <button key={id} aria-pressed={tab === id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><section className="se-library-content" aria-labelledby="se-tool-heading">
-        <header className="se-tool-heading"><h2 id="se-tool-heading">{tools.find(tool => tool.id === tab)?.label}</h2></header>
+    <ResizablePanelGroup direction="vertical" className="se-workspace-panels"><ResizablePanel defaultSize={67} minSize={35}><div className="se-library">
+      <nav aria-label="Ferramentas do editor">{tools.map(({ id, label, Icon }) => <button key={id} aria-pressed={tab === id}
+        className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon size={18} /><span>{label}</span></button>)}</nav>
+      <ResizablePanelGroup direction="horizontal" className="se-tools-layout">
+      {tab && <ResizablePanel id="studio-tool-panel" order={1} defaultSize={20} minSize={14} maxSize={33}><section className="se-library-content" aria-labelledby="se-tool-heading">
+        <header className="se-tool-heading"><h2 id="se-tool-heading">{tools.find(tool => tool.id === tab)?.label}</h2><button className="se-icon" aria-label="Fechar painel de ferramentas" title="Fechar painel"
+          onClick={() => { setTab(null); document.querySelector<HTMLButtonElement>('.se-library nav button.active')?.focus(); }}><X size={16} /></button></header>
         {tab === 'media' && <><button className="se-button se-primary se-wide" disabled={blocked || !!recorder} onClick={() => openImport('main')}><Plus size={16} />Importar arquivos</button><div className="se-capture-buttons"><button className="se-button" disabled={blocked} onClick={() => openRecorder('camera')}><Video size={16} />Câmera</button><button className="se-button" disabled={blocked} onClick={() => openRecorder('screen')}><Monitor size={16} />Tela</button></div><div className="se-asset-grid">{project.editing!.assets.filter(a => a.kind !== 'audio').map(asset => <article key={asset.id}><button className="se-asset-thumb" disabled={blocked} aria-label={`Adicionar ${asset.name} à montagem`} onClick={() => reuse(asset, 'main')}>{thumbnails[asset.id] ? <img src={thumbnails[asset.id]} alt="" /> : <Film size={23} />}<span>{asset.kind === 'image' ? 'Imagem' : formatStudioEditorTime(studioSeconds(asset.durationTicks))}</span></button><p title={asset.name}>{asset.name}</p><div className="se-asset-actions"><button className="se-asset-overlay" disabled={blocked || !duration} onClick={() => reuse(asset, 'layer')}>Sobrepor <Plus size={12} /></button><button className="se-asset-original" aria-label={`Baixar original de ${asset.name}`} title="Baixar original" disabled={blocked || !!recorder || originalDownload?.id === asset.id && originalDownload.status !== 'retry'} onClick={() => downloadOriginal(asset)}>
           {originalDownload?.id === asset.id && originalDownload.status === 'preparing' ? <><Loader2 className="se-spin" size={13} />Preparando download…</>
             : originalDownload?.id === asset.id && originalDownload.status === 'started' ? <><Check size={13} />Download iniciado</>
@@ -496,7 +558,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
           <button className="se-button se-wide" disabled={blocked || !!recorder || !colorTargets.length} onClick={() => {
             try { settle(); } catch { return; }
             apply(value => colorTargets.reduce((next, id) => patchClip(next, id, { grade: chosenGrade, effect: colorPreset }), value)); setComparing(false);
-          }}>{colorTargets.length === 1 ? 'Aplicar filtro ao clipe' : 'Aplicar filtro à faixa principal'}</button>
+          }}>{colorTargets.length === 1 ? 'Aplicar filtro ao clipe' : selection.length > 1 ? 'Aplicar filtro à seleção' : 'Aplicar filtro à faixa principal'}</button>
           <div className="se-tool-class-edit">
             <h3><Sparkles size={15} />Class Edit Premium</h3>
             {premium ? <>
@@ -507,14 +569,14 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
           </div>
         </div>}
         {tab === 'audio' && <><button className="se-button se-primary se-wide" disabled={blocked} onClick={() => openImport('layer', 'audio/*')}><Music2 size={17} />Importar áudio</button><button className="se-button se-wide" disabled={blocked || !duration} onClick={() => openRecorder('audio')}><Mic size={17} />Gravar narração</button><div className="se-audio-library">{project.editing!.assets.filter(a => a.kind === 'audio').map(asset => <button key={asset.id} disabled={blocked} onClick={() => reuse(asset, 'layer')}><Mic size={19} /><span>{asset.name}<small>{formatStudioEditorTime(studioSeconds(asset.durationTicks))}</small></span><Plus size={14} /></button>)}</div></>}
-      </section></aside></ResizablePanel><ResizableHandle className="se-resize-handle" />
-      <ResizablePanel defaultSize={54} minSize={25}><main className="se-preview-area" onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { e.preventDefault(); if (!locked.current && !confirmation.current && e.dataTransfer.files.length) void importFiles(Array.from(e.dataTransfer.files), 'main'); }}><div className="se-preview-label"><span>{comparing ? 'Original · trecho selecionado' : 'Prévia'}</span><span>{project.kind === 'short' ? '9:16' : project.kind === 'podcast' ? 'Áudio' : '16:9'}</span></div>
+      </section></ResizablePanel>}{tab && <ResizableHandle className="se-resize-handle" />}
+      <ResizablePanel id="studio-preview-panel" order={2} defaultSize={tab ? 57 : 77} minSize={25}><main className="se-preview-area" onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { e.preventDefault(); if (!locked.current && !confirmation.current && e.dataTransfer.files.length) void importFiles(Array.from(e.dataTransfer.files), 'main'); }}><div className="se-preview-label"><span>{comparing ? 'Original · trecho selecionado' : 'Prévia'}</span><span>{project.kind === 'short' ? '9:16' : project.kind === 'podcast' ? 'Áudio' : '16:9'}</span></div>
         <StudioDesktopCanvas project={effective} selectedId={selected} position={position} disabled={blocked || !!recorder} canvasRef={canvas} onSelect={select} onEditText={id => { select(id); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-studio-text-input]')?.focus()); }} onBegin={() => { if (confirmation.current) return; settle(); engine.current?.pause(); }} onPreview={value => { if (!confirmation.current) setPreview(value); }} onCommit={apply} />
         {renderLoading && <div className="se-preview-loading"><Loader2 size={20} className="se-spin" /></div>}
         {!duration && <div className="se-first-media"><Film size={31} strokeWidth={1} /><p>Comece com seu primeiro arquivo</p><button className="se-button" onClick={() => openImport('main')}>Importar mídia</button></div>}
         <div className="se-transport"><button className="se-icon" aria-label={playing ? 'Pausar montagem' : 'Reproduzir montagem'} disabled={blocked || !!recorder || !duration} onClick={toggle}>{playing ? <Pause size={20} /> : <Play size={20} />}</button><span>{formatStudioEditorTime(position)}<i>/</i>{formatStudioEditorTime(duration)}</span><button className="se-icon" aria-label="Dividir no cursor" disabled={!canSplit || blocked} onClick={split}><Scissors size={17} /></button></div>
-      </main></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel defaultSize={23} minSize={18} maxSize={35}><StudioDesktopInspector comparing={comparing} onCompare={() => { try { settle(); engine.current?.pause(); setComparing(value => !value); } catch { /* Preserve draft on save failure. */ } }} onSignature={engine.current ? applySignature : undefined} onEnhance={improveScene} onPortrait={enablePortrait} clip={selectedClip} disabled={blocked || !!recorder} canSplit={canSplit} outputHeight={recipe.output.height} onDraft={draftPatch} onCommit={() => { try { settle(); } catch { /* keep error visible */ } }} onDuplicate={() => { if (selected) { settle(); apply(value => duplicateClip(value, selected)); } }} onRemove={remove} onSplit={split} /></ResizablePanel>
-    </ResizablePanelGroup></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel defaultSize={33} minSize={20} maxSize={65}><StudioDesktopTimeline project={effective} position={position} playing={playing} selectedId={selected} disabled={blocked || !!recorder} thumbnails={thumbnails} waveforms={waveforms} onSelect={select} onSeek={value => void seek(value)} onPreview={value => { if (confirmation.current) return; engine.current?.pause(); setPreview(value); }} onCommit={apply} onAdd={() => openImport('main')} onMainMute={() => apply(value => setMainMuted(value, !value.editing!.mainMuted))} onLayerHide={id => apply(value => setLayerHidden(value, id, !value.editing!.layers.find(l => l.id === id)?.hidden))} onLayerMute={id => apply(value => setLayerMuted(value, id, !value.editing!.layers.find(l => l.id === id)?.muted))} /></ResizablePanel></ResizablePanelGroup>
+      </main></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel id="studio-inspector-panel" order={3} defaultSize={23} minSize={18} maxSize={35}><StudioDesktopInspector comparing={comparing} onCompare={() => { try { settle(); engine.current?.pause(); setComparing(value => !value); } catch { /* Preserve draft on save failure. */ } }} onSignature={engine.current ? applySignature : undefined} onEnhance={improveScene} onPortrait={enablePortrait} clip={selectedClip} disabled={blocked || !!recorder} canSplit={canSplit} outputHeight={recipe.output.height} onDraft={draftPatch} onCommit={() => { try { settle(); } catch { /* keep error visible */ } }} onDuplicate={() => { if (selected) { settle(); apply(value => duplicateClip(value, selected)); } }} onRemove={remove} onSplit={split} /></ResizablePanel>
+    </ResizablePanelGroup></div></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel defaultSize={33} minSize={20} maxSize={65}><StudioDesktopTimeline project={effective} position={position} playing={playing} selectedIds={selection} tool={timelineTool} onTool={setTimelineTool} onSelectMany={selectMany} onBlade={splitAt} disabled={blocked || !!recorder} thumbnails={thumbnails} waveforms={waveforms} onSelect={select} onSeek={value => void seek(value)} onPreview={value => { if (confirmation.current) return; engine.current?.pause(); setPreview(value); }} onCommit={apply} onAdd={() => openImport('main')} onMainMute={() => apply(value => setMainMuted(value, !value.editing!.mainMuted))} onLayerHide={id => apply(value => setLayerHidden(value, id, !value.editing!.layers.find(l => l.id === id)?.hidden))} onLayerMute={id => apply(value => setLayerMuted(value, id, !value.editing!.layers.find(l => l.id === id)?.muted))} /></ResizablePanel></ResizablePanelGroup>
     <input ref={input} className="se-sr" tabIndex={-1} type="file" multiple onChange={e => { const files = Array.from(e.target.files ?? []), pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && files.length && pending?.type === 'media' && scope(pending.token)) void importFiles(files, pending.target, pending.at); }} />
     <input ref={captionsInput} className="se-sr" tabIndex={-1} type="file" accept=".srt,text/plain" onChange={e => { const file = e.target.files?.[0], pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && file && pending?.type === 'captions' && scope(pending.token)) void external('Importando legendas', async (token, signal) => { const cues = parseDesktopCaptions(await file.text()); if (!scope(token) || signal.aborted) return; const current = workspace.current.current!, length = studioSeconds(compileStudioRecipe(current).durationTicks); if (cues.some(c => c.start >= length || c.end > length + .01)) throw new Error('Uma legenda ultrapassa a duração da montagem. Revise o arquivo SRT.'); workspace.apply(value => addCaptionTrack(value, cues, captionStyles[captionStyle].style)); await workspace.flush(); }); }} />
     {busy && <div className="se-modal-backdrop"><section className="se-progress-modal" role="dialog" aria-modal="true" aria-label={busy}><Loader2 size={23} className="se-spin" /><h2>{busy}</h2>{busy !== 'Escolhendo arquivo' && busy !== 'Detectando pausas' && busy !== 'Transcrevendo áudio' && !busy.startsWith('Preparando') && <><progress max={1} value={progress} /><p>{Math.round(progress * 100)}%{busy.startsWith('Exportando') && ' · Mantenha esta aba aberta'}</p></>}<button className="se-button" onClick={() => { if (picker.current) cancelPicker(); else controller.current?.abort(); }}>Cancelar</button></section></div>}

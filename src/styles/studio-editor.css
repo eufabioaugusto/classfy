@@ -321,7 +321,7 @@
   color: var(--se-accent);
 }
 .se-library-content {
-  flex: 1;
+  height: 100%;
   min-width: 0;
   padding: 16px 12px;
   overflow-y: auto;
@@ -1448,6 +1448,9 @@
   font-size: 14px;
 }
 .se-tool-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 14px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--se-line);
@@ -1550,3 +1553,63 @@
 .se-tool-class-edit label {
   font-size: 11px;
 }
+
+.se-timeline-content {
+  min-width: 100%;
+  user-select: none;
+}
+.se-timeline-content:focus {
+  outline: none;
+}
+.se-timeline-marquee {
+  position: absolute;
+  z-index: 7;
+  pointer-events: none;
+  border: 1px solid #ffd600;
+  background: #ffd60026;
+}
+.se-timeline-content.tool-blade .se-timeline-clip {
+  cursor: crosshair;
+}
+.se-timeline-content.tool-trim .se-timeline-clip {
+  cursor: ew-resize;
+}
+.se-timeline-shortcuts {
+  position: relative;
+}
+.se-timeline-shortcuts summary {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  color: var(--se-muted);
+  list-style: none;
+}
+.se-timeline-shortcuts summary::-webkit-details-marker { display: none; }
+.se-timeline-shortcuts dl {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 15;
+  width: max-content;
+  max-width: 85vw;
+  max-height: min(220px, 18vh);
+  overflow-y: auto;
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--se-line);
+  border-radius: 7px;
+  background: var(--se-panel);
+  box-shadow: 0 6px 20px #0006;
+  font-size: 11px;
+}
+.se-timeline-shortcuts dl div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.se-timeline-shortcuts dd { margin: 0; }
+
+.se-library .se-tools-layout { min-width: 0; flex: 1; }

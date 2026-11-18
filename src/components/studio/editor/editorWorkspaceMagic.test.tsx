@@ -105,6 +105,59 @@ describe('comparação e histórico reais do editor', () => {
     expect(button('Importar SRT').disabled).toBe(false);
   });
 
+  it('fecha o painel de ferramentas sem remontar a prévia e reabre na aba clicada', async () => {
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    const canvas = host.querySelector('canvas');
+    await click('Fechar painel de ferramentas');
+    expect(host.querySelector('.se-library-content')).toBeNull();
+    expect(host.querySelector('canvas')).toBe(canvas);
+    await click('Legendas');
+    expect(host.querySelector('.se-library-content h2')?.textContent).toBe('Legendas');
+    expect(host.querySelector('canvas')).toBe(canvas);
+  });
+
+  it('altera ferramenta pelo teclado e exclui a seleção em uma edição reversível', async () => {
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    const press = async (key: string, init?: KeyboardEventInit) => {
+      await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...init })));
+    };
+    await press('b');
+    expect(button('Lâmina').getAttribute('aria-pressed')).toBe('true');
+    await press('t');
+    expect(button('Encurtar pelas bordas').getAttribute('aria-pressed')).toBe('true');
+    await press('a');
+    expect(button('Seleção').getAttribute('aria-pressed')).toBe('true');
+    await press('a', { metaKey: true });
+    expect(host.querySelector('[data-timeline-clip]')?.getAttribute('aria-pressed')).toBe('true');
+    await press('Backspace');
+    expect(host.querySelector('[data-timeline-clip]')).toBeNull();
+    await press('z', { metaKey: true });
+    expect(host.querySelector('[data-timeline-clip]')).toBeTruthy();
+  });
+
+  it('encurta início e fim no cursor com Q e W e divide com Ctrl+B', async () => {
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    const ruler = host.querySelector<HTMLElement>('[aria-label="Posição da montagem"]')!;
+    ruler.setPointerCapture = vi.fn();
+    const seekTo = (seconds: number) => act(async () => {
+      ruler.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: seconds * 72 }));
+    });
+    const press = (key: string, ctrlKey = false) => act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey, cancelable: true }));
+    });
+    await seekTo(2);
+    await press('q');
+    expect(latestRecipe().clips[0].sourceStartTicks).toBe(studioTicks(2));
+    await seekTo(5);
+    await press('w');
+    expect(latestRecipe().clips[0].sourceEndTicks).toBe(studioTicks(7));
+    await seekTo(3);
+    await press('b', true);
+    expect(latestRecipe().clips.map(clip => [clip.sourceStartTicks, clip.sourceEndTicks])).toEqual([
+      [studioTicks(2), studioTicks(5)], [studioTicks(5), studioTicks(7)],
+    ]);
+  });
+
   it('Class Edit salva os cortes e o ajuste em uma edição reversível', async () => {
     io.getAsset.mockResolvedValue(new Blob(['original']));
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
