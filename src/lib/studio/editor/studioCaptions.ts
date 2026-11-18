@@ -4,7 +4,7 @@ import { StudioRenderKernel } from './renderer';
 
 export type StudioCaptionCue = { text: string; start: number; end: number };
 type Word = { text: string; timestamp: [number, number | null] };
-type WorkerResult = { stage?: string; error?: string; chunks?: Word[] };
+type WorkerResult = { stage?: string; progress?: number; error?: string; chunks?: Word[] };
 
 function groupCaptionWords(words: Word[], duration: number): StudioCaptionCue[] {
   const cues: StudioCaptionCue[] = [];
@@ -32,7 +32,7 @@ function groupCaptionWords(words: Word[], duration: number): StudioCaptionCue[] 
 
 export async function transcribeStudioCaptions(
   project: StudioProject, resolveAsset: StudioAssetResolver, language: string,
-  signal: AbortSignal, onStage: (stage: string) => void,
+  signal: AbortSignal, onStage: (stage: string, progress?: number) => void,
 ): Promise<StudioCaptionCue[]> {
   assertStudioActive(signal);
   const recipe = compileStudioRecipe(project);
@@ -65,7 +65,7 @@ export async function transcribeStudioCaptions(
     signal.addEventListener('abort', abort, { once: true });
     worker.onerror = () => { finish(); reject(new Error('O navegador não conseguiu iniciar a transcrição local.')); };
     worker.onmessage = ({ data }: MessageEvent<WorkerResult>) => {
-      if (data.stage) { onStage(data.stage); return; }
+      if (data.stage) { onStage(data.stage, data.progress); return; }
       finish();
       if (data.error) { reject(new Error(data.error)); return; }
       resolve(groupCaptionWords(data.chunks ?? [], duration));

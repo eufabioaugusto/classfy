@@ -195,12 +195,18 @@ describe('comparação e histórico reais do editor', () => {
     expect(modal.textContent).toContain('Preparando áudio da montagem');
     expect(modal.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('58');
     const onStage = io.transcribe.mock.calls[0][4];
-    await act(async () => onStage('Preparando modelo de voz'));
+    vi.useFakeTimers();
+    await act(async () => onStage('Preparando modelo de voz', .5));
     expect(host.querySelector('.se-class-edit-progress')).toBe(modal);
     expect(modal.textContent).toContain('67%');
-    await act(async () => onStage('Transcrevendo áudio'));
+    await act(async () => vi.advanceTimersByTimeAsync(1120));
+    expect(Number(modal.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow'))).toBeGreaterThan(67);
+    await act(async () => onStage('Transcrevendo áudio', 0));
     expect(host.querySelector('.se-class-edit-progress')).toBe(modal);
     expect(modal.textContent).toContain('78%');
+    await act(async () => vi.advanceTimersByTimeAsync(1120));
+    expect(Number(modal.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow'))).toBeGreaterThan(78);
+    vi.useRealTimers();
     expect(modal.querySelector('progress')).toBeNull();
     await act(async () => transcription.resolve([
       { text: 'Hoje vamos aprender a editar vídeos pelo celular.', start: .3, end: 1.3 },

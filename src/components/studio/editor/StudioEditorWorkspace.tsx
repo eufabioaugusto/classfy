@@ -78,6 +78,20 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const [classEditRunning, setClassEditRunning] = useState(false);
   const classEditGradient = useId();
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState<string | null>(null), [progress, setProgress] = useState(0);
+  const measuredCaptionProgress = useRef(0);
+  useEffect(() => {
+    if (!classEditRunning) return;
+    const ceiling = busy === 'Preparando modelo de voz' ? .775 : busy === 'Transcrevendo áudio' ? .925 : undefined;
+    if (ceiling === undefined) return;
+    // Keep moving within the current stage while the worker is busy on a block.
+    const timer = setInterval(() => setProgress(value => {
+      if (value >= ceiling) return value;
+      const measured = Math.max(0, measuredCaptionProgress.current - value);
+      const step = Math.max(.001, (ceiling - value) * .035, Math.min(.009, measured * .16));
+      return Math.min(ceiling, value + step);
+    }), 280);
+    return () => clearInterval(timer);
+  }, [busy, classEditRunning]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({}), [recorder, setRecorder] = useState<'camera' | 'screen' | 'audio' | null>(null);
   const [exportMenu, setExportMenu] = useState(false), [exportReady, setExportReady] = useState(false), [rename, setRename] = useState(false), [title, setTitle] = useState('');
   const [capabilities, setCapabilities] = useState<StudioBrowserExportCapabilities | null>(null);
@@ -290,9 +304,9 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     const merged = { ...old, ...patch, ...(patch.rect ? { rect: { ...old.rect, ...patch.rect } } : {}), ...(patch.text ? { text: { ...old.text, ...patch.text } } : {}), ...(patch.grade ? { grade: { ...old.grade, ...patch.grade } } : {}) };
     try { const next = patchClip(workspace.current.current, selected, merged); pendingPatch.current = { id: selected, patch: merged }; setPreview(next); } catch (cause) { recordError(cause); }
   };
-  const transcribe = (snapshot: StudioProject, token: number, signal: AbortSignal, onStage = setBusy) =>
-    transcribeStudioCaptions(snapshot, id => getAsset(owner, projectId, id), captionLanguage, signal, stage => {
-      if (scope(token) && !signal.aborted) onStage(stage);
+  const transcribe = (snapshot: StudioProject, token: number, signal: AbortSignal, onStage: (stage: string, progress?: number) => void = setBusy) =>
+    transcribeStudioCaptions(snapshot, id => getAsset(owner, projectId, id), captionLanguage, signal, (stage, fraction) => {
+      if (scope(token) && !signal.aborted) onStage(stage, fraction);
     });
   const generateCaptions = () => {
     if (!premium) return;
@@ -354,12 +368,15 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       const finish = colorPreset === 'natural' ? [] : [`Filtro ${colorPresets.find(preset => preset.id === colorPreset)?.label} aplicado`];
       let retakes: StudioRetakeGroup[] = [];
       if (autoCaptions || reviewRetakes) {
+        measuredCaptionProgress.current = 0;
         setProgress(.58);
         setBusy('Preparando áudio da montagem');
         try {
-          const cues = await transcribe(edited, token, signal, stage => {
+          const cues = await transcribe(edited, token, signal, (stage, fraction = 0) => {
             setBusy(stage);
-            setProgress(stage === 'Transcrevendo áudio' ? .78 : .67);
+            const [start, end] = stage === 'Transcrevendo áudio' ? [.78, .93] : [.67, .77];
+            measuredCaptionProgress.current = Math.max(measuredCaptionProgress.current, start + (end - start) * Math.min(1, Math.max(0, fraction)));
+            setProgress(value => Math.max(value, start));
           });
           if (!scope(token) || signal.aborted) return;
           if (reviewRetakes) {
