@@ -1,3 +1,5 @@
+import { StudioSelect } from './StudioSelect';
+import { studioSliderFill } from './studioSliderFill';
 import { StudioHeaderVideoControls, studioCanvasRatioLabel } from './StudioHeaderVideoControls';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -647,7 +649,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     const keys = (event: KeyboardEvent) => {
       const target = event.target;
       if (event.defaultPrevented || event.isComposing || event.getModifierState('AltGraph') ||
-        target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]') ||
+        target instanceof Element && target.closest('input, textarea, select, [role="combobox"], [role="listbox"], [contenteditable]:not([contenteditable="false"]), [role="dialog"]') ||
         blocked || recorder) return;
       const command = studioShortcutFor(event);
       if (!command || command === 'restart' && target instanceof Element && target.closest('button, summary, a')) return;
@@ -712,9 +714,8 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
         </button><span className="se-sr" role="status">{originalDownload?.id === asset.id && originalDownload.status === 'started' ? 'Download iniciado no navegador.' : ''}</span></div></article>)}</div>{!project.editing!.assets.length && <p className="se-muted se-library-empty">Arraste arquivos para a prévia ou importe seus originais.</p>}</>}
         {tab === 'text' && <><button className="se-button se-primary se-wide" disabled={blocked || !duration} onClick={() => makeText()}><Type size={17} />Adicionar texto</button><div className="se-text-examples"><span>Aa</span><p>Títulos, tópicos e destaques editáveis.</p></div></>}
         {tab === 'captions' && <div className="se-tool-stack">
-          <label className="se-field">Idioma falado<select disabled={blocked} value={captionLanguage} onChange={event => setCaptionLanguage(event.target.value)}>
-            <option value="">Detectar automaticamente</option><option value="portuguese">Português</option><option value="english">Inglês</option><option value="spanish">Espanhol</option>
-          </select></label>
+          <StudioSelect label="Idioma falado" disabled={blocked} value={captionLanguage} onChange={setCaptionLanguage}
+            options={[['', 'Detectar automaticamente'], ['portuguese', 'Português'], ['english', 'Inglês'], ['spanish', 'Espanhol']]} />
           <fieldset className="se-tool-choices" disabled={blocked}><legend>Estilo da legenda</legend><div>
             {captionStyles.map(({ label }, index) => <button type="button" key={label} aria-pressed={captionStyle === index} onClick={() => setCaptionStyle(index)}><span className={`se-caption-sample style-${index}`}>Aa</span>{label}</button>)}
           </div></fieldset>
@@ -731,7 +732,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
           <fieldset className="se-tool-choices" disabled={blocked}><legend>Filtro de cor</legend><div>
             {colorPresets.map(({ id, label }) => <button type="button" key={id} aria-pressed={colorPreset === id} onClick={() => setColorPreset(id)}><span className={`se-color-sample ${id}`} aria-hidden="true" />{label}</button>)}
           </div></fieldset>
-          <label className="se-tool-range"><span>Intensidade <output>{Math.round(colorIntensity * 100)}%</output></span><input type="range" min="0" max="1" step=".01" value={colorIntensity} disabled={blocked || colorPreset === 'natural'} onChange={event => setColorIntensity(+event.target.value)} /></label>
+          <label className="se-tool-range"><span>Intensidade <output>{Math.round(colorIntensity * 100)}%</output></span><input type="range" className="se-slider" style={studioSliderFill(colorIntensity, 0, 1)} aria-label="Intensidade do filtro" min="0" max="1" step=".01" value={colorIntensity} disabled={blocked || colorPreset === 'natural'} onChange={event => setColorIntensity(+event.target.value)} /></label>
           <button className="se-button se-wide" disabled={blocked || !!recorder || !colorTargets.length} onClick={() => {
             try { settle(); } catch { return; }
             apply(value => colorTargets.reduce((next, id) => patchClip(next, id, { grade: chosenGrade, effect: colorPreset }), value)); setComparing(false);
@@ -739,8 +740,8 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
           <div className="se-tool-class-edit">
             <h3><Sparkles size={15} />ClassCut Premium</h3>
             {premium ? <>
-              <label><input type="checkbox" checked={autoCaptions} disabled={blocked} onChange={event => setAutoCaptions(event.target.checked)} /> Gerar legendas com o ClassCut</label>
-              <label><input type="checkbox" checked={reviewRetakes} disabled={blocked} onChange={event => setReviewRetakes(event.target.checked)} /> Sinalizar tomadas repetidas</label>
+              <label><input type="checkbox" checked={autoCaptions} disabled={blocked} onChange={event => setAutoCaptions(event.target.checked)} /><span>Gerar legendas com o ClassCut</span></label>
+              <label><input type="checkbox" checked={reviewRetakes} disabled={blocked} onChange={event => setReviewRetakes(event.target.checked)} /><span>Sinalizar tomadas repetidas</span></label>
               <button className="se-button se-ai-action se-wide" disabled={blocked || !!recorder || !classEditAvailable} onClick={runClassEdit}>Aplicar ClassCut</button>
               {!classEditAvailable && <p className="se-muted">Comece com um único vídeo com áudio e sem camadas.</p>}
             </> : <p className="se-tool-plan">{premiumMessage}</p>}

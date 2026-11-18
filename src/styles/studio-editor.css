@@ -53,7 +53,7 @@
 .se-projects select:focus {
   border-color: var(--se-accent);
 }
-.se-editor input:not([type="range"]):not([type="color"]),
+.se-editor input:not([type="range"]):not([type="color"]):not([type="checkbox"]),
 .se-projects input,
 .se-editor select,
 .se-projects select {
@@ -1586,7 +1586,24 @@
   color: var(--se-accent);
 }
 .se-tool-class-edit label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
   font-size: 11px;
+  line-height: 1.4;
+}
+.se-tool-class-edit input[type="checkbox"] {
+  accent-color: var(--se-accent);
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  vertical-align: middle;
+}
+.se-tool-class-edit input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--se-accent);
+  outline-offset: 3px;
 }
 
 .se-timeline-content {
@@ -1676,6 +1693,14 @@
 .se-header-video-tools .se-quality-trigger { display: grid; place-content: center; gap: 1px; min-width: 38px; font-size: 10px; font-weight: 750; line-height: 1; }
 .se-quality-trigger small { font-size: 9px; color: var(--se-muted); }
 .se-toolbar-anchor { position: relative; }
+/* The inspector selects and toolbar popovers share the Studio menu surface. */
+.se-toolbar-popover,
+.se-select-content {
+  border: 1px solid #53404d;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #30242e, #1c1e24 62%);
+  box-shadow: 0 12px 36px #0009;
+}
 .se-toolbar-popover {
   position: absolute;
   inset: calc(100% + 12px) 0 auto auto;
@@ -1685,11 +1710,53 @@
   overflow: auto;
   padding: 14px;
   color: var(--se-ink);
-  border: 1px solid #53404d;
-  border-radius: 13px;
-  background: linear-gradient(145deg, #30242e, #1c1e24 62%);
-  box-shadow: 0 12px 36px #0009;
 }
+.se-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--se-line);
+  border-radius: 6px;
+  background: #111316;
+  color: var(--se-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.se-select-trigger svg { flex: none; color: var(--se-muted); }
+.se-select-trigger[data-state="open"] { border-color: #88536b; }
+.se-select-trigger[data-state="open"] svg { transform: rotate(180deg); color: #ff9bb5; }
+.se-select-trigger:disabled { opacity: .45; cursor: default; }
+.se-select-content {
+  z-index: 150;
+  width: var(--radix-select-trigger-width);
+  max-width: var(--radix-select-content-available-width);
+  max-height: min(280px, var(--radix-select-content-available-height));
+  display: flex;
+  overflow: hidden;
+  color: #f3f3f5;
+  font: 11px/1.35 system-ui, sans-serif;
+}
+.se-select-options { min-width: 0; padding: 4px; }
+.se-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+}
+.se-select-option[data-state="checked"] { background: #693249; }
+.se-select-option[data-highlighted] { background: #49313f; }
+.se-select-option[data-state="checked"][data-highlighted] { background: #74364e; }
+.se-select-option svg { display: block; color: #ffb4c7; }
 .se-toolbar-popover-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13px; }
 .se-toolbar-popover-title > :last-child:not(strong) { color: #ff9bb5; font-variant-numeric: tabular-nums; }
 .se-toolbar-popover input[type="range"] { width: 100%; accent-color: #ef5066; }
