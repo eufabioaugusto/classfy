@@ -118,6 +118,9 @@ describe('IndexedDB real com isolamento de conta e confirmação transacional', 
     const h = await imported();
     const file = new File(['actual-output'], 'Nome da aula.mp4', { type: 'video/mp4' });
     await h.storage.storeExport(h.owner, h.project.id, file, h.project.revision);
+    expect(await h.storage.getExport(h.owner, h.project.id, h.project.revision, 2)).toBeNull();
+    await h.storage.storeExport(h.owner, h.project.id, file, h.project.revision, 2);
+    expect(await h.storage.getExport(h.owner, h.project.id, h.project.revision, 2)).not.toBeNull();
     const output = await h.reopen().getExport(h.owner, h.project.id, h.project.revision);
     expect(output).toMatchObject({ name: 'Nome da aula.mp4', type: 'video/mp4', revision: h.project.revision, exportedAt: '2026-10-11T15:00:00.000Z' });
     expect(await output!.text()).toBe('actual-output');

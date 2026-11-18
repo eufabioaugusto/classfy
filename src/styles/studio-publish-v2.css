@@ -1,3 +1,4 @@
+@import "./studio-progress.css";
 .studio-publish-template {
   --cf2-template-max: 92rem;
   position: fixed;
@@ -507,7 +508,7 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--cf2-accent);
+  background: var(--se-ai-gradient);
   transition: width 180ms ease;
 }
 .studio-inline-error {

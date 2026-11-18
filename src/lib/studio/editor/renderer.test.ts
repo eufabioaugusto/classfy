@@ -5,7 +5,7 @@ const sources=vi.hoisted(()=>({audio:null as any, frames:[] as any[],dispose:vi.
 vi.mock('mediabunny',()=>({
   ALL_FORMATS:[],BlobSource:class{},Input:class{index=sources.inputs.length;disposed=false;constructor(){sources.inputs.push(this);}getPrimaryVideoTrack=async()=>({canDecode:async()=>true,getDisplayWidth:async()=>100,getDisplayHeight:async()=>50});getPrimaryAudioTrack=async()=>({index:this.index,canDecode:async()=>true});dispose=()=>{this.disposed=true;sources.dispose();};},
   CanvasSink:class{async*canvases(start:number){for(const frame of sources.frames)if(frame.timestamp>=Math.floor(start*2)/2)yield frame;}},
-  AudioBufferSink:class{constructor(private track:any){}async*buffers(){if(this.track.index===0&&sources.firstAudioGate)await sources.firstAudioGate;if(sources.audio)yield sources.audio;}},
+  AudioBufferSink:class{constructor(private track:any){}async*buffers(){if(this.track.index===0&&sources.firstAudioGate)await sources.firstAudioGate;if(Array.isArray(sources.audio))yield* sources.audio;else if(sources.audio)yield sources.audio;}},
 }));
 function clip(patch:Partial<StudioRecipeClip>={}):StudioRecipeClip{return{id:'clip',kind:'video',assetId:'asset',startTicks:0,durationTicks:240000,sourceStartTicks:0,sourceEndTicks:240000,zIndex:0,rect:{x:0,y:0,width:1,height:1},rotationDegrees:0,fit:'contain',opacity:1,gain:1,fadeInTicks:0,fadeOutTicks:0,effect:'natural',...patch};}
 function recipe(clips=[clip()]):StudioRenderRecipe{return{version:2,timebase:120000,durationTicks:240000,mediaType:'video',canvas:{aspectRatio:'landscape',backgroundColor:'#000000'},output:{profile:'standard',width:320,height:180,frameRateNumerator:30,frameRateDenominator:1,colorSpace:'rec709'},assets:[{id:'asset',kind:'video',uri:'file://original',name:'original',durationTicks:480000,width:100,height:50,hasAudio:true}],clips};}
@@ -29,6 +29,19 @@ describe('compositor compartilhado',()=>{
     const fast=clip({kind:'audio',playbackRate:2,durationTicks:120000,sourceEndTicks:240000,gain:.5});const kernel=new StudioRenderKernel(recipe([fast]),async()=>new Blob(['original']));const result=await kernel.mixAudio(0,1,4);
     expect([...result[0]]).toEqual([0,.25,.5,.25]);expect([...result[1]]).toEqual([...result[0]]);kernel.dispose();
     const muted=new StudioRenderKernel(recipe([clip({gain:0})]),async()=>new Blob(['original']));expect([...((await muted.mixAudio(0,.5,4))[0])]).toEqual([0,0]);muted.dispose();
+  });
+  it('mantém a grade de amostras quando o decoder arredonda o timestamp AAC', async () => {
+    const sampleRate = 48000;
+    const constant = (timestamp: number, value: number) => {
+      const channel = new Float32Array(1024).fill(value);
+      return { timestamp, duration: .021333, buffer: { sampleRate, length: channel.length, numberOfChannels: 1, getChannelData: () => channel } };
+    };
+    sources.audio = [constant(0, .25), constant(.021333, .5), constant(.042667, .75)];
+    const kernel = new StudioRenderKernel(recipe(), async () => new Blob());
+    const [mixed] = await kernel.mixAudio(0, 3072 / sampleRate, sampleRate);
+    expect([...mixed.slice(1023, 1026)]).toEqual([.25, .5, .5]);
+    expect([...mixed.slice(2047, 2050)]).toEqual([.5, .75, .75]);
+    kernel.dispose();
   });
   it('suaviza a emenda descontínua sem baixar o volume de um corte que preserva a continuidade', async () => {
     const samples = new Float32Array(4000).fill(.5);

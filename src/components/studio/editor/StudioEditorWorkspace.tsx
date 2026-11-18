@@ -50,6 +50,9 @@ const colorPresets = [
   { id: 'cinematic', label: 'Cinema' },
 ] as const;
 type RecordingImport = { asset: StudioAsset; thumbnail?: Blob; warnings: string[]; clipId: string; target: 'main' | 'layer'; at: number; originalStored?: boolean; thumbnailStored?: boolean };
+// Earlier exports were rendered before the audio sample grid correction.
+const studioRenderVersion = 2;
+
 function classEditReviewKey(editing: StudioProject['editing']) {
   return editing ? JSON.stringify([editing.main, editing.layers, editing.mainMuted]) : '';
 }
@@ -511,15 +514,15 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const exportFile = (publication: boolean) => void external('Exportando arquivo', async (token, signal) => {
     const snapshot = workspace.current.current!; let file: File | null = null;
     try {
-      const cached = await getExport(owner, projectId, snapshot.revision);
+      const cached = await getExport(owner, projectId, snapshot.revision, studioRenderVersion);
       if (!scope(token) || signal.aborted) return;
       file = cached ?? await exportStudioProject(snapshot, assetId => getAsset(owner, projectId, assetId), { signal, onProgress: value => { if (scope(token) && !signal.aborted) setProgress(value); } });
       if (!scope(token) || signal.aborted) return;
-      if (!cached) await storeExport(owner, projectId, file, snapshot.revision);
+      if (!cached) await storeExport(owner, projectId, file, snapshot.revision, studioRenderVersion);
       if (!scope(token) || signal.aborted) return;
       setProgress(1); setExportReady(true); setExportMenu(false);
       if (publication) navigate(`/studio/upload?type=${snapshot.kind}&studioProject=${encodeURIComponent(projectId)}&studioRevision=${snapshot.revision}`);
-      else { const stored = await getExport(owner, projectId, snapshot.revision); if (!scope(token) || !stored) return; const url = URL.createObjectURL(stored), link = document.createElement('a'); link.href = url; link.download = stored.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 30000); }
+      else { const stored = await getExport(owner, projectId, snapshot.revision, studioRenderVersion); if (!scope(token) || !stored) return; const url = URL.createObjectURL(stored), link = document.createElement('a'); link.href = url; link.download = stored.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 30000); }
     } finally { if (file) await releaseStudioExport(file); }
   });
   const chooseOutput = (patch: Partial<StudioOutputSelection>, aspectRatio?: StudioCanvasRatio) => {
@@ -788,7 +791,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
         <button className="se-button" disabled={progress >= .94} onClick={() => controller.current?.abort()}>Cancelar</button>
       </section>
     </div>}
-    {busy && !classEditRunning && <div className="se-modal-backdrop"><section className="se-progress-modal" role="dialog" aria-modal="true" aria-label={busy}><Loader2 size={23} className="se-spin" /><h2>{busy}</h2>{busy !== 'Escolhendo arquivo' && busy !== 'Detectando pausas' && busy !== 'Transcrevendo áudio' && !busy.startsWith('Preparando') && <><progress max={1} value={progress} /><p>{Math.round(progress * 100)}%{busy.startsWith('Exportando') && ' · Mantenha esta aba aberta'}</p></>}<button className="se-button" onClick={() => { if (picker.current) cancelPicker(); else controller.current?.abort(); }}>Cancelar</button></section></div>}
+    {busy && !classEditRunning && <div className="se-modal-backdrop"><section className="se-progress-modal" role="dialog" aria-modal="true" aria-label={busy}><Loader2 size={23} className="se-spin" /><h2>{busy}</h2>{busy !== 'Escolhendo arquivo' && busy !== 'Detectando pausas' && busy !== 'Transcrevendo áudio' && !busy.startsWith('Preparando') && <><progress aria-label={busy} max={1} value={progress} /><p>{Math.round(progress * 100)}%{busy.startsWith('Exportando') && ' · Mantenha esta aba aberta'}</p></>}<button className="se-button" onClick={() => { if (picker.current) cancelPicker(); else controller.current?.abort(); }}>Cancelar</button></section></div>}
     {recorder && <div className="se-modal-backdrop"><StudioRecorder key={`${owner}:${projectId}`} scopeKey={`${owner}:${projectId}`} mode={recorder} aspectRatio={project.kind==='short'?'9:16':'16:9'} disabled={blocked} onClose={() => { const entry = recorderEntry.current; if (entry && scope(entry.token)) { recorderEntry.current = null; setRecorder(null); } }} onRecorded={async file => { const entry = recorderEntry.current; if (!entry || !scope(entry.token)) throw new DOMException('Gravação cancelada.', 'AbortError'); const saved = await importFiles([file], entry.mode === 'audio' ? 'layer' : 'main', entry.at, true); if (!saved || !scope(entry.token)) throw new DOMException('A gravação permanece disponível para tentar novamente.', 'AbortError'); }} /></div>}
     {rename && <div className="se-modal-backdrop"><section className="se-modal" role="dialog" aria-modal="true" aria-label="Nome do projeto"><header><h2>Nome do projeto</h2><button className="se-icon" aria-label="Fechar nome" onClick={() => setRename(false)}><X size={17} /></button></header><input autoFocus value={title} maxLength={160} onChange={e => setTitle(e.target.value)} /><button className="se-button se-primary se-wide" disabled={!title.trim()} onClick={() => { apply(value => withStudioTakes({ ...value, editing: value.editing!, title: title.trim() })); setRename(false); }}>Salvar nome</button></section></div>}
     {dialog}

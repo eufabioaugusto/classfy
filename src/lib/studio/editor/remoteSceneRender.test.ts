@@ -85,7 +85,7 @@ describe('originais de cenas remotas e sincronização real', () => {
       const mixed = await renderer.mixAudio(0, 5, 20);
       expect(mixed[0]).toHaveLength(100); expect(mixed[0][0]).toBeCloseTo(.4); expect(mixed[0][25]).toBeCloseTo(.6); expect(mixed[0][65]).toBeCloseTo(.8); expect(mixed[0][99]).toBeCloseTo(.5);
       expect([...mixed[1]]).toEqual([...mixed[0]]); expect([...mixed[0]].filter(v => v !== 0)).toHaveLength(4);
-      expect(audio.requests).toEqual([{ name: 'camera.mp4', start: .25, end: 5.3 }]);
+      expect(audio.requests).toEqual([{ name: 'camera.mp4', start: .13, end: 5.3 }]);
       expect(exports.recipe.assets.map((asset: any) => asset.hasAudio)).toEqual([true, false]);
       expect(exports.recipe.clips[0]).toMatchObject({ gain: 1, sourceStartTicks: 30000, sourceEndTicks: 630000 });
     } finally { renderer.dispose(); }

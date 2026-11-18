@@ -1,0 +1,38 @@
+:root {
+  --se-ai-gradient: radial-gradient(ellipse at 8% -75%, #ffad55 0%, transparent 68%),
+    linear-gradient(108deg, #cf454f 0%, #d92f65 33%, #b63594 69%, #7836c7 100%);
+}
+
+:is(.se-progress-modal, .se-recording-phone-take-content) progress {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #353743;
+  color: #ef5066;
+}
+:is(.se-progress-modal, .se-recording-phone-take-content) progress::-webkit-progress-bar {
+  background: #353743;
+  border-radius: inherit;
+}
+:is(.se-progress-modal, .se-recording-phone-take-content) progress::-webkit-progress-value {
+  background: var(--se-ai-gradient);
+  border-radius: inherit;
+}
+:is(.se-progress-modal, .se-recording-phone-take-content) progress::-moz-progress-bar {
+  background: var(--se-ai-gradient);
+  border-radius: inherit;
+}
+:is(.se-progress-modal, .se-recording-phone-take-content) progress:indeterminate {
+  background: var(--se-ai-gradient);
+}
+:is(.studio-upload-progress, .studio-progress) > span { background: var(--se-ai-gradient); }
+svg:is(.se-spin, .srs-spin, .scm-spin, .sce-upgrade-spinner) {
+  stroke: transparent;
+  background: var(--se-ai-gradient);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+@media (prefers-reduced-motion: reduce) {
+  svg:is(.se-spin, .srs-spin, .scm-spin, .sce-upgrade-spinner) { animation: none; }
+}

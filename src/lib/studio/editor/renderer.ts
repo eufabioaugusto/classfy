@@ -308,15 +308,24 @@ export class StudioRenderKernel {
       const softenStart = canSoften && (clip.sourceStartTicks > 0 || !!previous) && !continuous(previous, clip);
       const softenEnd = canSoften && (clip.sourceEndTicks < (originalDuration ?? 0) || !!nextClip) && !continuous(clip, nextClip);
       const rate = clip.playbackRate ?? 1, sourceFrom = studioClipSourceSeconds(clip, from, timebase), sourceEnd = studioClipSourceSeconds(clip, end, timebase);
-      const iterator = resource.audio.buffers(Math.max(0, sourceFrom), sourceEnd + 1 / sampleRate);
+      // Start decoding before the requested window so AAC overlap and prediction
+      // state can settle. Only samples inside the requested clip range are mixed.
+      const iterator = resource.audio.buffers(Math.max(0, sourceFrom - .12), sourceEnd + 1 / sampleRate);
       try { for await (const wrapped of iterator) {
         this.assert(); const buffer = wrapped.buffer;
-        const first = Math.max(0, Math.ceil((from - start) * sampleRate), Math.ceil(((wrapped.timestamp - clip.sourceStartTicks / timebase) / rate + clip.startTicks / timebase - start) * sampleRate));
-        const last = Math.min(count, Math.ceil((end - start) * sampleRate), Math.ceil(((wrapped.timestamp + wrapped.duration - clip.sourceStartTicks / timebase) / rate + clip.startTicks / timebase - start) * sampleRate));
+        // Decoder timestamps are rounded to microseconds. Recover the source
+        // sample grid instead of leaving one-sample gaps or overlaps per AAC packet.
+        const packetStart = Math.round(wrapped.timestamp * buffer.sampleRate) / buffer.sampleRate;
+        const packetEnd = packetStart + buffer.length / buffer.sampleRate;
+        const fromPacket = (seconds: number) => ((seconds - clip.sourceStartTicks / timebase) / rate + clip.startTicks / timebase - start) * sampleRate;
+        const ceilSample = (position: number) => Math.ceil(position - 1e-7);
+        const first = Math.max(0, ceilSample((from - start) * sampleRate), ceilSample(fromPacket(packetStart)));
+        const last = Math.min(count, ceilSample((end - start) * sampleRate), ceilSample(fromPacket(packetEnd)));
         const channels = [buffer.getChannelData(0), buffer.getChannelData(Math.min(1, buffer.numberOfChannels - 1))];
         for (let i = first; i < last; i++) {
-          const seconds = start + i / sampleRate, sourceIndex = (studioClipSourceSeconds(clip, seconds, timebase) - wrapped.timestamp) * buffer.sampleRate;
-          const index = Math.max(0, Math.min(buffer.length - 1, Math.floor(sourceIndex))), fraction = sourceIndex - Math.floor(sourceIndex), next = Math.min(buffer.length - 1, index + 1);
+          const seconds = start + i / sampleRate, sourceIndex = (studioClipSourceSeconds(clip, seconds, timebase) - packetStart) * buffer.sampleRate;
+          const index = Math.max(0, Math.min(buffer.length - 1, Math.floor(sourceIndex)));
+          const fraction = clamp(sourceIndex - index), next = Math.min(buffer.length - 1, index + 1);
           const local = seconds * timebase - clip.startTicks;
           const gain = clip.gain * Math.min(studioClipEnvelope(clip, local),
             softenStart ? clamp(local / ramp) : 1,

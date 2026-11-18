@@ -11,7 +11,7 @@ export class StudioStorageConflictError extends StudioStorageError {
 }
 export type StudioExportFile = File & { readonly revision: number; readonly exportedAt: string };
 type AssetRecord = { ownerId: string; projectId: string; assetId: string; blob: Blob };
-type ExportRecord = { ownerId: string; projectId: string; revision: number; artifactId?: string; blob?: Blob; opfsName?: string; retainedOpfsNames?: string[]; name: string; mime: string; exportedAt: string };
+type ExportRecord = { renderVersion?: number; ownerId: string; projectId: string; revision: number; artifactId?: string; blob?: Blob; opfsName?: string; retainedOpfsNames?: string[]; name: string; mime: string; exportedAt: string };
 type StoredProject = Omit<StudioProject, 'takes'>;
 const databaseName = 'classfy-studio-web-v1';
 function identity(value: string) {
@@ -182,7 +182,7 @@ export function createStudioBrowserStorage(options: { indexedDB?: IDBFactory; da
       }
     }
   }
-  async function storeExport(owner: string, projectId: string, file: Blob | File, revision: number): Promise<void> {
+  async function storeExport(owner: string, projectId: string, file: Blob | File, revision: number, renderVersion?: number): Promise<void> {
     [owner, projectId].forEach(identity); requireBlob(file);
     const verify = (project?: StoredProject) => {
       if (!project) throw new StudioStorageError('Este projeto não pertence à conta atual.');
@@ -201,7 +201,7 @@ export function createStudioBrowserStorage(options: { indexedDB?: IDBFactory; da
         verify(await request(tx.objectStore('projects').get([owner, projectId])));
         const previous = await request(tx.objectStore('exports').get([owner, projectId])) as ExportRecord | undefined;
         const retainedOpfsNames = [...new Set([...(previous?.retainedOpfsNames ?? []), ...(previous?.opfsName ? [previous.opfsName] : [])])];
-        const record: ExportRecord = { ownerId: owner, projectId, revision, artifactId: id(), ...copied, retainedOpfsNames, name, mime: file.type, exportedAt: now().toISOString() };
+        const record: ExportRecord = { ownerId: owner, projectId, revision, renderVersion, artifactId: id(), ...copied, retainedOpfsNames, name, mime: file.type, exportedAt: now().toISOString() };
         await request(tx.objectStore('exports').put(record));
       });
     } catch (error) {
@@ -209,13 +209,13 @@ export function createStudioBrowserStorage(options: { indexedDB?: IDBFactory; da
       throw storageError(error);
     }
   }
-  async function getExport(owner: string, projectId: string, revision?: number): Promise<StudioExportFile | null> {
+  async function getExport(owner: string, projectId: string, revision?: number, renderVersion?: number): Promise<StudioExportFile | null> {
     [owner, projectId].forEach(identity);
     const record = await transaction(['projects', 'exports'], 'readonly', async tx => {
       const project = await request(tx.objectStore('projects').get([owner, projectId])) as StoredProject | undefined;
       if (!project || revision !== undefined && project.revision !== revision) return null;
       const output = await request(tx.objectStore('exports').get([owner, projectId])) as ExportRecord | undefined;
-      return output?.revision === project.revision ? output : null;
+      return output?.revision === project.revision && (renderVersion === undefined || output.renderVersion === renderVersion) ? output : null;
     });
     if (!record) return null;
     let blob = record.blob;

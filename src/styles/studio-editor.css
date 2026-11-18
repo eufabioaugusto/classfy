@@ -1,3 +1,4 @@
+@import "./studio-progress.css";
 .se-editor,
 .se-projects {
   --se-bg: #101114;
@@ -1054,7 +1055,6 @@
 }
 .se-progress-modal progress {
   width: 100%;
-  accent-color: #ef5066;
   height: 5px;
 }
 .se-progress-modal p {
@@ -1426,10 +1426,6 @@
   font-size: .8125rem;
 }
 
-.se-editor {
-  --se-ai-gradient: radial-gradient(ellipse at 8% -75%, #ffad55 0%, transparent 68%),
-    linear-gradient(108deg, #cf454f 0%, #d92f65 33%, #b63594 69%, #7836c7 100%);
-}
 .se-button:is(.se-class-edit-button, .se-ai-action) {
   background: var(--se-ai-gradient);
   background-size: 118% 100%;

@@ -1,3 +1,4 @@
+@import "./studio-progress.css";
 .studio-page-shell {
   background:
     radial-gradient(circle at 68% -12%, color-mix(in srgb, var(--cf2-accent) 8%, transparent), transparent 30rem),
@@ -197,7 +198,7 @@
 .studio-health__track,
 .studio-progress { height: 0.3rem; border-radius: var(--cf2-radius-pill); background: var(--cf2-surface-strong); overflow: hidden; }
 .studio-health__track span,
-.studio-progress span { display: block; height: 100%; border-radius: inherit; background: var(--cf2-accent); }
+.studio-progress span { display: block; height: 100%; border-radius: inherit; background: var(--se-ai-gradient); }
 .studio-health__note { margin: 0; color: var(--cf2-ink-muted); font-size: 0.76rem; line-height: 1.5; }
 
 .studio-workspace-grid {

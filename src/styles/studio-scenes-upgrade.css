@@ -1,3 +1,4 @@
+@import "./studio-progress.css";
 .sce-upgrade-overlay{position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.74);backdrop-filter:blur(9px)}
 .sce-upgrade{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1101;width:min(620px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;background:radial-gradient(ellipse at 70% 0%,#312122 0%,transparent 52%),#121214;color:#f7f6f5;border:1px solid #ffffff1f;border-radius:24px;padding:34px;box-shadow:0 28px 100px #000a;outline:none;font-family:inherit}
 .sce-upgrade button,.sce-upgrade a{-webkit-tap-highlight-color:transparent;font:inherit}
