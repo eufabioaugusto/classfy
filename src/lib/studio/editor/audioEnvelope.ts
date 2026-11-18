@@ -36,16 +36,36 @@ export async function* studioAudioWindows(file: Blob, start: number, end: number
 export type StudioWaveform = { duration: number; peaks: Uint8Array };
 
 export async function readStudioWaveform(file: Blob, duration: number, signal: AbortSignal): Promise<StudioWaveform | null> {
-  const peaks = new Uint8Array(Math.max(1, Math.min(36000, Math.ceil(duration * 40))));
-  let decoded = false;
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+  const levels = new Float32Array(Math.max(1, Math.min(36000, Math.ceil(duration * 40)))).fill(-90);
+  const histogram = new Uint32Array(91);
+  let decoded = 0;
   for await (const window of studioAudioWindows(file, 0, duration, signal)) {
-    decoded = true;
-    const first = Math.min(peaks.length - 1, Math.floor(window.start / duration * peaks.length));
-    const end = Math.min(peaks.length, Math.ceil(window.end / duration * peaks.length));
-    const height = Math.round(Math.max(0, Math.min(1, (window.level + 55) / 49)) * 255);
-    for (let index = first; index < end; index++) peaks[index] = Math.max(peaks[index], height);
+    histogram[Math.round(window.level) + 90]++;
+    decoded++;
+    const first = Math.max(0, Math.floor(window.start / duration * levels.length));
+    const end = Math.min(levels.length, Math.ceil(window.end / duration * levels.length));
+    for (let index = first; index < end; index++) levels[index] = Math.max(levels[index], window.level);
   }
-  return decoded ? { duration, peaks } : null;
+  if (!decoded) return null;
+
+  const percentile = (fraction: number) => {
+    let count = 0;
+    for (let i = 0; i < histogram.length; i++) {
+      count += histogram[i];
+      if (count >= decoded * fraction) return i - 90;
+    }
+    return 0;
+  };
+  const background = percentile(.2), strong = percentile(.95);
+  // Require a clear contrast before treating quiet windows as a noise floor.
+  const floor = strong - background >= 12 ? Math.min(-27, Math.max(-55, background + 5)) : -55;
+  const ceiling = Math.min(0, Math.max(-18, strong, floor + 16));
+  const peaks = Uint8Array.from(levels, level => {
+    const intensity = Math.max(0, Math.min(1, (level - floor) / (ceiling - floor)));
+    return Math.round(intensity ** 1.25 * 255);
+  });
+  return { duration, peaks };
 }
 
 export function studioWaveformPath({ duration, peaks }: StudioWaveform, start: number, end: number, columns: number): string {

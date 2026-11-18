@@ -80,6 +80,16 @@ describe('forma de onda vinculada ao vídeo', () => {
     expect(studioWaveformPath(waveform!, 1, 2, 2)).toBe('M0 20 L0 1.0 L1 1.0 H2 V20 Z');
   });
 
+  it('comprime o ruído de fundo e mantém visíveis os níveis de fala', async () => {
+    source.packets = [packet(0, 1000, .014), packet(1, 1000, .05), packet(2, 1000, .15)];
+    const waveform = await readStudioWaveform(new Blob(), 3, new AbortController().signal);
+    const quiet = waveform!.peaks[10], soft = waveform!.peaks[50], strong = waveform!.peaks[90];
+    expect(quiet).toBe(0);
+    expect(soft).toBeGreaterThan(20);
+    expect(soft).toBeLessThan(strong);
+    expect(strong).toBeGreaterThan(230);
+  });
+
   it('diferencia falta de amostras de um take sem pausas', async () => {
     source.packets = [];
     const signal = new AbortController().signal;
