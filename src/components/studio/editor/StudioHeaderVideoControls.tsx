@@ -1,3 +1,4 @@
+import { studioSliderFill } from './studioSliderFill';
 import { StudioToolbarPopover } from './StudioToolbarPopover';
 import { Check, Scan, ZoomIn } from 'lucide-react';
 import { studioCanvasRatios, type StudioCanvasRatio, type StudioOutputProfile, type StudioOutputSelection } from '../../../../shared/studio';
@@ -35,7 +36,7 @@ export function StudioHeaderVideoControls({ zoom, onZoom, ratio, onRatio, output
   return <>
     <StudioToolbarPopover label="Zoom da prévia" icon={<ZoomIn size={18} />} disabled={disabled}>
         <div className="se-toolbar-popover-title"><strong>Zoom da prévia</strong><output>{zoom === 'actual' ? 'Tamanho real' : `${Math.round(zoom * 100)}%`}</output></div>
-        <input type="range" min={25} max={400} step={1} value={zoom === 'actual' ? 100 : Math.round(zoom * 100)} aria-label="Ampliação da prévia" onChange={event => onZoom(+event.target.value / 100)} />
+        <input type="range" className="se-slider" style={studioSliderFill(zoom === 'actual' ? 100 : Math.round(zoom * 100), 25, 400)} min={25} max={400} step={1} value={zoom === 'actual' ? 100 : Math.round(zoom * 100)} aria-label="Ampliação da prévia" onChange={event => onZoom(+event.target.value / 100)} />
         <div className="se-zoom-presets"><button className="se-button" onClick={() => onZoom(1)}>Ajustar ao palco</button><button className="se-button" onClick={() => onZoom('actual')}>Tamanho real</button></div>
     </StudioToolbarPopover>
     <StudioToolbarPopover label="Proporção do palco" icon={<Scan size={18} />} disabled={disabled}>
