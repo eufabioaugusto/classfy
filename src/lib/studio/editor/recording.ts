@@ -4,13 +4,14 @@ import { inspectStudioMedia, type StudioMediaMetadata } from './media';
 import { createProject, getAsset, getProject, putAsset, saveProject, studioAssetUri } from './storage';
 
 export type StudioRecordingScope = { isCurrent?: () => boolean; signal?: AbortSignal };
-export type StudioRecordingAppendScope = StudioRecordingScope & { operationId?: string; remoteTakeId?: string };
+export type StudioRecordingAppendScope = StudioRecordingScope & { operationId?: string; remoteTakeId?: string; freshProject?: boolean };
 export type StudioRecordingSessionOptions = {
   owner: string; kind: StudioKind; title?: string; projectId?: string; isCurrent?: () => boolean;
 };
 export type StudioRecordingSession = {
   current(): StudioProject | null;
   loadExisting(scope?: StudioRecordingScope): Promise<StudioProject | null>;
+  ensureProject(scope?: StudioRecordingScope): Promise<StudioProject>;
   append(file: File, scope?: StudioRecordingAppendScope): Promise<StudioProject>;
   remove(clipId: string, scope?: StudioRecordingScope): Promise<StudioProject>;
 };
@@ -133,7 +134,7 @@ export function createStudioRecordingSession(options: StudioRecordingSessionOpti
     // caller owns Files; neither the operation ledger nor its WeakMap values do.
     for (const old of receipts.values()) if (old !== receipt) old.metadata = undefined;
     let current = await latest(scope);
-    if (!current && receipt.remoteTakeId) {
+    if (!current && receipt.remoteTakeId && !scope?.freshProject) {
       const recovered = await storage.getProject(owner, receipt.remoteTakeId); assertScope(scope);
       if (recovered) { if (recovered.ownerId !== owner || recovered.kind !== initialKind) throw new Error('O projeto já salvo não corresponde a esta gravação remota.'); projectId = recovered.id; current = accept(recovered); }
     }
@@ -154,7 +155,7 @@ export function createStudioRecordingSession(options: StudioRecordingSessionOpti
     // No project or original is written until the decoder has accepted media.
     if (!current) {
       assertScope(scope);
-      const created = await storage.createProject(owner, kind, title, receipt.remoteTakeId);
+      const created = await storage.createProject(owner, kind, title, scope?.freshProject ? undefined : receipt.remoteTakeId);
       projectId = created.id; current = accept(created);
       assertScope(scope);
     }
@@ -189,6 +190,14 @@ export function createStudioRecordingSession(options: StudioRecordingSessionOpti
   return {
     current: () => project,
     loadExisting: scope => run('load', () => latest(scope)),
+    ensureProject: scope => run('ensure', async () => {
+      const current = await latest(scope);
+      if (current) return current;
+      assertScope(scope);
+      const created = await storage.createProject(owner, initialKind, title);
+      projectId = created.id;
+      return accept(created);
+    }),
     append(file, scope) {
       let receipt: TakeReceipt;
       try {

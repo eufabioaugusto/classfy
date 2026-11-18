@@ -20,3 +20,18 @@ export function readStudioRecordingSelection(owner: string, premium: boolean, sc
 export function saveStudioRecordingSelection(owner: string, selection: StudioRecordingSelection, projectId?: string): void {
   try { localStorage.setItem(key(owner, projectId), JSON.stringify(selection)); } catch { /* Restricted storage never prevents recording. */ }
 }
+
+const phoneTakesKey = (owner: string, projectId: string) => `classfy-studio-phone-takes-v1:${owner}:${projectId}`;
+
+export function readStudioProjectPhoneTakes(owner: string, projectId: string): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(phoneTakesKey(owner, projectId)) ?? '[]');
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+  } catch { return []; }
+}
+
+export function rememberStudioProjectPhoneTake(owner: string, projectId: string, takeId: string): string[] {
+  const ids = [...new Set([...readStudioProjectPhoneTakes(owner, projectId), takeId])];
+  try { localStorage.setItem(phoneTakesKey(owner, projectId), JSON.stringify(ids)); } catch { /* The original remains on the iPhone. */ }
+  return ids;
+}

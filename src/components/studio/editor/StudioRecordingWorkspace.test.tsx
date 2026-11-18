@@ -181,7 +181,7 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
       return { subscribe(listener) { listener(state); return () => {}; }, subscribeRemote(listener) { listener(remote); return () => {}; }, prepare, start, reconnect, getEnvelope: () => null, cancel() {}, dispose() {}, getMicrophoneTrack: () => null } as unknown as StudioRemoteCaptureController;
     });
     await act(async () => root.render(<MemoryRouter><StudioRecordingWorkspace owner={owner} projectId={previous.id} canUseScenes /></MemoryRouter>));
-    expect(button('Importar original recebido')?.disabled).toBe(false); expect(host.textContent).toContain('Já recebeu um arquivo do iPhone?');
+    expect(button('Importar original recebido')?.disabled).toBe(false); expect(host.textContent).toContain('Adicionar vídeo existente');
     const received = new File(['original-received-offline'], 'AirDrop original.mov', { type: 'video/quicktime' });
     io.inspect.mockResolvedValueOnce({ kind: 'video', duration: 777, hasAudio: true, width: 3840, height: 2160, frameRate: 30, mimeType: received.type, warnings: [] });
     await click('Importar original recebido');
@@ -222,12 +222,20 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     });
     function Route() { const location = useLocation(); return <><span data-location>{location.pathname}</span><StudioRecordingWorkspace owner={owner} projectId={new URLSearchParams(location.search).get('project') ?? undefined} canUseScenes /></>; }
     await act(async () => root.render(<MemoryRouter><Route /></MemoryRouter>));
-    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); await startTake();
-    const currentTakes = () => host.querySelector('main > .se-recording-phone-takes')!;
-    expect(currentTakes().querySelectorAll('article')).toHaveLength(0);
+    const earlierProject = fixture(owner, firstId, 'aula', 'Gravação existente');
+    projects.set(key(owner, firstId), earlierProject);
+    await click('Meu iPhone · Premium'); await click('Conectar meu iPhone'); await click('Ir para gravação');
+    const currentTakes = () => host.querySelectorAll('main > .se-recording-phone-takes article');
+    expect(currentTakes()).toHaveLength(0);
     expect(host.querySelector<HTMLDetailsElement>('.se-recording-phone-recovery')?.open).toBe(false);
+    expect(io.create).not.toHaveBeenCalled();
+    await click('Iniciar gravação');
     await click('Encerrar gravação');
-    expect(currentTakes().querySelectorAll('article')).toHaveLength(1);
+    expect(currentTakes()).toHaveLength(1);
+    const browserProject = [...projects.values()].find(value => value.id !== firstId)!;
+    expect(browserProject.id).not.toBe(firstId);
+    expect(browserProject.takes).toHaveLength(0);
+    expect(io.create).toHaveBeenCalledOnce();
     expect(button('Ir para edição')?.getAttribute('aria-disabled')).toBe('false');
     if (openEditor) {
       await click('Ir para edição');
@@ -235,7 +243,8 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
       await act(async () => receiving.resolve({ file, take: { id: firstId }, metadata: raw }));
       expect(host.querySelector('[data-location]')?.textContent).not.toMatch(/^\/studio\/projects\//);
       await act(async () => persist.resolve());
-      const saved = [...projects.values()][0];
+      const saved = projects.get(key(owner, browserProject.id))!;
+      expect(projects.get(key(owner, firstId))).toBe(earlierProject);
       expect(host.querySelector('[data-location]')?.textContent).toBe(`/studio/projects/${saved.id}`);
       expect(saved.takes.map(take => take.assetId)).toEqual([`remote-${firstId}`]);
       expect(download).not.toHaveBeenCalled();
@@ -263,13 +272,13 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     expect(secondFile.size).toBe(file.size);
     await act(async () => { Object.defineProperty(importInput, 'files', { configurable: true, value: [secondFile] }); importInput.dispatchEvent(new Event('change', { bubbles: true })); });
     expect(host.querySelectorAll('.se-recording-take')).toHaveLength(2); expect(io.put.mock.calls.find(call => call[2] === `remote-${secondId}`)?.[3]).toBe(secondFile);
-    expect(assets.get(key(owner, [...projects.values()][0].id, `remote-${firstId}`))).toBe(file); expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0); expect(button('Iniciar gravação')?.disabled).toBe(false);
+    expect(assets.get(key(owner, browserProject.id, `remote-${firstId}`))).toBe(file); expect(permissions).not.toHaveBeenCalled(); expect(Recorder.instances).toHaveLength(0); expect(button('Iniciar gravação')?.disabled).toBe(false);
     await click('Importar original recebido'); const writes = io.put.mock.calls.length;
     owner = 'different-owner'; await act(async () => root.render(<MemoryRouter><Route /></MemoryRouter>));
     await act(async () => { Object.defineProperty(importInput, 'files', { configurable: true, value: [secondFile] }); importInput.dispatchEvent(new Event('change', { bubbles: true })); });
     expect(io.put).toHaveBeenCalledTimes(writes);
   });
-  it.each(['save-failed', 'account-changed'] as const)('Baixar não oferece arquivo antes da associação durável: %s', async failure => {
+  it.each(['save-failed', 'account-changed'] as const)('Adicionar vídeo existente respeita salvamento e troca de conta: %s', async failure => {
     const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     const id = '50000000-0000-4000-8000-000000000009', file = new BytesFile(['original'], 'iPhone.mp4', { type: 'video/mp4' }) as unknown as File;
     const receiveGate = deferred<void>(), receive = vi.fn(async () => { await receiveGate.promise; return { file }; });
@@ -286,13 +295,13 @@ describe('funil de gravação com componente, captura e sessão reais', () => {
     const render = () => <MemoryRouter><StudioRecordingWorkspace owner={owner} canUseScenes /></MemoryRouter>;
     await act(async () => root.render(render())); await click('Meu iPhone · Premium'); await click('Conectar meu iPhone');
     if (failure === 'save-failed') io.save.mockRejectedValueOnce(Error('Sem espaço para salvar o projeto'));
-    await click('Baixar take 1'); expect(download).not.toHaveBeenCalled();
+    await click('Adicionar take 1'); expect(download).not.toHaveBeenCalled();
     if (failure === 'account-changed') { owner = 'another-account'; await act(async () => root.render(render())); }
     await act(async () => receiveGate.resolve());
     expect(download).not.toHaveBeenCalled();
     if (failure === 'save-failed') {
       expect(host.textContent).toContain('Sem espaço para salvar o projeto');
-      await click('Baixar take 1'); expect(io.save).toHaveBeenCalledTimes(2); expect(host.textContent).not.toContain('Sem espaço para salvar o projeto'); expect(download).toHaveBeenCalledOnce();
+      await click('Adicionar take 1'); expect(io.save).toHaveBeenCalledTimes(2); expect(host.textContent).not.toContain('Sem espaço para salvar o projeto'); expect(download).not.toHaveBeenCalled();
       expect([...projects.values()].flatMap(project => project.takes)).toHaveLength(1);
       expect(io.create).toHaveBeenCalledOnce();
     } else { expect(io.put).not.toHaveBeenCalled(); expect(io.create).not.toHaveBeenCalled(); }

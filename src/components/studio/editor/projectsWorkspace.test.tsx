@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { emptyStudioEditing, withStudioTakes, type StudioProject } from '../../../../shared/studio';
+import { rememberStudioProjectPhoneTake } from '@/lib/studio/editor/recordingSetupPreferences';
 import { StudioProjectsWorkspace } from './StudioProjectsWorkspace';
 import { StudioNavigation } from '../StudioNavigation';
 const storage = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), save: vi.fn(), duplicate: vi.fn(), remove: vi.fn() }));
@@ -20,6 +21,17 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); });
 describe('galeria desktop de projetos reais', () => {
+  it('separa a gravação nova de um rascunho com original pendente no iPhone', async () => {
+    rememberStudioProjectPhoneTake('owner', 'project', 'phone-take');
+    try {
+      await mount();
+      expect(host.textContent).toContain('Original no iPhone');
+      await click('Continuar gravação de Aula local');
+      expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/record?project=project');
+      await click('Gravar');
+      expect(host.querySelector('[data-location]')?.textContent).toBe('/studio/record');
+    } finally { localStorage.removeItem('classfy-studio-phone-takes-v1:owner:project'); }
+  });
   it('hold abre o mesmo menu de opções e suprime navegação no click seguinte', async () => {
     vi.useFakeTimers(); await mount(); const card = host.querySelector('[aria-label="Editar Aula local"]')!;
     await act(async () => { card.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })); vi.advanceTimersByTime(449); }); expect(host.querySelector('[role="dialog"]')).toBeNull();

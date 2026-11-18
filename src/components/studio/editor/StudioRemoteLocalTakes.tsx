@@ -50,15 +50,15 @@ function OriginalImportMenu({ label, disabled, onImport }: { label: string; disa
 }
 
 /** One receive gesture transfers, links the project and downloads the requested file. */
-export function StudioRemoteLocalTakes({ owner, state, savedIds, savingId, disabled, recording, onDownload, onImport, getThumbnail }: {
+export function StudioRemoteLocalTakes({ owner, state, savedIds, savingId, disabled, recording, onDownload, onImport, getThumbnail, adding = false }: {
   owner: string; state: StudioRemoteView; savedIds: Set<string>; savingId?: string | null; disabled: boolean; recording: boolean;
-  onDownload(id: string): void; onImport(id?: string): void; getThumbnail?: ThumbnailGetter;
+  adding?: boolean; onDownload(id: string): void; onImport(id?: string): void; getThumbnail?: ThumbnailGetter;
 }) {
   const takes = state.localTakes?.filter(take => take.localSaved || ['uploaded', 'uploading', 'failed', 'local_ready'].includes(take.phase)) ?? [];
   const active = !['idle', 'complete', 'retry'].includes(state.transfer);
   return <section className="se-recording-phone-takes" aria-label="Originais do iPhone">
     <header><div><Smartphone size={16} /><strong>Originais do iPhone</strong><span>{takes.length}</span></div><button type="button" className="se-recording-phone-import" aria-label="Importar original recebido" disabled={disabled || !!savingId} onClick={() => onImport()}><FolderInput size={13} />Importar arquivo</button></header>
-    {!takes.length && <p>Seus takes aparecem aqui depois de gravar. Já recebeu um arquivo do iPhone? Importe para continuar.</p>}
+    {adding && <p>Selecione um original do iPhone ou importe um arquivo do computador para este projeto.</p>}
     {!!takes.length && <div className="se-recording-phone-takes-list">{takes.map((take, index) => {
       const sending = state.transferTakeId === take.id && active, saving = savingId === take.id, saved = savedIds.has(take.id);
       const archived = !!take.sessionId && !!state.session && take.sessionId !== state.session.id && take.phase !== 'uploaded';
@@ -73,7 +73,7 @@ export function StudioRemoteLocalTakes({ owner, state, savedIds, savingId, disab
           <small className={saved ? 'is-saved' : ''} title={status}>{saved && <Check size={11} />}{status}{progress !== null ? ` ${progress}%` : ''}</small>
           {busy && <progress aria-label={`Transferência do take ${index + 1}`} max={100} value={progress ?? undefined} />}
           {error && !saved && <small className="se-recording-phone-take-error" role="alert" title={error}>{error}</small>}
-          <button type="button" className="se-recording-phone-take-download" aria-label={`${archived && !saved ? 'Adicionar arquivo do' : 'Baixar'} take ${index + 1}`} disabled={blocked} onClick={() => archived && !saved ? onImport(take.id) : onDownload(take.id)}>{busy ? <Loader2 size={13} className="se-spin" /> : archived && !saved ? <FolderInput size={13} /> : <Download size={13} />}{archived && !saved ? 'Adicionar arquivo' : saving || state.transfer === 'validating' && sending ? 'Salvando…' : sending ? 'Transferindo…' : 'Baixar'}</button>
+          <button type="button" className="se-recording-phone-take-download" aria-label={`${archived && !saved ? 'Adicionar arquivo do' : adding ? 'Adicionar' : 'Baixar'} take ${index + 1}`} disabled={blocked} onClick={() => archived && !saved ? onImport(take.id) : onDownload(take.id)}>{busy ? <Loader2 size={13} className="se-spin" /> : archived && !saved ? <FolderInput size={13} /> : <Download size={13} />}{archived && !saved ? 'Adicionar arquivo' : saving || state.transfer === 'validating' && sending ? 'Salvando…' : sending ? 'Transferindo…' : adding ? 'Adicionar ao projeto' : 'Baixar'}</button>
         </div>
       </article>;
     })}</div>}
