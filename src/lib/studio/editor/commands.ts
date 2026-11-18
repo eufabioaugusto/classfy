@@ -73,23 +73,26 @@ export function classEditTarget(project: StudioProject) {
 }
 
 export function applyClassEdit(project: StudioProject, clipId: string,
-  pauses: readonly { start: number; end: number }[], enhancement?: StudioEnhancement): StudioProject {
+  pauses: readonly { start: number; end: number }[], enhancement?: StudioEnhancement, portrait?: StudioPortrait): StudioProject {
   const target = classEditTarget(project);
   if (!target || target.clip.id !== clipId) throw new Error('A montagem mudou durante a análise do Class Edit.');
+  if (!pauses.length && !enhancement && !portrait) return project;
   const editing = studioEditing(project);
-  if (!pauses.length && !enhancement) return project;
-  const adjusted = enhancement ? patchStudioClipEnhancement(editing, clipId, enhancement) : editing;
-  const clip = adjusted.main[0];
+  const clip = { ...target.clip, ...(enhancement ? { enhancement } : {}), ...(portrait ? { portrait } : {}) };
   let cursor = clip.sourceStartTicks;
-  const main = pauses.map(pause => {
+  const main: StudioEditing['main'] = [];
+  const keep = (end: number) => {
+    if (end > cursor) main.push({ ...clip, id: main.length ? uuid() : clipId, sourceStartTicks: cursor, sourceEndTicks: end });
+  };
+  for (const pause of pauses) {
     const start = studioTicks(pause.start), end = studioTicks(pause.end);
-    if (start <= cursor || end <= start || end >= clip.sourceEndTicks) throw new Error('Revise os limites dos cortes do Class Edit.');
-    const segment = { ...clip, id: cursor === clip.sourceStartTicks ? clipId : uuid(), sourceStartTicks: cursor, sourceEndTicks: start };
+    if (start < cursor || end <= start || end > clip.sourceEndTicks) throw new Error('Revise os limites dos cortes do Class Edit.');
+    keep(start);
     cursor = end;
-    return segment;
-  });
-  main.push({ ...clip, id: main.length ? uuid() : clipId, sourceStartTicks: cursor });
-  return edit(project, { ...adjusted, main });
+  }
+  keep(clip.sourceEndTicks);
+  if (!main.length) throw new Error('O Class Edit precisa preservar ao menos um trecho.');
+  return edit(project, { ...editing, main });
 }
 export function trimMainClip(project: StudioProject, id: string, sourceStartSeconds: number, sourceEndSeconds: number): StudioProject {
   const takes = deriveStudioTakes(studioEditing(project)), index = takes.findIndex(value => value.id === id);

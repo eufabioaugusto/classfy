@@ -35,8 +35,18 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
   const [exportMenu, setExportMenu] = useState(false), [exportReady, setExportReady] = useState(false), [rename, setRename] = useState(false), [title, setTitle] = useState('');
   const [capabilities, setCapabilities] = useState<StudioBrowserExportCapabilities | null>(null);
   const [exitPreparing, setExitPreparing] = useState(false);
+  const [originalDownload, setOriginalDownload] = useState<{ id: string; status: 'preparing' | 'started' | 'retry' }>();
+  const downloadLock = useRef<string | null>(null), downloadTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    setOriginalDownload(undefined);
+    return () => {
+      clearTimeout(downloadTimer.current);
+      downloadTimer.current = undefined;
+      downloadLock.current = null;
+    };
+  }, [owner, projectId]);
   const [waveforms, setWaveforms] = useState<ReadonlyMap<string, StudioWaveform>>(new Map());
-  const [classEditResult, setClassEditResult] = useState<{ editing: StudioProject['editing']; cuts: number; removed: number; imageAdjusted: boolean }>();
+  const [classEditResult, setClassEditResult] = useState<{ editing: StudioProject['editing']; cuts: number; removed: number; imageAdjusted: boolean; portraitStatus?: string }>();
   const [comparing, setComparing] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null), engine = useRef<StudioRenderer | null>(null), input = useRef<HTMLInputElement>(null), captionsInput = useRef<HTMLInputElement>(null);
   const pendingPatch = useRef<{ id: string; patch: StudioWebClipPatch } | null>(null), importTarget = useRef<'main' | 'layer'>('main'), locked = useRef(false), controller = useRef<AbortController | null>(null), alive = useRef(true), seekSequence = useRef(0);
@@ -140,12 +150,30 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
     catch (cause) { if (workspace.isCurrent(token) && alive.current) recordError(cause); if (propagateError) throw cause; return false; }
     finally { if (workspace.isCurrent(token) && alive.current) { locked.current = false; setBusy(null); if (controller.current === abort) controller.current = null; } }
   };
-  const downloadOriginal = (asset: StudioAsset) => void external('Preparando original', async (token, signal) => {
-    const original = await getAsset(owner, projectId, asset.id);
-    if (!scope(token) || signal.aborted) return;
-    if (!original) throw new Error('O original deste trecho não está disponível neste navegador.');
-    downloadStudioOriginal(original, asset.name);
-  });
+  const downloadOriginal = (asset: StudioAsset) => {
+    if (downloadLock.current || locked.current || confirmation.current) return;
+    const token = workspace.epoch.current;
+    downloadLock.current = asset.id;
+    setOriginalDownload({ id: asset.id, status: 'preparing' });
+    void external('Preparando original', async (operationToken, signal) => {
+      const original = await getAsset(owner, projectId, asset.id);
+      if (!scope(operationToken) || signal.aborted) return;
+      if (!original) throw new Error('O original deste trecho não está disponível neste navegador.');
+      downloadStudioOriginal(original, asset.name);
+      setOriginalDownload({ id: asset.id, status: 'started' });
+      downloadTimer.current = setTimeout(() => {
+        if (!workspace.isCurrent(token)) return;
+        downloadTimer.current = undefined;
+        downloadLock.current = null;
+        setOriginalDownload({ id: asset.id, status: 'retry' });
+      }, 4000);
+    }).then(() => {
+      if (workspace.isCurrent(token) && downloadTimer.current === undefined) {
+        downloadLock.current = null;
+        setOriginalDownload(undefined);
+      }
+    });
+  };
   const importFiles = async (files: File[], target: 'main' | 'layer', at = position, recorded = false) => external('Importando arquivos', async (token, signal) => {
     for (let index = 0; index < files.length; index++) {
       const file = files[index];
@@ -218,15 +246,29 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
       enhancement = { ...analysis, strength: .35 };
     }
     if (!scope(token) || signal.aborted) return;
+    let portrait: { version: 2; strength: number } | undefined;
+    let portraitStatus: string | undefined;
+    if (!clip.portrait && engine.current) {
+      setBusy('Preparando retoque natural');
+      try {
+        await engine.current.preparePortrait(signal);
+        portrait = { version: 2, strength: .25 };
+        portraitStatus = 'Retoque leve aplicado';
+      } catch {
+        if (signal.aborted) return;
+        portraitStatus = 'Retoque indisponível neste navegador';
+      }
+    }
+    if (!scope(token) || signal.aborted) return;
     await engine.current?.seek(0);
     if (!scope(token) || signal.aborted) return;
-    const edited = applyClassEdit(snapshot, clip.id, pauses, enhancement);
+    const edited = applyClassEdit(snapshot, clip.id, pauses, enhancement, portrait);
     workspace.apply(() => edited);
     setSelected(clip.id);
     setComparing(false);
     setExportReady(false);
     const saved = await workspace.flush();
-    if (scope(token) && saved) setClassEditResult({ editing: saved.editing, cuts: pauses.length, imageAdjusted: !!enhancement, removed: pauses.reduce((total, pause) => total + pause.end - pause.start, 0) });
+    if (scope(token) && saved) setClassEditResult({ editing: saved.editing, cuts: pauses.length, imageAdjusted: !!enhancement, portraitStatus, removed: pauses.reduce((total, pause) => total + pause.end - pause.start, 0) });
   });
   const improveScene = () => {
     if (!selected) return;
@@ -352,11 +394,15 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
     {(error || workspace.error) && <div className="se-editor-error" role="alert"><span>{workspace.error || error}</span>{workspace.error && <button onClick={() => void workspace.flush().catch(recordError)}>Tentar salvar</button>}<button className="se-icon" aria-label="Fechar mensagem" onClick={() => setError(null)}><X size={13} /></button></div>}
     {classEditResult && classEditResult.editing === project.editing && <div className="se-class-edit-result" role="status">
       {classEditResult.cuts === 0 ? 'Nenhum corte aplicado · Não encontrei pausas de pelo menos 0,9 s com queda clara no áudio'
-        : `${classEditResult.cuts === 1 ? '1 pausa encurtada' : `${classEditResult.cuts} pausas encurtadas`} · ${classEditResult.removed.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s removidos`}{classEditResult.imageAdjusted ? ' · Ajuste leve de imagem aplicado' : ''}
+        : `${classEditResult.cuts === 1 ? '1 pausa encurtada' : `${classEditResult.cuts} pausas encurtadas`} · ${classEditResult.removed.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s removidos`}{classEditResult.imageAdjusted ? ' · Ajuste leve de imagem aplicado' : ''}{classEditResult.portraitStatus ? ` · ${classEditResult.portraitStatus}` : ''}
     </div>}
     <ResizablePanelGroup direction="vertical" className="se-workspace-panels"><ResizablePanel defaultSize={67} minSize={35}><ResizablePanelGroup direction="horizontal">
       <ResizablePanel defaultSize={23} minSize={15} maxSize={35}><aside className="se-library"><nav aria-label="Ferramentas do editor">{([{ id: 'media', label: 'Mídia', Icon: Film }, { id: 'text', label: 'Texto', Icon: Type }, { id: 'captions', label: 'Legendas', Icon: Subtitles }, { id: 'audio', label: 'Áudio', Icon: Music2 }] as const).map(({ id, label, Icon }) => <button key={id} aria-pressed={tab === id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><div className="se-library-content">
-        {tab === 'media' && <><h2>Biblioteca</h2><button className="se-button se-primary se-wide" disabled={blocked || !!recorder} onClick={() => openImport('main')}><Plus size={16} />Importar arquivos</button><div className="se-capture-buttons"><button className="se-button" disabled={blocked} onClick={() => openRecorder('camera')}><Video size={16} />Câmera</button><button className="se-button" disabled={blocked} onClick={() => openRecorder('screen')}><Monitor size={16} />Tela</button></div><div className="se-asset-grid">{project.editing!.assets.filter(a => a.kind !== 'audio').map(asset => <article key={asset.id}><button className="se-asset-thumb" disabled={blocked} aria-label={`Adicionar ${asset.name} à montagem`} onClick={() => reuse(asset, 'main')}>{thumbnails[asset.id] ? <img src={thumbnails[asset.id]} alt="" /> : <Film size={23} />}<span>{asset.kind === 'image' ? 'Imagem' : formatStudioEditorTime(studioSeconds(asset.durationTicks))}</span></button><p title={asset.name}>{asset.name}</p><div className="se-asset-actions"><button className="se-asset-overlay" disabled={blocked || !duration} onClick={() => reuse(asset, 'layer')}>Sobrepor <Plus size={12} /></button><button className="se-asset-original" aria-label={`Baixar original de ${asset.name}`} title="Baixar original" disabled={blocked || !!recorder} onClick={() => downloadOriginal(asset)}><Download size={13} />Baixar original</button></div></article>)}</div>{!project.editing!.assets.length && <p className="se-muted se-library-empty">Arraste arquivos para a prévia ou importe seus originais.</p>}</>}
+        {tab === 'media' && <><h2>Biblioteca</h2><button className="se-button se-primary se-wide" disabled={blocked || !!recorder} onClick={() => openImport('main')}><Plus size={16} />Importar arquivos</button><div className="se-capture-buttons"><button className="se-button" disabled={blocked} onClick={() => openRecorder('camera')}><Video size={16} />Câmera</button><button className="se-button" disabled={blocked} onClick={() => openRecorder('screen')}><Monitor size={16} />Tela</button></div><div className="se-asset-grid">{project.editing!.assets.filter(a => a.kind !== 'audio').map(asset => <article key={asset.id}><button className="se-asset-thumb" disabled={blocked} aria-label={`Adicionar ${asset.name} à montagem`} onClick={() => reuse(asset, 'main')}>{thumbnails[asset.id] ? <img src={thumbnails[asset.id]} alt="" /> : <Film size={23} />}<span>{asset.kind === 'image' ? 'Imagem' : formatStudioEditorTime(studioSeconds(asset.durationTicks))}</span></button><p title={asset.name}>{asset.name}</p><div className="se-asset-actions"><button className="se-asset-overlay" disabled={blocked || !duration} onClick={() => reuse(asset, 'layer')}>Sobrepor <Plus size={12} /></button><button className="se-asset-original" aria-label={`Baixar original de ${asset.name}`} title="Baixar original" disabled={blocked || !!recorder || originalDownload?.id === asset.id && originalDownload.status !== 'retry'} onClick={() => downloadOriginal(asset)}>
+          {originalDownload?.id === asset.id && originalDownload.status === 'preparing' ? <><Loader2 className="se-spin" size={13} />Preparando download…</>
+            : originalDownload?.id === asset.id && originalDownload.status === 'started' ? <><Check size={13} />Download iniciado</>
+            : <><Download size={13} />{originalDownload?.id === asset.id ? 'Baixar novamente' : 'Baixar original'}</>}
+        </button><span className="se-sr" role="status">{originalDownload?.id === asset.id && originalDownload.status === 'started' ? 'Download iniciado no navegador.' : ''}</span></div></article>)}</div>{!project.editing!.assets.length && <p className="se-muted se-library-empty">Arraste arquivos para a prévia ou importe seus originais.</p>}</>}
         {tab === 'text' && <><h2>Texto</h2><button className="se-button se-primary se-wide" disabled={blocked || !duration} onClick={() => makeText()}><Type size={17} />Adicionar texto</button><div className="se-text-examples"><span>Aa</span><p>Títulos, tópicos e destaques editáveis.</p></div></>}
         {tab === 'captions' && <><h2>Legendas</h2><button className="se-button se-primary se-wide" disabled={blocked || !duration} onClick={() => void openPicker('captions', 'layer')}><Subtitles size={17} />Importar arquivo SRT</button><button className="se-button se-wide" disabled={blocked || !duration} onClick={() => makeText(true)}>Adicionar legenda</button><p className="se-muted">Revise os intervalos na montagem e edite o texto na prévia.</p></>}
         {tab === 'audio' && <><h2>Áudio</h2><button className="se-button se-primary se-wide" disabled={blocked} onClick={() => openImport('layer', 'audio/*')}><Music2 size={17} />Importar áudio</button><button className="se-button se-wide" disabled={blocked || !duration} onClick={() => openRecorder('audio')}><Mic size={17} />Gravar narração</button><div className="se-audio-library">{project.editing!.assets.filter(a => a.kind === 'audio').map(asset => <button key={asset.id} disabled={blocked} onClick={() => reuse(asset, 'layer')}><Mic size={19} /><span>{asset.name}<small>{formatStudioEditorTime(studioSeconds(asset.durationTicks))}</small></span><Plus size={14} /></button>)}</div></>}

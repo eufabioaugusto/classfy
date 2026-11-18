@@ -24,16 +24,20 @@ function packet(timestamp: number, length: number, level: number) {
 }
 
 describe('detecção de pausas do Class Edit', () => {
-  it('encurta uma pausa que atravessa pacotes, preserva respiro e ignora pausas curtas e nas pontas', async () => {
+  it('encurta uma pausa que atravessa pacotes, preserva respiro e encurta também as pontas', async () => {
     source.packets = [
       packet(0, 1000, 0), packet(1, 1000, .1),
       packet(2, 500, .001), packet(2.5, 700, .001),
       packet(3.2, 1000, .1), packet(4.2, 400, 0), packet(4.6, 400, .1), packet(5, 1000, 0),
     ];
     const pauses = await findStudioPauses(new Blob(), 0, 6, new AbortController().signal);
-    expect(pauses).toHaveLength(1);
-    expect(pauses[0].start).toBeCloseTo(2.2);
-    expect(pauses[0].end).toBeCloseTo(3);
+    expect(pauses).toHaveLength(3);
+    expect(pauses[0].start).toBe(0);
+    expect(pauses[0].end).toBeCloseTo(.8);
+    expect(pauses[1].start).toBeCloseTo(2.2);
+    expect(pauses[1].end).toBeCloseTo(3);
+    expect(pauses[2].start).toBeCloseTo(5.2);
+    expect(pauses[2].end).toBe(6);
     expect(source.dispose).toHaveBeenCalled();
   });
 
@@ -43,6 +47,14 @@ describe('detecção de pausas do Class Edit', () => {
     expect(pauses).toHaveLength(1);
     expect(pauses[0].start).toBeCloseTo(8.2);
     expect(pauses[0].end).toBeCloseTo(9.1);
+  });
+
+  it('encurta a espera até a primeira fala aos 2,8 s mesmo com som ambiente', async () => {
+    source.packets = [packet(0, 2800, .018), packet(2.8, 15500, .21)];
+    const pauses = await findStudioPauses(new Blob(), 0, 18.3, new AbortController().signal);
+    expect(pauses).toHaveLength(1);
+    expect(pauses[0].start).toBe(0);
+    expect(pauses[0].end).toBeCloseTo(2.6);
   });
 
   it('preserva voz baixa quando fica próxima do nível de fundo', async () => {

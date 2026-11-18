@@ -121,6 +121,23 @@ describe('comparação e histórico reais do editor', () => {
     expect(button('Class Edit').getAttribute('aria-disabled')).toBe('false');
   });
 
+  it('mostra o preparo e inicia apenas um download para cliques repetidos', async () => {
+    const read = deferred<Blob>();
+    io.getAsset.mockImplementation((_owner, _project, id) => id === 'video-original' ? read.promise : null);
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL: () => 'blob:original', revokeObjectURL: () => undefined }));
+    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+      await click('Baixar original de Principal.mp4');
+      expect(host.textContent).toContain('Preparando download…');
+      await click('Baixar original de Principal.mp4');
+      await act(async () => read.resolve(new Blob(['original'])));
+      expect(host.textContent).toContain('Download iniciado');
+      await click('Baixar original de Principal.mp4');
+      expect(download).toHaveBeenCalledOnce();
+    } finally { download.mockRestore(); }
+  });
+
   it('comparar não persiste o original e Undo da inserção remove o alvo sem derrubar o workspace', async () => {
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
     const image = Array.from(host.querySelectorAll('.se-asset-grid article')).find(article => article.textContent?.includes('Retrato.jpg'))!;

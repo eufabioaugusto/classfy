@@ -1439,3 +1439,6 @@
   color: #c4c7cf;
 }
 .se-asset-original:disabled { opacity: .55; }
+.se-button.se-class-edit-button:hover:not(:disabled) {
+  background: linear-gradient(to right, #833ab4, #fd1d1d 62%, #fcb045);
+}
