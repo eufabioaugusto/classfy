@@ -13,10 +13,8 @@ export async function findStudioPauses(file: Blob, start: number, end: number, s
     signal.throwIfAborted();
     if (!track || !await track.canDecode()) throw new Error('O Class Edit precisa de uma faixa de áudio que o navegador consiga ler.');
 
-    const pauses: StudioPause[] = [];
-    let heardSound = false;
-    let quietSince: number | undefined;
-    let previousEnd = start;
+    const windows: { start: number; end: number; level: number }[] = [];
+    const histogram = new Uint32Array(91);
     for await (const { buffer, timestamp } of new AudioBufferSink(track).buffers(start, end)) {
       signal.throwIfAborted();
       const { sampleRate, length, numberOfChannels } = buffer;
@@ -27,33 +25,47 @@ export async function findStudioPauses(file: Blob, start: number, end: number, s
       for (let offset = first; offset < last; offset += windowSize) {
         const from = timestamp + offset / sampleRate;
         const limit = Math.min(last, offset + windowSize);
-        if (from - previousEnd > .03) {
-          heardSound = false;
-          quietSince = undefined;
-        }
-        previousEnd = timestamp + limit / sampleRate;
-
-        const quiet = channels.every(samples => {
+        let maxEnergy = 0;
+        for (const samples of channels) {
           let energy = 0;
-          for (let index = offset; index < limit; index++) {
-            const sample = samples[index];
-            if (Math.abs(sample) >= .025) return false;
-            energy += sample * sample;
-          }
-          return energy < (limit - offset) * .008 ** 2;
-        });
-        if (quiet) {
-          if (heardSound) quietSince ??= from;
-        } else {
-          if (quietSince !== undefined && from - quietSince >= minimumPause) {
-            pauses.push({ start: quietSince + breathingRoom, end: from - breathingRoom });
-          }
-          heardSound = true;
-          quietSince = undefined;
+          for (let index = offset; index < limit; index++) energy += samples[index] ** 2;
+          maxEnergy = Math.max(maxEnergy, energy);
         }
+        const level = Math.max(-90, Math.min(0, 10 * Math.log10(maxEnergy / (limit - offset))));
+        histogram[Math.round(level) + 90]++;
+        windows.push({ start: from, end: timestamp + limit / sampleRate, level });
       }
     }
     signal.throwIfAborted();
+    const percentile = (fraction: number) => {
+      const rank = Math.max(1, Math.ceil(windows.length * fraction));
+      let count = 0;
+      return histogram.findIndex(size => (count += size) >= rank) - 90;
+    };
+    // Allow room tone above the old fixed gate, but keep the gate well below
+    // foreground audio. A flat or entirely quiet track never produces a cut.
+    const noiseFloor = percentile(.05), foreground = percentile(.9);
+    const threshold = Math.min(-30, foreground - 12, Math.max(-42, noiseFloor + 6));
+    const pauses: StudioPause[] = [];
+    let heardSound = false;
+    let quietSince: number | undefined;
+    let previousEnd = start;
+    for (const window of windows) {
+      if (window.start - previousEnd > .03) {
+        heardSound = false;
+        quietSince = undefined;
+      }
+      previousEnd = window.end;
+      if (window.level < threshold) {
+        if (heardSound) quietSince ??= window.start;
+      } else {
+        if (quietSince !== undefined && window.start - quietSince >= minimumPause) {
+          pauses.push({ start: quietSince + breathingRoom, end: window.start - breathingRoom });
+        }
+        heardSound = true;
+        quietSince = undefined;
+      }
+    }
     return pauses;
   } finally {
     input.dispose();

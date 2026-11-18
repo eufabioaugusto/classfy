@@ -33,7 +33,7 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
   const [exportMenu, setExportMenu] = useState(false), [exportReady, setExportReady] = useState(false), [rename, setRename] = useState(false), [title, setTitle] = useState('');
   const [capabilities, setCapabilities] = useState<StudioBrowserExportCapabilities | null>(null);
   const [exitPreparing, setExitPreparing] = useState(false);
-  const [classEditResult, setClassEditResult] = useState<{ editing: StudioProject['editing']; cuts: number }>();
+  const [classEditResult, setClassEditResult] = useState<{ editing: StudioProject['editing']; cuts: number; removed: number }>();
   const [comparing, setComparing] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null), engine = useRef<StudioRenderer | null>(null), input = useRef<HTMLInputElement>(null), captionsInput = useRef<HTMLInputElement>(null);
   const pendingPatch = useRef<{ id: string; patch: StudioWebClipPatch } | null>(null), importTarget = useRef<'main' | 'layer'>('main'), locked = useRef(false), controller = useRef<AbortController | null>(null), alive = useRef(true), seekSequence = useRef(0);
@@ -184,7 +184,7 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
     setComparing(false);
     setExportReady(false);
     const saved = await workspace.flush();
-    if (scope(token) && saved) setClassEditResult({ editing: saved.editing, cuts: pauses.length });
+    if (scope(token) && saved) setClassEditResult({ editing: saved.editing, cuts: pauses.length, removed: pauses.reduce((total, pause) => total + pause.end - pause.start, 0) });
   });
   const improveScene = () => {
     if (!selected) return;
@@ -306,7 +306,8 @@ export function StudioEditorWorkspace({ owner, projectId }: { owner: string; pro
     </header>
     {(error || workspace.error) && <div className="se-editor-error" role="alert"><span>{workspace.error || error}</span>{workspace.error && <button onClick={() => void workspace.flush().catch(recordError)}>Tentar salvar</button>}<button className="se-icon" aria-label="Fechar mensagem" onClick={() => setError(null)}><X size={13} /></button></div>}
     {classEditResult && classEditResult.editing === project.editing && <div className="se-class-edit-result" role="status">
-      {classEditResult.cuts === 0 ? 'Nenhuma pausa longa encontrada' : classEditResult.cuts === 1 ? '1 pausa encurtada' : `${classEditResult.cuts} pausas encurtadas`} · Ajuste leve de imagem aplicado
+      {classEditResult.cuts === 0 ? 'Nenhum corte aplicado · Não encontrei pausas de pelo menos 0,9 s com queda clara no áudio'
+        : `${classEditResult.cuts === 1 ? '1 pausa encurtada' : `${classEditResult.cuts} pausas encurtadas`} · ${classEditResult.removed.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s removidos`} · Ajuste leve de imagem aplicado
     </div>}
     <ResizablePanelGroup direction="vertical" className="se-workspace-panels"><ResizablePanel defaultSize={67} minSize={35}><ResizablePanelGroup direction="horizontal">
       <ResizablePanel defaultSize={23} minSize={15} maxSize={35}><aside className="se-library"><nav aria-label="Ferramentas do editor">{([{ id: 'media', label: 'Mídia', Icon: Film }, { id: 'text', label: 'Texto', Icon: Type }, { id: 'captions', label: 'Legendas', Icon: Subtitles }, { id: 'audio', label: 'Áudio', Icon: Music2 }] as const).map(({ id, label, Icon }) => <button key={id} aria-pressed={tab === id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><div className="se-library-content">
