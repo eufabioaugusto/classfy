@@ -1407,3 +1407,26 @@
   padding: .5rem 1rem;
   font-size: .8125rem;
 }
+
+.se-button.se-class-edit-button {
+  background: linear-gradient(to right, #833ab4, #fd1d1d 62%, #fcb045);
+  border-color: #ffffff30;
+  color: #fff;
+  font-weight: 650;
+  text-shadow: 0 1px 3px #360b39, 0 0 5px #360b39;
+}
+.se-button.se-class-edit-button:hover:not(:disabled) { filter: brightness(1.12); }
+
+.se-clip-waveform {
+  position: absolute;
+  inset: auto 0 0;
+  width: 100%;
+  height: 16px;
+  border-radius: 0 0 3px 3px;
+  background: #231124ec;
+  fill: #ff79c5;
+  pointer-events: none;
+}
+.se-clip-waveform.muted { fill: #a48b9d; }
+.se-asset-actions { display: flex; align-items: center; gap: 8px; }
+.se-asset-actions > .se-icon { flex: none; width: 29px; height: 29px; }

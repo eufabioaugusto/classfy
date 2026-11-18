@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readStudioWaveform, studioWaveformPath } from './audioEnvelope';
 import { findStudioPauses } from './classEdit';
 
 const source = vi.hoisted(() => ({
@@ -55,5 +56,22 @@ describe('detecção de pausas do Class Edit', () => {
     expect(await findStudioPauses(new Blob(), 0, 4, signal)).toEqual([]);
     source.packets = [packet(0, 3000, 0)];
     expect(await findStudioPauses(new Blob(), 0, 3, signal)).toEqual([]);
+  });
+});
+
+describe('forma de onda vinculada ao vídeo', () => {
+  it('mostra pausas e usa o intervalo original do trecho após aparar ou dividir', async () => {
+    source.packets = [packet(0, 1000, 0), packet(1, 1000, .5)];
+    const waveform = await readStudioWaveform(new Blob(), 2, new AbortController().signal);
+    expect(waveform).not.toBeNull();
+    expect(studioWaveformPath(waveform!, 0, 1, 2)).toBe('M0 20 L0 20.0 L1 20.0 H2 V20 Z');
+    expect(studioWaveformPath(waveform!, 1, 2, 2)).toBe('M0 20 L0 1.0 L1 1.0 H2 V20 Z');
+  });
+
+  it('diferencia falta de amostras de um take sem pausas', async () => {
+    source.packets = [];
+    const signal = new AbortController().signal;
+    expect(await readStudioWaveform(new Blob(), 2, signal)).toBeNull();
+    await expect(findStudioPauses(new Blob(), 0, 2, signal)).rejects.toThrow('não conseguiu ler amostras');
   });
 });

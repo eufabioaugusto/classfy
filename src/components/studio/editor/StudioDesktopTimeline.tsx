@@ -1,14 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, Magnet, Mic, Minus, Plus, Volume2, VolumeX } from 'lucide-react';
 import { compileStudioRecipe, formatStudioEditorTime, studioSeconds, type StudioProject } from '../../../../shared/studio';
 import { moveLayerClip, moveMainClip, trimLayerClip, trimMainClip } from '@/lib/studio/editor/commands';
+import { studioWaveformPath, type StudioWaveform } from '@/lib/studio/editor/audioEnvelope';
 import { clampStudioTime, snapStudioTime, webStudioTrim } from './timelineGeometry';
 
-type Props = { project: StudioProject; position: number; playing?: boolean; selectedId?: string; disabled?: boolean; thumbnails: Record<string, string>;
+type Props = { project: StudioProject; position: number; playing?: boolean; selectedId?: string; disabled?: boolean; thumbnails: Record<string, string>; waveforms?: ReadonlyMap<string, StudioWaveform>;
   onSelect(id?: string): void; onSeek(seconds: number): void; onPreview(project: StudioProject | null): void;
   onCommit(change: (project: StudioProject) => StudioProject): void; onAdd(): void;
   onMainMute(): void; onLayerMute(layerId: string): void; onLayerHide(layerId: string): void };
 type Drag = { pointer: number; id: string; x: number; y: number; clip: ReturnType<typeof compileStudioRecipe>['clips'][number]; base: StudioProject; edge?: 'start' | 'end'; lastX: number; lastY: number; moved: boolean; scale: number };
+
+const ClipWaveform = memo(function ClipWaveform({ waveform, start, end, width, muted }: {
+  waveform: StudioWaveform; start: number; end: number; width: number; muted: boolean;
+}) {
+  const columns = Math.max(2, Math.min(4096, Math.ceil(width / 2)));
+  return <svg className={`se-clip-waveform${muted ? ' muted' : ''}`} viewBox={`0 0 ${columns} 20`}
+    preserveAspectRatio="none" role="img" aria-label="Forma de onda do áudio original">
+    <path d={studioWaveformPath(waveform, start, end, columns)} />
+  </svg>;
+});
 
 export function StudioDesktopTimeline(props: Props) {
   const { project, position, selectedId, disabled, onSelect, onSeek, onCommit, onPreview, thumbnails } = props;
@@ -74,12 +85,17 @@ export function StudioDesktopTimeline(props: Props) {
     const asset = project.editing!.assets.find(a => a.id === clip.assetId);
     const title = clip.text?.content || asset?.name || 'Mídia';
     const isSelected = selectedId === clip.id, main = clip.zIndex === 0;
+    const clipWidth = Math.max(8, studioSeconds(clip.durationTicks) * scale);
+    const waveform = asset && (clip.kind === 'video' || clip.kind === 'audio') ? props.waveforms?.get(asset.id) : undefined;
+    const muted = main ? project.editing!.mainMuted === true : project.editing!.layers[clip.zIndex - 1]?.muted === true;
     return <div role="button" tabIndex={0} key={clip.id} aria-label={`${main ? 'Take' : 'Camada'} ${title}`} aria-pressed={isSelected} className={`se-timeline-clip se-clip-${clip.kind} ${isSelected ? 'selected' : ''} ${dragging === clip.id ? 'dragging' : ''}`}
-      style={{ left: studioSeconds(clip.startTicks) * scale, width: Math.max(8, studioSeconds(clip.durationTicks) * scale), ...(asset && thumbnails[asset.id] ? { backgroundImage: `url("${thumbnails[asset.id]}")` } : {}) }}
+      style={{ left: studioSeconds(clip.startTicks) * scale, width: clipWidth, ...(asset && thumbnails[asset.id] ? { backgroundImage: `url("${thumbnails[asset.id]}")` } : {}) }}
       onPointerDown={e => begin(e, clip.id)} onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel}
       draggable={main && !disabled} onDragStart={e => { e.dataTransfer.setData('application/classfy-clip', clip.id); cancel(); }} onDragOver={e => { if (main) e.preventDefault(); }} onDrop={e => { if (!main || disabled) return; e.preventDefault(); const from = e.dataTransfer.getData('application/classfy-clip'); if (from) onCommit(value => moveMainClip(value, from, value.editing!.main.findIndex(c => c.id === clip.id))); }}
       onClick={e => { e.stopPropagation(); if (suppress.current) { suppress.current = false; return; } if (!disabled) onSelect(clip.id); }} onKeyDown={e => { if (e.key === 'Enter' && !disabled) { e.stopPropagation(); onSelect(clip.id); } }}>
       <span>{clip.kind === 'audio' ? <Mic size={13} /> : null}{title}</span>
+      {waveform && <ClipWaveform waveform={waveform} start={studioSeconds(clip.sourceStartTicks)}
+        end={studioSeconds(clip.sourceEndTicks)} width={clipWidth} muted={muted} />}
       {isSelected && !disabled && <>{(['start', 'end'] as const).map(edge => <span key={edge} role="slider" tabIndex={0} aria-label={`Cortar ${edge === 'start' ? 'início' : 'fim'} de ${title}`} aria-valuenow={studioSeconds(main && asset?.kind !== 'image' ? edge === 'start' ? clip.sourceStartTicks : clip.sourceEndTicks : edge === 'start' ? clip.startTicks : clip.startTicks + clip.durationTicks)} className={`se-trim-handle ${edge}`}
         onPointerDown={e => begin(e, clip.id, edge)} onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel}
         onKeyDown={e => { if (disabled || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); e.stopPropagation(); const fake: Drag = { pointer: 0, id: clip.id, x: 0, y: 0, clip, base: project, edge, lastX: 0, lastY: 0, moved: true, scale }; onCommit(p => applyDrag(fake, (e.key === 'ArrowRight' ? 1 : -1) * scale / 30, 0, p)); }} />)}</>}
