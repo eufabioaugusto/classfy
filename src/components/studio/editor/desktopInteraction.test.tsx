@@ -66,6 +66,14 @@ describe('componentes reais do editor desktop', () => {
     await act(async () => pointer(content, 'pointerup', 320, 340));
     expect(select).toHaveBeenCalledWith(['caption', 'right']);
     expect(content.querySelector('.se-timeline-marquee')).toBeNull();
+    await act(async () => {
+      // Fast drags may deliver both endpoints without an intervening pointermove.
+      pointer(content, 'pointerdown', 120, 470);
+      pointer(content, 'pointerup', 180, 410);
+      pointer(content, 'pointerdown', 550, 410);
+      pointer(content, 'pointerup', 350, 410);
+    });
+    expect(select.mock.calls).toEqual([[['caption', 'right']], [['left']], [['right']]]);
     expect(seek).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
   });

@@ -8,7 +8,7 @@ import { clampStudioTime, snapStudioTime, webStudioTrim } from './timelineGeomet
 
 export type TimelineTool = 'select' | 'blade' | 'trim' | 'hand';
 type Box = { left: number; top: number; width: number; height: number };
-type Marquee = { pointer: number; x: number; y: number; additive: boolean; clips: (Box & { id: string })[]; moved: boolean };
+type Marquee = { pointer: number; x: number; y: number; additive: boolean; clips?: (Box & { id: string })[]; moved: boolean };
 const timelineTools = [
   { id: 'select', label: 'Seleção', key: 'A', Icon: MousePointer2 },
   { id: 'blade', label: 'Lâmina', key: 'B', Icon: Scissors },
@@ -70,37 +70,39 @@ export function StudioDesktopTimeline(props: Props) {
     if (tool !== 'select' || disabled || event.pointerType === 'touch' || event.button !== 0 ||
       (event.target as Element).closest('button, [role="slider"], [data-timeline-clip]')) return;
     const content = event.currentTarget, bounds = content.getBoundingClientRect();
-    const clips = Array.from(content.querySelectorAll<HTMLElement>('[data-timeline-clip]'), element => {
+    event.preventDefault();
+    content.setPointerCapture(event.pointerId);
+    marquee.current = { ...point(event, bounds), pointer: event.pointerId, additive: event.shiftKey, moved: false };
+    content.focus({ preventScroll: true });
+  };
+  const measureMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = marquee.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
+    const content = event.currentTarget, bounds = content.getBoundingClientRect();
+    const { x, y } = point(event, bounds);
+    if (!drag.moved && Math.hypot(x - drag.x, y - drag.y) < 3) return;
+    drag.moved = true;
+    const box = { left: Math.min(x, drag.x), top: Math.min(y, drag.y), width: Math.max(1, Math.abs(x - drag.x)), height: Math.max(1, Math.abs(y - drag.y)) };
+    drag.clips ??= Array.from(content.querySelectorAll<HTMLElement>('[data-timeline-clip]'), element => {
       const rect = element.getBoundingClientRect();
       return { id: element.dataset.timelineClip!, left: rect.left - bounds.left, top: rect.top - bounds.top,
         width: rect.width, height: rect.height };
     });
-    event.preventDefault();
-    content.focus({ preventScroll: true });
-    content.setPointerCapture(event.pointerId);
-    marquee.current = { ...point(event, bounds), pointer: event.pointerId,
-      additive: event.shiftKey, clips, moved: false };
-  };
-  const updateMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = marquee.current;
-    if (!drag || drag.pointer !== event.pointerId) return;
-    const { x, y } = point(event, event.currentTarget.getBoundingClientRect());
-    if (!drag.moved && Math.hypot(x - drag.x, y - drag.y) < 3) return;
-    const box = { left: Math.min(x, drag.x), top: Math.min(y, drag.y), width: Math.abs(x - drag.x), height: Math.abs(y - drag.y) };
-    drag.moved = true;
     const hits = drag.clips.filter(clip => clip.left < box.left + box.width && clip.left + clip.width > box.left &&
       clip.top < box.top + box.height && clip.top + clip.height > box.top).map(clip => clip.id);
-    const ids = new Set(drag.additive ? [...selectedIds, ...hits] : hits);
-    setMarqueePreview({ box, ids });
-    return [...ids];
+    return { box, ids: new Set(drag.additive ? [...selectedIds, ...hits] : hits) };
+  };
+  const updateMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
+    const preview = measureMarquee(event);
+    if (preview) setMarqueePreview(preview);
   };
   const cancelMarquee = () => { marquee.current = null; setMarqueePreview(undefined); };
   const finishMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
     const drag = marquee.current;
     if (!drag || drag.pointer !== event.pointerId) return;
-    const ids = updateMarquee(event);
+    const preview = measureMarquee(event);
     cancelMarquee();
-    if (!disabled && (ids || !drag.additive)) props.onSelectMany(ids ?? []);
+    if (!disabled && (preview || !drag.additive)) props.onSelectMany(preview ? [...preview.ids] : []);
   };
   const applyDrag = (draft: Drag, dx: number, dy: number, target: StudioProject) => {
     const clip = draft.clip, start = studioSeconds(clip.startTicks), end = studioSeconds(clip.startTicks + clip.durationTicks);

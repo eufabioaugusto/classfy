@@ -12,7 +12,7 @@ import { readStudioWaveform, type StudioWaveform } from '@/lib/studio/editor/aud
 import { downloadStudioOriginal } from '@/lib/studio/editor/originalDownload';
 import { findStudioRetakes, type StudioRetakeGroup } from '@/lib/studio/editor/studioRetakes';
 import { findStudioPauses } from '@/lib/studio/editor/classEdit';
-import { transcribeStudioCaptions } from '@/lib/studio/editor/studioCaptions';
+import { transcribeStudioCaptions, type StudioCaptionWord } from '@/lib/studio/editor/studioCaptions';
 import { analyzeStudioScene } from '@/lib/studio/editor/sceneAnalysis';
 import { analyzeStudioSignature } from '@/lib/studio/editor/signatureAnalysis';
 import { createStudioRenderer, type StudioRenderer } from '@/lib/studio/editor/renderer';
@@ -310,10 +310,10 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     const merged = { ...old, ...patch, ...(patch.rect ? { rect: { ...old.rect, ...patch.rect } } : {}), ...(patch.text ? { text: { ...old.text, ...patch.text } } : {}), ...(patch.grade ? { grade: { ...old.grade, ...patch.grade } } : {}) };
     try { const next = patchClip(workspace.current.current, selected, merged); pendingPatch.current = { id: selected, patch: merged }; setPreview(next); } catch (cause) { recordError(cause); }
   };
-  const transcribe = (snapshot: StudioProject, token: number, signal: AbortSignal, onStage: (stage: string, progress?: number) => void = setBusy) =>
+  const transcribe = (snapshot: StudioProject, token: number, signal: AbortSignal, onStage: (stage: string, progress?: number) => void = setBusy, onWords?: (words: StudioCaptionWord[]) => void) =>
     transcribeStudioCaptions(snapshot, id => getAsset(owner, projectId, id), captionLanguage, signal, (stage, fraction) => {
       if (scope(token) && !signal.aborted) onStage(stage, fraction);
-    });
+    }, onWords);
   const generateCaptions = () => {
     if (!premium) return;
     setCaptionNotice('');
@@ -378,15 +378,16 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
         setProgress(.58);
         setBusy('Preparando áudio da montagem');
         try {
+          let words: StudioCaptionWord[] = [];
           const cues = await transcribe(edited, token, signal, (stage, fraction = 0) => {
             setBusy(stage);
             const [start, end] = stage === 'Transcrevendo áudio' ? [.78, .93] : [.67, .77];
             measuredCaptionProgress.current = Math.max(measuredCaptionProgress.current, start + (end - start) * Math.min(1, Math.max(0, fraction)));
             setProgress(value => Math.max(value, start));
-          });
+          }, reviewRetakes ? value => { words = value; } : undefined);
           if (!scope(token) || signal.aborted) return;
           if (reviewRetakes) {
-            retakes = findStudioRetakes(cues);
+            retakes = findStudioRetakes(cues, words);
             if (!retakes.length) finish.push(cues.length ? 'Sem repetições semelhantes detectadas' : 'Sem fala para comparar');
           }
           if (autoCaptions) {
@@ -394,9 +395,10 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
             finish.push(captioned === edited ? 'Nenhuma fala identificada' : 'Legendas geradas');
             edited = captioned;
           }
-        } catch {
+        } catch (cause) {
           if (!scope(token) || signal.aborted) return;
-          finish.push(autoCaptions && reviewRetakes ? 'Legendas e revisão de repetições indisponíveis' : autoCaptions ? 'Legendas indisponíveis' : 'Revisão de repetições indisponível');
+          const unavailable = autoCaptions && reviewRetakes ? 'Legendas e revisão de repetições indisponíveis' : autoCaptions ? 'Legendas indisponíveis' : 'Revisão de repetições indisponível';
+          finish.push(cause instanceof Error ? `${unavailable}. ${cause.message}` : unavailable);
         }
       }
       setBusy('Salvando a edição');

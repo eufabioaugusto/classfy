@@ -3,10 +3,10 @@ import { assertStudioActive, type StudioAssetResolver } from './media';
 import { StudioRenderKernel } from './renderer';
 
 export type StudioCaptionCue = { text: string; start: number; end: number };
-type Word = { text: string; timestamp: [number, number | null] };
-type WorkerResult = { stage?: string; progress?: number; error?: string; chunks?: Word[] };
+export type StudioCaptionWord = { text: string; timestamp: [number, number | null] };
+type WorkerResult = { stage?: string; progress?: number; error?: string; chunks?: StudioCaptionWord[] };
 
-function groupCaptionWords(words: Word[], duration: number): StudioCaptionCue[] {
+function groupCaptionWords(words: StudioCaptionWord[], duration: number): StudioCaptionCue[] {
   const cues: StudioCaptionCue[] = [];
   let cue: StudioCaptionCue | undefined;
   for (const { text, timestamp: [from, to] } of words) {
@@ -32,7 +32,7 @@ function groupCaptionWords(words: Word[], duration: number): StudioCaptionCue[] 
 
 export async function transcribeStudioCaptions(
   project: StudioProject, resolveAsset: StudioAssetResolver, language: string,
-  signal: AbortSignal, onStage: (stage: string, progress?: number) => void,
+  signal: AbortSignal, onStage: (stage: string, progress?: number) => void, onWords?: (words: StudioCaptionWord[]) => void,
 ): Promise<StudioCaptionCue[]> {
   assertStudioActive(signal);
   const recipe = compileStudioRecipe(project);
@@ -68,7 +68,9 @@ export async function transcribeStudioCaptions(
       if (data.stage) { onStage(data.stage, data.progress); return; }
       finish();
       if (data.error) { reject(new Error(data.error)); return; }
-      resolve(groupCaptionWords(data.chunks ?? [], duration));
+      const words = data.chunks ?? [];
+      onWords?.(words);
+      resolve(groupCaptionWords(words, duration));
     };
     worker.postMessage({ audio, language }, [audio.buffer]);
   });

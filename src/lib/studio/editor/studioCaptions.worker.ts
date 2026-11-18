@@ -1,4 +1,4 @@
-import { TextStreamer, pipeline } from '@huggingface/transformers';
+import { pipeline } from '@huggingface/transformers';
 
 self.onmessage = async ({ data }: MessageEvent<{ audio: Float32Array; language: string }>) => {
   try {
@@ -23,23 +23,32 @@ self.onmessage = async ({ data }: MessageEvent<{ audio: Float32Array; language: 
       },
     });
     self.postMessage({ stage: transcriptionStage, progress: 0 });
-    const chunkSeconds = 27, strideSeconds = 4;
-    const duration = data.audio.length / 16000;
-    const chunkCount = 1 + Math.ceil(Math.max(0, duration - chunkSeconds) / (chunkSeconds - 2 * strideSeconds));
-    let completed = 0;
-    const streamer = new class extends TextStreamer {
-      put() {}
-      end() { self.postMessage({ stage: transcriptionStage, progress: Math.min(1, ++completed / chunkCount) }); }
-    }(transcribe.tokenizer);
-    const result = await transcribe(data.audio, {
-      language: data.language || undefined,
-      task: 'transcribe',
-      return_timestamps: 'word',
-      chunk_length_s: chunkSeconds,
-      stride_length_s: strideSeconds,
-      streamer,
-    });
-    self.postMessage({ chunks: (Array.isArray(result) ? result[0] : result).chunks ?? [] });
+    const sampleRate = 16000;
+    const windowSize = 20 * sampleRate;
+    const context = 4 * sampleRate;
+    const chunks: { text: string; timestamp: [number, number] }[] = [];
+    for (let offset = 0; offset < data.audio.length; offset += windowSize) {
+      const end = Math.min(offset + windowSize, data.audio.length);
+      const from = Math.max(0, offset - context);
+      const to = Math.min(data.audio.length, end + context);
+      const result = await transcribe(data.audio.subarray(from, to), {
+        language: data.language || undefined,
+        task: 'transcribe',
+        return_timestamps: 'word',
+      });
+      for (const word of (Array.isArray(result) ? result[0] : result).chunks ?? []) {
+        const [start, stop] = word.timestamp;
+        if (!Number.isFinite(start)) continue;
+        const absoluteStart = Math.max(0, start) + from / sampleRate;
+        const absoluteEnd = Math.min(to / sampleRate, (stop ?? start + .5) + from / sampleRate);
+        const midpoint = (absoluteStart + absoluteEnd) / 2;
+        if (absoluteEnd > absoluteStart && midpoint >= offset / sampleRate && midpoint < end / sampleRate) {
+          chunks.push({ text: word.text, timestamp: [absoluteStart, absoluteEnd] });
+        }
+      }
+      self.postMessage({ stage: transcriptionStage, progress: end / data.audio.length });
+    }
+    self.postMessage({ chunks });
   } catch {
     self.postMessage({ error: 'Não foi possível carregar o modelo ou transcrever neste navegador. Tente novamente ou importe um SRT.' });
   }

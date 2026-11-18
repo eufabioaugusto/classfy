@@ -138,3 +138,31 @@ describe('revisão de takes repetidos do ClassCut', () => {
     expect(findStudioRetakes(cues).map(group => group.map(cue => [cue.start, cue.end]))).toEqual([[[1, 4], [6, 9], [11, 14]]]);
   });
 });
+
+it('localiza a frase repetida dentro de legendas com contexto diferente', () => {
+  const phrase = 'entender que os caminhos de Deus são melhores';
+  const first = `Precisamos ${phrase} antes de seguir`;
+  const second = `Você precisa ${phrase} em toda situação`;
+  const cues = [{ start: 21, end: 25, text: first }, { start: 28, end: 32, text: second }];
+  const words = cues.flatMap(({ start, text }) => text.split(' ').map((word, index) => ({
+    text: word, timestamp: [start + index / 4, start + (index + 1) / 4] as [number, number],
+  })));
+  expect(findStudioRetakes(cues, words)).toEqual([[
+    { start: 21.25, end: 23.25, text: phrase },
+    { start: 28.5, end: 30.5, text: phrase },
+  ]]);
+});
+
+it('sinaliza inícios curtos interrompidos seguidos da frase completa', () => {
+  const cues = [
+    { start: 31.86, end: 33.68, text: 'Essa sabedoria não é você…' },
+    { start: 34.16, end: 34.88, text: 'Essa sabedoria...' },
+    { start: 35.24, end: 36.18, text: 'Essa pessoa está tranquila.' },
+    { start: 36.24, end: 36.88, text: 'Essa sabedoria…' },
+    { start: 37.1, end: 40.22, text: 'Essa sabedoria não é só sobre você ter opinião sobre' },
+    { start: 40.22, end: 40.92, text: 'alguma coisa.' },
+  ];
+  expect(findStudioRetakes(cues).map(group => group.map(cue => [cue.start, cue.end]))).toEqual([[
+    [31.86, 33.68], [34.16, 34.88], [36.24, 36.88], [37.1, 40.92],
+  ]]);
+});
