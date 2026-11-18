@@ -77,7 +77,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const [colorPreset, setColorPreset] = useState<StudioEffect>('studio'), [colorIntensity, setColorIntensity] = useState(.65);
   const [captionNotice, setCaptionNotice] = useState('');
   const [classEditRunning, setClassEditRunning] = useState(false);
-  const classEditGradient = useId();
+  const classEditBorderMask = useId();
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState<string | null>(null), [progress, setProgress] = useState(0);
   const measuredCaptionProgress = useRef(0);
   useEffect(() => {
@@ -715,7 +715,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
           <fieldset className="se-tool-choices" disabled={blocked}><legend>Estilo da legenda</legend><div>
             {captionStyles.map(({ label }, index) => <button type="button" key={label} aria-pressed={captionStyle === index} onClick={() => setCaptionStyle(index)}><span className={`se-caption-sample style-${index}`}>Aa</span>{label}</button>)}
           </div></fieldset>
-          <button className="se-button se-primary se-wide" disabled={blocked || !!recorder || !premium || !hasAudio || hasCaptions} onClick={generateCaptions}><Sparkles size={15} />Gerar legendas</button>
+          <button className="se-button se-ai-action se-wide" disabled={blocked || !!recorder || !premium || !hasAudio || hasCaptions} onClick={generateCaptions}><Sparkles size={15} />Gerar legendas</button>
           <p className="se-muted">{hasCaptions ? 'Remova as legendas da montagem para gerar novamente.' : 'Usa o áudio da montagem. O modelo de voz é baixado no primeiro uso.'}</p>
           {!premium && <p className="se-tool-plan">Geração automática Premium · {premiumMessage}</p>}
           {captionNotice && <p role="status">{captionNotice}</p>}
@@ -738,7 +738,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
             {premium ? <>
               <label><input type="checkbox" checked={autoCaptions} disabled={blocked} onChange={event => setAutoCaptions(event.target.checked)} /> Gerar legendas com o Class Edit</label>
               <label><input type="checkbox" checked={reviewRetakes} disabled={blocked} onChange={event => setReviewRetakes(event.target.checked)} /> Sinalizar tomadas repetidas</label>
-              <button className="se-button se-primary se-wide" disabled={blocked || !!recorder || !classEditAvailable} onClick={runClassEdit}>Aplicar Class Edit</button>
+              <button className="se-button se-ai-action se-wide" disabled={blocked || !!recorder || !classEditAvailable} onClick={runClassEdit}>Aplicar Class Edit</button>
               {!classEditAvailable && <p className="se-muted">Comece com um único vídeo com áudio e sem camadas.</p>}
             </> : <p className="se-tool-plan">{premiumMessage}</p>}
           </div>
@@ -774,12 +774,14 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     {busy && classEditRunning && <div className="se-modal-backdrop">
       <section className="se-progress-modal se-class-edit-progress" role="dialog" aria-modal="true" aria-label="Class Edit">
         <svg className="se-class-edit-progress-border" viewBox="0 0 350 192" preserveAspectRatio="none" aria-hidden="true">
-          <defs><linearGradient id={classEditGradient} x2="100%" y2="100%">
-            <stop stopColor="#f176ac" /><stop offset=".5" stopColor="#d73585" /><stop offset="1" stopColor="#ef5066" />
-          </linearGradient></defs>
-          <path d="M175 2 H334 Q348 2 348 16 V176 Q348 190 334 190 H16 Q2 190 2 176 V16 Q2 2 16 2 Z"
-            pathLength={100} fill="none" stroke={`url(#${classEditGradient})`} strokeWidth={3}
-            vectorEffect="non-scaling-stroke" strokeDasharray="100 100" strokeDashoffset={100 - progress * 100} />
+          <defs><mask id={classEditBorderMask} maskUnits="userSpaceOnUse" x={0} y={0} width={350} height={192}>
+            <path d="M175 2 H334 Q348 2 348 16 V176 Q348 190 334 190 H16 Q2 190 2 176 V16 Q2 2 16 2 Z"
+              pathLength={100} fill="none" stroke="white" strokeWidth={3}
+              vectorEffect="non-scaling-stroke" strokeDasharray="100 100" strokeDashoffset={100 - progress * 100} />
+          </mask></defs>
+          <foreignObject width={350} height={192} mask={`url(#${classEditBorderMask})`}>
+            <div className="se-class-edit-border-color" />
+          </foreignObject>
         </svg>
         <div className="se-class-edit-percent" role="progressbar" aria-label="Progresso do Class Edit" aria-valuenow={Math.round(progress * 100)}>{Math.round(progress * 100)}%</div>
         <h2 role="status">{busy}</h2>
