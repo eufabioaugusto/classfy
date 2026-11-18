@@ -93,7 +93,7 @@ export function classEditTarget(project: StudioProject) {
 export function applyClassEdit(project: StudioProject, clipId: string,
   pauses: readonly { start: number; end: number }[], enhancement?: StudioEnhancement, portrait?: StudioPortrait, grade?: StudioGrade): StudioProject {
   const target = classEditTarget(project);
-  if (!target || target.clip.id !== clipId) throw new Error('A montagem mudou durante a análise do Class Edit.');
+  if (!target || target.clip.id !== clipId) throw new Error('A montagem mudou durante a análise do ClassCut.');
   if (!pauses.length && !enhancement && !portrait && !grade) return project;
   const editing = studioEditing(project);
   const clip = { ...target.clip, ...(enhancement ? { enhancement } : {}), ...(portrait ? { portrait } : {}), ...(grade ? { grade, effect: grade.preset } : {}) };
@@ -104,12 +104,12 @@ export function applyClassEdit(project: StudioProject, clipId: string,
   };
   for (const pause of pauses) {
     const start = studioTicks(pause.start), end = studioTicks(pause.end);
-    if (start < cursor || end <= start || end > clip.sourceEndTicks) throw new Error('Revise os limites dos cortes do Class Edit.');
+    if (start < cursor || end <= start || end > clip.sourceEndTicks) throw new Error('Revise os limites dos cortes do ClassCut.');
     keep(start);
     cursor = end;
   }
   keep(clip.sourceEndTicks);
-  if (!main.length) throw new Error('O Class Edit precisa preservar ao menos um trecho.');
+  if (!main.length) throw new Error('O ClassCut precisa preservar ao menos um trecho.');
   return edit(project, { ...editing, main });
 }
 export function trimMainClip(project: StudioProject, id: string, sourceStartSeconds: number, sourceEndSeconds: number): StudioProject {
@@ -297,7 +297,7 @@ async function restoreHistory(history: StudioCommandHistory, project: StudioProj
 export function undoProject(project: StudioProject, history: StudioCommandHistory, persist: (project: StudioProject) => Promise<StudioProject>) { return restoreHistory(history, project, 'undo', persist); }
 export function redoProject(project: StudioProject, history: StudioCommandHistory, persist: (project: StudioProject) => Promise<StudioProject>) { return restoreHistory(history, project, 'redo', persist); }
 
-/** Removes montage-time ranges from a Class Edit result and closes them across captions. */
+/** Removes montage-time ranges from a ClassCut result and closes them across captions. */
 export function removeClassEditRetakes(project: StudioProject, ranges: readonly { start: number; end: number }[]): StudioProject {
   const editing = studioEditing(project), recipe = compileStudioRecipe(project);
   const cuts = ranges.map(({ start, end }) => [studioTicks(start), studioTicks(end)] as const).sort(([a], [b]) => a - b);

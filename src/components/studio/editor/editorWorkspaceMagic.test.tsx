@@ -95,7 +95,7 @@ describe('comparação e histórico reais do editor', () => {
   it('abre o painel compartilhado e direciona contas Free para o Premium', async () => {
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
     const panel = host.querySelector('.se-library-content');
-    await click('Class Edit');
+    await click('ClassCut');
     expect(host.querySelector('.se-library-content')).toBe(panel);
     expect(panel?.querySelector('a')?.getAttribute('href')).toBe('/planos');
     expect(io.save).not.toHaveBeenCalled();
@@ -201,12 +201,12 @@ describe('comparação e histórico reais do editor', () => {
       selection: { resolution: '2k', frameRate: 60, quality: 'high' } });
   });
 
-  it('Class Edit salva os cortes e o ajuste em uma edição reversível', async () => {
+  it('ClassCut salva os cortes e o ajuste em uma edição reversível', async () => {
     io.getAsset.mockResolvedValue(new Blob(['original']));
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
     const transcription = deferred<{ text: string; start: number; end: number }[]>();
     io.transcribe.mockReturnValueOnce(transcription.promise);
-    await click('Class Edit');
+    await click('ClassCut');
     const modal = host.querySelector('.se-class-edit-progress')!;
     expect(modal.textContent).toContain('Preparando áudio da montagem');
     expect(modal.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('58');
@@ -238,7 +238,7 @@ describe('comparação e histórico reais do editor', () => {
     expect(latestRecipe().clips.find(clip => clip.kind === 'caption')?.startTicks).toBe(studioTicks(.3));
     expect(io.transcribe.mock.calls[0][2]).toBe('portuguese');
     expect(host.textContent).toContain('2 pausas encurtadas');
-    const entry = button('Class Edit');
+    const entry = button('ClassCut');
     entry.focus();
     const space = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true });
     await act(async () => entry.dispatchEvent(space));
@@ -267,18 +267,18 @@ describe('comparação e histórico reais do editor', () => {
     expect(saved!.editing!.assets.map(asset => asset.id)).toEqual(['video-original', 'image-original']);
   });
 
-  it('mantém Class Edit e o ajuste existente ao refazer os cortes', async () => {
+  it('mantém ClassCut e o ajuste existente ao refazer os cortes', async () => {
     io.get.mockResolvedValue(patchClip(initialProject(), 'main', { enhancement: priorEnhancement }));
     io.getAsset.mockResolvedValue(new Blob(['original']));
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
-    expect(button('Class Edit').getAttribute('aria-disabled')).toBe('false');
-    await click('Class Edit');
+    expect(button('ClassCut').getAttribute('aria-disabled')).toBe('false');
+    await click('ClassCut');
     await vi.waitFor(() => expect(host.querySelector('.se-class-edit-progress')).toBeNull());
     expect(latestRecipe().clips.every(clip => clip.enhancement?.strength === priorEnhancement.strength)).toBe(true);
-    expect(button('Class Edit').getAttribute('aria-disabled')).toBe('true');
+    expect(button('ClassCut').getAttribute('aria-disabled')).toBe('true');
     await click('Desfazer');
     expect(latestRecipe().clips[0].enhancement).toEqual(priorEnhancement);
-    expect(button('Class Edit').getAttribute('aria-disabled')).toBe('false');
+    expect(button('ClassCut').getAttribute('aria-disabled')).toBe('false');
   });
 
   it('mostra o preparo e inicia apenas um download para cliques repetidos', async () => {

@@ -124,7 +124,7 @@ describe('componentes reais do editor desktop', () => {
     await act(async () => root.render(<StudioDesktopTimeline {...toolProps} {...props} selectedIds={['clip']} position={5.1} playing />)); expect(scrollTo).toHaveBeenCalledTimes(1);
     await act(async () => root.render(<StudioDesktopTimeline {...toolProps} {...props} selectedIds={['clip']} position={6} />)); expect(scrollTo).toHaveBeenCalledTimes(1); expect(seek).not.toHaveBeenCalled();
   });
-  it('estende o último corte do Class Edit usando o original mesmo quando o clipe tenta iniciar um arraste', async () => {
+  it('estende o último corte do ClassCut usando o original mesmo quando o clipe tenta iniciar um arraste', async () => {
     let current = applyClassEdit(fixture(), 'clip', [{ start: 4, end: 5 }, { start: 7, end: 8 }]);
     const last = current.editing!.main.at(-1)!;
     current = addCaption(current, 'Até o próximo vídeo.', 2, 2);

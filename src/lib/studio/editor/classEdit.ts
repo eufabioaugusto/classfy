@@ -13,7 +13,7 @@ export async function findStudioPauses(file: Blob, start: number, end: number, s
     histogram[Math.round(window.level) + 90]++;
     windows.push(window);
   }
-  if (!windows.length) throw new Error('O Class Edit não conseguiu ler amostras de áudio neste trecho.');
+  if (!windows.length) throw new Error('O ClassCut não conseguiu ler amostras de áudio neste trecho.');
   const percentile = (fraction: number) => {
     const rank = Math.max(1, Math.ceil(windows.length * fraction));
     let count = 0;

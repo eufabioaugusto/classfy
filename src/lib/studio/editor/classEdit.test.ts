@@ -24,7 +24,7 @@ function packet(timestamp: number, length: number, level: number) {
   return { timestamp, buffer: { sampleRate: 1000, length, numberOfChannels: 1, getChannelData: () => samples } };
 }
 
-describe('detecção de pausas do Class Edit', () => {
+describe('detecção de pausas do ClassCut', () => {
   it('encurta uma pausa que atravessa pacotes, preserva respiro e encurta também as pontas', async () => {
     source.packets = [
       packet(0, 1000, 0), packet(1, 1000, .1),
@@ -125,7 +125,7 @@ describe('forma de onda vinculada ao vídeo', () => {
   });
 });
 
-describe('revisão de takes repetidos do Class Edit', () => {
+describe('revisão de takes repetidos do ClassCut', () => {
   it('agrupa três tentativas próximas mesmo com legendas divididas de forma diferente', () => {
     const cues = [
       { start: 1, end: 2, text: 'Hoje vamos aprender' },

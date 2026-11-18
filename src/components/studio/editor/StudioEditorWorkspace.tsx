@@ -674,8 +674,8 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
           capabilities={capabilities} disabled={blocked || !!recorder} audioOnly={project.kind === 'podcast'} />
         <StudioShortcutPanel open={shortcutsOpen} onOpen={setShortcutsOpen} onAction={runShortcut} disabled={blocked || !!recorder} />
       </div><button className="se-button se-class-edit-button" aria-disabled={premiumLoading || (premium && !classEditAvailable) || blocked || !!recorder}
-      title={!premium ? 'Class Edit Premium' : !classEditAvailable ? 'Use um único vídeo com áudio, sem camadas ou efeitos de tempo e assinatura.' : undefined}
-      onClick={() => { if (blocked || recorder || premiumLoading) return; if (!premium) { setTab('adjustments'); return; } if (classEditAvailable) runClassEdit(); }}><Scissors size={15} />Class Edit</button><button className="se-button se-primary" disabled={blocked || !!recorder || !project.editing!.main.length} onClick={() => setExportMenu(!exportMenu)}><Upload size={15} /> Exportar<ChevronDown size={12} /></button></div>
+      title={!premium ? 'ClassCut Premium' : !classEditAvailable ? 'Use um único vídeo com áudio, sem camadas ou efeitos de tempo e assinatura.' : undefined}
+      onClick={() => { if (blocked || recorder || premiumLoading) return; if (!premium) { setTab('adjustments'); return; } if (classEditAvailable) runClassEdit(); }}><Scissors size={15} />ClassCut</button><button className="se-button se-primary" disabled={blocked || !!recorder || !project.editing!.main.length} onClick={() => setExportMenu(!exportMenu)}><Upload size={15} /> Exportar<ChevronDown size={12} /></button></div>
       {exportMenu && <div className="se-export-menu"><p>{recipe.output.width} × {recipe.output.height} · {Number((recipe.output.frameRateNumerator / recipe.output.frameRateDenominator).toFixed(2))} FPS · SDR</p>
         {capabilities?.reason && <p role="status">{capabilities.reason}</p>}<button disabled={!capabilities?.available && project.kind !== 'podcast'} onClick={() => exportFile(false)}><Download size={16} />Baixar arquivo</button><button disabled={!capabilities?.available && project.kind !== 'podcast'} onClick={() => exportFile(true)}><Upload size={16} />Preparar publicação</button></div>}
     </header>
@@ -737,11 +737,11 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
             apply(value => colorTargets.reduce((next, id) => patchClip(next, id, { grade: chosenGrade, effect: colorPreset }), value)); setComparing(false);
           }}>{colorTargets.length === 1 ? 'Aplicar filtro ao clipe' : selection.length > 1 ? 'Aplicar filtro à seleção' : 'Aplicar filtro à faixa principal'}</button>
           <div className="se-tool-class-edit">
-            <h3><Sparkles size={15} />Class Edit Premium</h3>
+            <h3><Sparkles size={15} />ClassCut Premium</h3>
             {premium ? <>
-              <label><input type="checkbox" checked={autoCaptions} disabled={blocked} onChange={event => setAutoCaptions(event.target.checked)} /> Gerar legendas com o Class Edit</label>
+              <label><input type="checkbox" checked={autoCaptions} disabled={blocked} onChange={event => setAutoCaptions(event.target.checked)} /> Gerar legendas com o ClassCut</label>
               <label><input type="checkbox" checked={reviewRetakes} disabled={blocked} onChange={event => setReviewRetakes(event.target.checked)} /> Sinalizar tomadas repetidas</label>
-              <button className="se-button se-ai-action se-wide" disabled={blocked || !!recorder || !classEditAvailable} onClick={runClassEdit}>Aplicar Class Edit</button>
+              <button className="se-button se-ai-action se-wide" disabled={blocked || !!recorder || !classEditAvailable} onClick={runClassEdit}>Aplicar ClassCut</button>
               {!classEditAvailable && <p className="se-muted">Comece com um único vídeo com áudio e sem camadas.</p>}
             </> : <p className="se-tool-plan">{premiumMessage}</p>}
           </div>
@@ -775,7 +775,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     <input ref={input} className="se-sr" tabIndex={-1} type="file" multiple onChange={e => { const files = Array.from(e.target.files ?? []), pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && files.length && pending?.type === 'media' && scope(pending.token)) void importFiles(files, pending.target, pending.at); }} />
     <input ref={captionsInput} className="se-sr" tabIndex={-1} type="file" accept=".srt,text/plain" onChange={e => { const file = e.target.files?.[0], pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && file && pending?.type === 'captions' && scope(pending.token)) void external('Importando legendas', async (token, signal) => { const cues = parseDesktopCaptions(await file.text()); if (!scope(token) || signal.aborted) return; const current = workspace.current.current!, length = studioSeconds(compileStudioRecipe(current).durationTicks); if (cues.some(c => c.start >= length || c.end > length + .01)) throw new Error('Uma legenda ultrapassa a duração da montagem. Revise o arquivo SRT.'); workspace.apply(value => addCaptionTrack(value, cues, captionStyles[captionStyle].style)); await workspace.flush(); }); }} />
     {busy && classEditRunning && <div className="se-modal-backdrop">
-      <section className="se-progress-modal se-class-edit-progress" role="dialog" aria-modal="true" aria-label="Class Edit">
+      <section className="se-progress-modal se-class-edit-progress" role="dialog" aria-modal="true" aria-label="ClassCut">
         <svg className="se-class-edit-progress-border" viewBox="0 0 350 192" preserveAspectRatio="none" aria-hidden="true">
           <defs><mask id={classEditBorderMask} maskUnits="userSpaceOnUse" x={0} y={0} width={350} height={192}>
             <path d="M175 2 H334 Q348 2 348 16 V176 Q348 190 334 190 H16 Q2 190 2 176 V16 Q2 2 16 2 Z"
@@ -786,7 +786,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
             <div className="se-class-edit-border-color" />
           </foreignObject>
         </svg>
-        <div className="se-class-edit-percent" role="progressbar" aria-label="Progresso do Class Edit" aria-valuenow={Math.round(progress * 100)}>{Math.round(progress * 100)}%</div>
+        <div className="se-class-edit-percent" role="progressbar" aria-label="Progresso do ClassCut" aria-valuenow={Math.round(progress * 100)}>{Math.round(progress * 100)}%</div>
         <h2 role="status">{busy}</h2>
         <button className="se-button" disabled={progress >= .94} onClick={() => controller.current?.abort()}>Cancelar</button>
       </section>
