@@ -8,7 +8,7 @@ import { clampStudioTime, snapStudioTime, webStudioTrim } from './timelineGeomet
 
 export type TimelineTool = 'select' | 'blade' | 'trim' | 'hand';
 type Box = { left: number; top: number; width: number; height: number };
-type Marquee = { pointer: number; x: number; y: number; additive: boolean; clips?: (Box & { id: string })[]; moved: boolean };
+type Marquee = { pointer: number; x: number; y: number; additive: boolean; selection: boolean; clips?: (Box & { id: string })[]; moved: boolean };
 const timelineTools = [
   { id: 'select', label: 'Seleção', key: 'A', Icon: MousePointer2 },
   { id: 'blade', label: 'Lâmina', key: 'B', Icon: Scissors },
@@ -41,7 +41,7 @@ export function StudioDesktopTimeline(props: Props) {
   const marquee = useRef<Marquee | null>(null);
   const frame = recipe.output.frameRateDenominator / recipe.output.frameRateNumerator;
   const transaction = useRef<Drag | null>(null), scroll = useRef<HTMLDivElement>(null), suppress = useRef(false);
-  const pan = useRef<{ pointer: number; x: number; left: number }>();
+  const pan = useRef<{ pointer: number; x: number; left: number; background: HTMLDivElement | null; moved: boolean }>();
   const volumeDrag = useRef<{ pointer: number; id: string; base: StudioProject; last: number; bounds: DOMRect; maximum: number }>();
   const zoomCommand = props.zoomCommand;
   useEffect(() => {
@@ -66,14 +66,19 @@ export function StudioDesktopTimeline(props: Props) {
     x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
     y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
   });
+  const isTimelineBackground = (target: EventTarget) => target instanceof Element &&
+    !target.closest('button, [role="slider"], [data-timeline-clip]');
+  const seekAt = (clientX: number, timeline: HTMLElement) =>
+    onSeek(clampStudioTime((clientX - timeline.getBoundingClientRect().left) / scale, duration));
+
   const beginMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (tool !== 'select' || disabled || event.pointerType === 'touch' || event.button !== 0 ||
-      (event.target as Element).closest('button, [role="slider"], [data-timeline-clip]')) return;
+    if (tool === 'hand' || disabled || event.button !== 0 || !isTimelineBackground(event.target)) return;
     const content = event.currentTarget, bounds = content.getBoundingClientRect();
-    event.preventDefault();
+    const selection = tool === 'select' && event.pointerType !== 'touch';
+    if (selection) event.preventDefault();
     content.setPointerCapture(event.pointerId);
-    marquee.current = { ...point(event, bounds), pointer: event.pointerId, additive: event.shiftKey, moved: false };
-    content.focus({ preventScroll: true });
+    marquee.current = { ...point(event, bounds), pointer: event.pointerId, additive: event.shiftKey, selection, moved: false };
+    if (selection) content.focus({ preventScroll: true });
   };
   const measureMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
     const drag = marquee.current;
@@ -82,6 +87,7 @@ export function StudioDesktopTimeline(props: Props) {
     const { x, y } = point(event, bounds);
     if (!drag.moved && Math.hypot(x - drag.x, y - drag.y) < 3) return;
     drag.moved = true;
+    if (!drag.selection) return;
     const box = { left: Math.min(x, drag.x), top: Math.min(y, drag.y), width: Math.max(1, Math.abs(x - drag.x)), height: Math.max(1, Math.abs(y - drag.y)) };
     drag.clips ??= Array.from(content.querySelectorAll<HTMLElement>('[data-timeline-clip]'), element => {
       const rect = element.getBoundingClientRect();
@@ -102,7 +108,12 @@ export function StudioDesktopTimeline(props: Props) {
     if (!drag || drag.pointer !== event.pointerId) return;
     const preview = measureMarquee(event);
     cancelMarquee();
-    if (!disabled && (preview || !drag.additive)) props.onSelectMany(preview ? [...preview.ids] : []);
+    if (disabled) return;
+    if (preview) props.onSelectMany([...preview.ids]);
+    else if (!drag.moved) {
+      if (tool === 'select' && !drag.additive) props.onSelectMany([]);
+      seekAt(event.clientX, event.currentTarget);
+    }
   };
   const applyDrag = (draft: Drag, dx: number, dy: number, target: StudioProject) => {
     const clip = draft.clip, start = studioSeconds(clip.startTicks), end = studioSeconds(clip.startTicks + clip.durationTicks);
@@ -263,18 +274,27 @@ export function StudioDesktopTimeline(props: Props) {
           if (tool !== 'hand' || disabled || event.button !== 0) return;
           event.stopPropagation(); event.preventDefault();
           const view = event.currentTarget;
-          pan.current = { pointer: event.pointerId, x: event.clientX, left: view.scrollLeft };
+          const background = isTimelineBackground(event.target) ? (event.target as Element).closest<HTMLDivElement>('.se-timeline-content') : null;
+          pan.current = { pointer: event.pointerId, x: event.clientX, left: view.scrollLeft, background, moved: false };
           view.setPointerCapture(event.pointerId);
         }}
         onPointerMove={event => {
           const drag = pan.current;
-          if (drag?.pointer === event.pointerId) event.currentTarget.scrollLeft = drag.left + drag.x - event.clientX;
+          if (drag?.pointer !== event.pointerId) return;
+          drag.moved ||= Math.abs(drag.x - event.clientX) >= 3;
+          if (drag.moved) event.currentTarget.scrollLeft = drag.left + drag.x - event.clientX;
+        }}
+        onPointerUp={event => {
+          const drag = pan.current;
+          if (drag?.pointer !== event.pointerId) return;
+          pan.current = undefined;
+          if (!disabled && drag.background && !drag.moved && Math.abs(drag.x - event.clientX) < 3) seekAt(event.clientX, drag.background);
         }}
         onLostPointerCapture={event => { if (pan.current?.pointer === event.pointerId) pan.current = undefined; }}><div className={`se-timeline-content tool-${tool}`} style={{ width }} tabIndex={-1}
         onPointerDown={beginMarquee} onPointerMove={updateMarquee} onPointerUp={finishMarquee}
         onPointerCancel={cancelMarquee} onLostPointerCapture={event => { if (event.target === event.currentTarget) cancelMarquee(); }}
         onKeyDown={event => { if (event.key === 'Escape') cancelMarquee(); }}><div className="se-ruler" role="slider" tabIndex={0} aria-label="Posição da montagem" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position}
-        onPointerDown={e => { if (disabled) return; e.currentTarget.setPointerCapture(e.pointerId); onSeek(clampStudioTime((e.clientX - e.currentTarget.getBoundingClientRect().left) / scale, duration)); }} onPointerMove={e => { if (e.buttons === 1 && !disabled) onSeek(clampStudioTime((e.clientX - e.currentTarget.getBoundingClientRect().left) / scale, duration)); }}
+        onPointerDown={e => { if (disabled) return; e.currentTarget.setPointerCapture(e.pointerId); seekAt(e.clientX, e.currentTarget); }} onPointerMove={e => { if (e.buttons === 1 && !disabled) seekAt(e.clientX, e.currentTarget); }}
         onKeyDown={e => { if (!disabled && ['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); onSeek(clampStudioTime(position + (e.key === 'ArrowRight' ? frame : -frame) * (e.shiftKey ? 10 : 1), duration)); } }}>
         {Array.from({ length: Math.ceil(marks / interval) + 1 }, (_, i) => <span key={i} style={{ left: i * interval * scale }}>{formatStudioEditorTime(i * interval).replace('.0', '')}</span>)}</div>
         {rows.map(({ layer, z }) => <div className={`se-track ${layer.hidden ? 'hidden' : ''}`} key={layer.id} >{recipe.clips.filter(c => c.zIndex === z).map(clipView)}</div>)}

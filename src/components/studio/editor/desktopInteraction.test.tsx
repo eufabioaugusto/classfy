@@ -37,7 +37,7 @@ describe('componentes reais do editor desktop', () => {
     expect(svg.innerHTML).toBe(shape);
   });
 
-  it('seleção na timeline conserva o cursor; apenas régua manda seek', async () => {
+  it('selecionar clipe mantém o cursor e clicar no espaço livre ou na régua move a agulha', async () => {
     const select = vi.fn(), seek = vi.fn();
     await act(async () => root.render(<StudioDesktopTimeline {...toolProps} project={fixture()} position={3} thumbnails={{}} onSelect={select} onSeek={seek} onPreview={() => {}} onCommit={() => {}} onAdd={() => {}} onMainMute={() => {}} onLayerMute={() => {}} onLayerHide={() => {}} />));
     const clip = host.querySelector('[aria-label="Take Professor"]')!;
@@ -45,6 +45,12 @@ describe('componentes reais do editor desktop', () => {
     expect(select.mock.calls).toEqual([['clip']]); expect(seek).not.toHaveBeenCalled();
     const ruler = host.querySelector('[aria-label="Posição da montagem"]')!;
     await act(async () => pointer(ruler, 'pointerdown', 144, 10)); expect(seek).toHaveBeenLastCalledWith(2);
+    const content = host.querySelector('.se-timeline-content')!;
+    content.getBoundingClientRect = () => DOMRect.fromRect({ x: 24, y: 20, width: 600, height: 250 });
+    const track = content.querySelector('.se-main-track')!;
+    await act(async () => { pointer(track, 'pointerdown', 240, 100); pointer(track, 'pointerup', 240, 100); });
+    expect(seek.mock.calls).toEqual([[2], [3]]);
+    expect(select.mock.calls).toEqual([['clip']]);
   });
   it('seleciona os clipes cruzados pelo retângulo e mantém o cursor', async () => {
     const project = addCaption(splitMainClip(fixture(), 'clip', 3, { leftId: 'left', rightId: 'right' }), 'Legenda', 2, 3, { itemId: 'caption' });
