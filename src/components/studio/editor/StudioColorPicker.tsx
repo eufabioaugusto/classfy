@@ -1,3 +1,4 @@
+import { studioSliderFill } from './studioSliderFill';
 import { useEffect, useId, useRef, useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { Pipette, Plus, RefreshCw } from 'lucide-react';
@@ -137,7 +138,7 @@ export function StudioColorPicker({ label, value, disabled, getCanvas, onDraft, 
               if (hsv.s && hsv.v) apply(fromHsv(next, hsv.s, hsv.v) + alpha, false);
             }} onPointerUp={onCommit} onKeyUp={onCommit} onBlur={onCommit} />
           <label className="se-color-opacity">Opacidade <output>{Math.round(opacity * 100)}%</output>
-            <input type="range" min={0} max={255} value={Math.round(opacity * 255)} onChange={event => {
+            <input type="range" className="se-slider" style={studioSliderFill(opacity, 0, 1)} min={0} max={255} value={Math.round(opacity * 255)} onChange={event => {
               const a = +event.target.value;
               apply(current.slice(0, 7) + (a === 255 ? '' : a.toString(16).padStart(2, '0').toUpperCase()), false);
             }} onPointerUp={onCommit} onKeyUp={onCommit} onBlur={onCommit} />
@@ -167,7 +168,7 @@ export function StudioColorPicker({ label, value, disabled, getCanvas, onDraft, 
             }}><Pipette size={15} /></button>}
           </div>
           <div className="se-color-palette"><span>Minhas cores</span><div><button type="button" aria-label="Salvar cor atual" title="Salvar cor atual" onClick={save}><Plus size={15} /></button>{swatches(saved)}</div></div>
-          {getCanvas && <div className="se-color-palette"><span>No quadro</span><div><button type="button" aria-label="Atualizar cores do quadro" title="Atualizar cores do quadro" onClick={() => setFrame(frameColors(getCanvas()))}><RefreshCw size={14} /></button>{swatches(frame)}</div></div>}
+          {getCanvas && <div className="se-color-palette"><span>No quadro</span><div><button type="button" className="se-color-refresh" aria-label="Atualizar cores do quadro" title="Atualizar cores do quadro" onClick={() => setFrame(frameColors(getCanvas()))}><RefreshCw size={14} /></button>{swatches(frame)}</div></div>}
           <div className="se-color-palette"><span>Sugestões</span><div>{swatches(suggestions)}</div></div>
           <span className="se-sr" role="status">{notice}</span>
         </Popover.Content>
