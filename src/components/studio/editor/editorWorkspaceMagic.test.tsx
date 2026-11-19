@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { emptyStudioEditing, studioGrade, studioTicks, withStudioTakes, type StudioEnhancement, type StudioProject, type StudioRenderRecipe } from '../../../../shared/studio';
 import { measureStudioScene } from '../../../../shared/studio/autoEnhance';
-import { addLayerAsset, addMainAsset, patchClip } from '@/lib/studio/editor/commands';
+import { addLayerAsset, addMainAsset, patchClip, splitMainClip } from '@/lib/studio/editor/commands';
 import { StudioEditorWorkspace } from './StudioEditorWorkspace';
 import { initializeStudioExitGuard } from './useStudioExitGuard';
 
@@ -92,6 +92,29 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
 describe('comparação e histórico reais do editor', () => {
+  it('mantém o inspetor em seleção de vídeos, ajusta o lote e copia o tratamento para a faixa principal', async () => {
+    const base = splitMainClip(initialProject(), 'main', 3, { leftId: 'first', rightId: 'rest' });
+    const three = splitMainClip(base, 'rest', 6, { leftId: 'second', rightId: 'third' });
+    const signature = { version: 1 as const, strength: .58, backgroundBlur: .03, backgroundExposure: -1.15, subjectExposure: .2, temperature: 0 };
+    io.get.mockResolvedValue(patchClip(three, 'first', { signature }));
+    io.getAsset.mockResolvedValue(new Blob(['original']));
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    const selectClip = async (id: string, shiftKey = false) => act(async () => {
+      host.querySelector(`[data-timeline-clip="${id}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey }));
+    });
+    await selectClip('first');
+    await click('Aplicar assinatura a todos os takes');
+    expect(latestRecipe().clips.map(clip => clip.signature)).toEqual([signature, signature, signature]);
+    await selectClip('second', true);
+    expect(host.querySelector('.se-inspector > header')?.textContent).toContain('2 takes de vídeo');
+    await act(async () => Array.from(host.querySelectorAll<HTMLButtonElement>('.se-inspector button')).find(element => element.textContent === 'Cinema')!.click());
+    expect(latestRecipe().clips.map(clip => clip.grade?.preset ?? clip.effect)).toEqual(['cinematic', 'cinematic', 'natural']);
+    await click('Aplicar ajuste a todos os takes');
+    expect(latestRecipe().clips.map(clip => clip.grade?.preset ?? clip.effect)).toEqual(['cinematic', 'cinematic', 'cinematic']);
+    await click('Ajuste automático de luz e cor');
+    expect(saved?.editing?.main.map(clip => clip.enhancement)).toEqual([priorEnhancement, priorEnhancement, undefined]);
+  });
+
   it('abre o painel compartilhado e direciona contas Free para o Premium', async () => {
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
     const panel = host.querySelector('.se-library-content');

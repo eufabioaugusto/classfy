@@ -5,7 +5,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, ChevronDown, Download, Film, Image, Loader2, Mic, Monitor, Music2, Pause, Play, Plus, Redo2, Scissors, SlidersHorizontal, Sparkles, Subtitles, Type, Undo2, Upload, Video, X } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { addCaption, addCaptionTrack, addLayerAsset, addMainAsset, addText, applyClassEdit, classEditTarget, duplicateClip, extractClipAudio, copyStudioClips, pasteStudioClips, groupStudioClips, patchClip, removeClassEditRetakes, removeClip, setLayerHidden, setLayerMuted, setMainMuted, splitLayerClip, splitMainClip, trimMainClip, trimLayerClip, type StudioWebClipPatch } from '@/lib/studio/editor/commands';
+import { addCaption, addCaptionTrack, addLayerAsset, addMainAsset, addText, applyClassEdit, classEditTarget, duplicateClip, extractClipAudio, copyStudioClips, pasteStudioClips, groupStudioClips, patchClip, patchVisualClips, removeClassEditRetakes, removeClip, setLayerHidden, setLayerMuted, setMainMuted, splitLayerClip, splitMainClip, trimMainClip, trimLayerClip, type StudioWebClipPatch, type StudioVisualPatch } from '@/lib/studio/editor/commands';
 import { getAsset, getExport, putAsset, storeExport, studioAssetUri } from '@/lib/studio/editor/storage';
 import { inspectStudioMedia } from '@/lib/studio/editor/media';
 import { readStudioWaveform, type StudioWaveform } from '@/lib/studio/editor/audioEnvelope';
@@ -118,7 +118,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const classEditResult = classEditResults.find(result => result.key === reviewKey);
   const [comparing, setComparing] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null), engine = useRef<StudioRenderer | null>(null), input = useRef<HTMLInputElement>(null), captionsInput = useRef<HTMLInputElement>(null);
-  const pendingPatch = useRef<{ id: string; patch: StudioWebClipPatch } | null>(null), importTarget = useRef<'main' | 'layer'>('main'), locked = useRef(false), controller = useRef<AbortController | null>(null), alive = useRef(true), seekSequence = useRef(0);
+  const pendingPatch = useRef<{ ids: string[]; patch: StudioWebClipPatch } | null>(null), importTarget = useRef<'main' | 'layer'>('main'), locked = useRef(false), controller = useRef<AbortController | null>(null), alive = useRef(true), seekSequence = useRef(0);
   const picker = useRef<{ token: number; type: 'media' | 'captions'; target: 'main' | 'layer'; at: number } | null>(null);
   const recordingImports = useRef(new WeakMap<File, RecordingImport>());
   const recorderEntry = useRef<{ token: number; at: number; mode: 'camera' | 'screen' | 'audio' } | null>(null);
@@ -130,6 +130,18 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const previewRecipe = useMemo(() => comparing && selected && effective && recipe?.clips.some(clip => clip.id === selected && (clip.kind === 'video' || clip.kind === 'image')) ? compileStudioRecipe(patchClip(effective, selected, { signature: null, enhancement: null, portrait: null, grade: studioGrade(), effect: 'natural' })) : recipe, [comparing, selected, effective, recipe]);
   const latestRecipe = useRef(previewRecipe); latestRecipe.current = previewRecipe;
   const selectedClip = recipe?.clips.find(c => c.id === selected), duration = recipe ? studioSeconds(recipe.durationTicks) : 0;
+  const selectedVideos = selection.length > 1 ? recipe?.clips.filter(clip => clip.kind === 'video' && selection.includes(clip.id)) ?? [] : [];
+  const batchVideo = selectedVideos.length > 1 && selectedVideos.length === selection.length;
+  const inspectorClip = selectedClip ?? (batchVideo ? selectedVideos[0] : undefined);
+  const inspectorIds = selectedClip ? [selectedClip.id] : batchVideo ? selectedVideos.map(clip => clip.id) : [];
+  const allTakes = inspectorClip && (inspectorClip.kind === 'video' || inspectorClip.kind === 'image')
+    ? recipe?.clips.filter(clip => clip.kind === 'video' && clip.zIndex === 0).map(clip => clip.id) ?? [] : [];
+  const patchInspector = (value: StudioProject, ids: string[], patch: StudioWebClipPatch) => {
+    if (ids.length > 1 && Object.keys(patch).every(key => ['grade', 'effect', 'enhancement', 'signature', 'portrait'].includes(key))) {
+      return patchVisualClips(value, new Map(ids.map(id => [id, patch])));
+    }
+    return ids.reduce((next, id) => patchClip(next, id, patch), value);
+  };
   useEffect(() => {
     if (!recipe || preview) return;
     const visible = new Set(recipe.clips.map(clip => clip.id));
@@ -170,7 +182,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const settle = () => {
     const draft = pendingPatch.current; if (!draft) return;
     pendingPatch.current = null;
-    try { workspace.apply(value => patchClip(value, draft.id, draft.patch)); setPreview(null); setExportReady(false); }
+    try { workspace.apply(value => patchInspector(value, draft.ids, draft.patch)); setPreview(null); setExportReady(false); }
     catch (cause) { pendingPatch.current = draft; setError(cause instanceof Error ? cause.message : 'Não foi possível concluir esta edição.'); throw cause; }
   };
   const selectMany = (ids: string[]) => {
@@ -304,11 +316,12 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const reuse = (asset: StudioAsset, target: 'main' | 'layer') => { if (confirmation.current || locked.current) return; settle(); const id = crypto.randomUUID(); apply(value => target === 'main' || !value.editing!.main.length ? addMainAsset(value, asset, id) : addLayerAsset(value, asset, Math.min(position, duration - .1), { itemId: id })); setSelected(id); };
   const makeText = (caption = false) => { if (confirmation.current || locked.current) return; const id = crypto.randomUUID(); try { settle(); } catch { return; } apply(value => caption ? addCaption(value, 'Sua legenda', Math.min(position, Math.max(0, duration - .1)), 3, { itemId: id }) : addText(value, 'Seu texto', Math.min(position, Math.max(0, duration - .1)), 3, { itemId: id })); setSelected(id); setTimeout(() => document.querySelector<HTMLTextAreaElement>('[data-studio-text-input]')?.focus(), 0); };
   const draftPatch = (patch: StudioWebClipPatch) => {
-    if (!selected || locked.current || confirmation.current || !workspace.current.current) return;
+    if (!inspectorIds.length || locked.current || confirmation.current || !workspace.current.current) return;
     setComparing(false);
-    const old = pendingPatch.current?.id === selected ? pendingPatch.current.patch : {};
+    const draft = pendingPatch.current;
+    const old = draft?.ids.length === inspectorIds.length && draft.ids.every((id, index) => id === inspectorIds[index]) ? draft.patch : {};
     const merged = { ...old, ...patch, ...(patch.rect ? { rect: { ...old.rect, ...patch.rect } } : {}), ...(patch.text ? { text: { ...old.text, ...patch.text } } : {}), ...(patch.grade ? { grade: { ...old.grade, ...patch.grade } } : {}) };
-    try { const next = patchClip(workspace.current.current, selected, merged); pendingPatch.current = { id: selected, patch: merged }; setPreview(next); } catch (cause) { recordError(cause); }
+    try { const next = patchInspector(workspace.current.current, inspectorIds, merged); pendingPatch.current = { ids: inspectorIds, patch: merged }; setPreview(next); } catch (cause) { recordError(cause); }
   };
   const transcribe = (snapshot: StudioProject, token: number, signal: AbortSignal, onStage: (stage: string, progress?: number) => void = setBusy, onWords?: (words: StudioCaptionWord[]) => void) =>
     transcribeStudioCaptions(snapshot, id => getAsset(owner, projectId, id), captionLanguage, signal, (stage, fraction) => {
@@ -489,47 +502,46 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
         finishStatus: [result.finishStatus, `${cuts.length} ${cuts.length === 1 ? 'take removido' : 'takes removidos'}`].filter(Boolean).join(' · ') }, ...results.slice(0, 79)]);
     });
   };
-  const improveScene = () => {
-    if (!selected) return;
-    const id = selected;
-    void external('Analisando sua cena', async (token, signal) => {
-      const current = compileStudioRecipe(workspace.current.current!), clip = current.clips.find(value => value.id === id);
-      if (!clip?.assetId || !['video', 'image'].includes(clip.kind)) throw new Error('Selecione uma imagem ou um vídeo para melhorar a cena.');
-      const original = await getAsset(owner, projectId, clip.assetId);
+  const analyzeInspectorClips = (kind: 'adjustment' | 'signature') => {
+    if (!inspectorIds.length) return;
+    const renderer = engine.current;
+    void external(kind === 'signature' ? 'Preparando Assinatura Classfy' : 'Analisando luz e cor', async (token, signal) => {
+      if (kind === 'signature') {
+        if (!renderer) throw new Error('Aguarde a prévia ficar pronta para destacar o creator.');
+        await renderer.prepareSignature(signal);
+      }
+      const current = compileStudioRecipe(workspace.current.current!);
+      const targets = current.clips.filter(clip => inspectorIds.includes(clip.id) && (clip.kind === 'video' || clip.kind === 'image'));
+      if (targets.length !== inspectorIds.length) throw new Error('Selecione imagens ou vídeos para aplicar o tratamento.');
+      const patches = new Map<string, StudioVisualPatch>();
+      for (const [index, clip] of targets.entries()) {
+        if (!scope(token) || signal.aborted) return;
+        const original = clip.assetId && await getAsset(owner, projectId, clip.assetId);
+        if (!scope(token) || signal.aborted) return;
+        if (!original) throw new Error('O original de um dos takes não está disponível neste navegador.');
+        const label = kind === 'signature' ? 'Criando sua cena Classfy' : 'Analisando luz e cor';
+        setBusy(targets.length > 1 ? `${label} · ${index + 1}/${targets.length}` : label);
+        const onProgress = (fraction: number) => {
+          if (scope(token) && !signal.aborted) setProgress((index + fraction) / targets.length);
+        };
+        const patch: StudioVisualPatch = kind === 'signature'
+          ? { signature: await analyzeStudioSignature(original, clip, current.timebase, { signal, measure: renderer!.measureSignature, onProgress }), enhancement: null }
+          : { enhancement: await analyzeStudioScene(original, clip, current.timebase, { signal, onProgress }) };
+        patches.set(clip.id, patch);
+      }
       if (!scope(token) || signal.aborted) return;
-      if (!original) throw new Error('O original deste trecho não está disponível neste navegador.');
-      const enhancement = await analyzeStudioScene(original, clip, current.timebase, { signal, onProgress: value => { if (scope(token) && !signal.aborted) setProgress(value); } });
-      if (!scope(token) || signal.aborted) return;
-      workspace.apply(value => patchClip(value, id, { enhancement })); setComparing(false); setExportReady(false); await workspace.flush();
-    });
-  };
-  const applySignature = () => {
-    if (!selected) return;
-    const id = selected;
-    void external('Preparando Assinatura Classfy', async (token, signal) => {
-      const current = compileStudioRecipe(workspace.current.current!), clip = current.clips.find(value => value.id === id), renderer = engine.current;
-      if (!clip?.assetId || !['video', 'image'].includes(clip.kind)) throw new Error('Selecione uma cena com o creator para aplicar a assinatura.');
-      if (!renderer) throw new Error('Aguarde a prévia ficar pronta para destacar o creator.');
-      await renderer.prepareSignature(signal);
-      if (!scope(token) || signal.aborted) return;
-      const original = await getAsset(owner, projectId, clip.assetId);
-      if (!scope(token) || signal.aborted) return;
-      if (!original) throw new Error('O original deste trecho não está disponível neste navegador.');
-      setBusy('Criando sua cena Classfy');
-      const signature = await analyzeStudioSignature(original, clip, current.timebase, { signal, measure: renderer.measureSignature,
-        onProgress: value => { if (scope(token) && !signal.aborted) setProgress(value); } });
-      if (!scope(token) || signal.aborted) return;
-      workspace.apply(value => patchClip(value, id, { signature, enhancement: null })); setComparing(false); setExportReady(false); await workspace.flush();
+      workspace.apply(value => patchVisualClips(value, patches));
+      setComparing(false); setExportReady(false); await workspace.flush();
     });
   };
   const enablePortrait = () => {
-    if (!selected) return;
-    const id = selected;
+    if (!inspectorIds.length) return;
     void external('Preparando retoque natural', async (token, signal) => {
       if (!engine.current) throw new Error('Aguarde a prévia ficar pronta para ativar o retoque.');
       await engine.current.preparePortrait(signal);
       if (!scope(token) || signal.aborted) return;
-      workspace.apply(value => patchClip(value, id, { portrait: { version: 2, strength: .45 } })); setComparing(false); setExportReady(false); await workspace.flush();
+      workspace.apply(value => patchInspector(value, inspectorIds, { portrait: { version: 2, strength: .45 } }));
+      setComparing(false); setExportReady(false); await workspace.flush();
     });
   };
   const atCursor = (clip: NonNullable<typeof selectedClip>, time: number) =>
@@ -826,7 +838,10 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
         {renderLoading && <div className="se-preview-loading"><Loader2 size={20} className="se-spin" /></div>}
         {!duration && <div className="se-first-media"><Film size={31} strokeWidth={1} /><p>Comece com seu primeiro arquivo</p><button className="se-button" onClick={() => openImport('main')}>Importar mídia</button></div>}
         <div className="se-transport"><button className="se-icon" aria-label={playing ? 'Pausar montagem' : 'Reproduzir montagem'} disabled={blocked || !!recorder || !duration} onClick={toggle}>{playing ? <Pause size={20} /> : <Play size={20} />}</button><span>{formatStudioEditorTime(position)}<i>/</i>{formatStudioEditorTime(duration)}</span><button className="se-icon" aria-label="Dividir no cursor" disabled={!canSplit || blocked} onClick={split}><Scissors size={17} /></button></div>
-      </main></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel id="studio-inspector-panel" order={3} defaultSize={23} minSize={18} maxSize={35}><StudioDesktopInspector owner={owner} getColorCanvas={() => canvas.current} onExtractAudio={canExtractAudio ? extractSelectedAudio : undefined} onRemovePauses={canRemoveSelectedPauses ? removeSelectedPauses : undefined} canApplyTrack={trackTargets.length > 0} onApplyTrack={applyInspectorToTrack} comparing={comparing} onCompare={() => { try { settle(); engine.current?.pause(); setComparing(value => !value); } catch { /* Preserve draft on save failure. */ } }} onSignature={engine.current ? applySignature : undefined} onEnhance={improveScene} onPortrait={enablePortrait} clip={selectedClip} disabled={blocked || !!recorder} canSplit={canSplit} outputHeight={recipe.output.height} onDraft={draftPatch} onCommit={() => { try { settle(); } catch { /* keep error visible */ } }} onDuplicate={() => { if (selected) { settle(); apply(value => duplicateClip(value, selected)); } }} onRemove={remove} onSplit={split} /></ResizablePanel>
+      </main></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel id="studio-inspector-panel" order={3} defaultSize={23} minSize={18} maxSize={35}><StudioDesktopInspector owner={owner} canApplyAllTakes={allTakes.length > 1 || allTakes.some(id => !inspectorIds.includes(id))} onApplyAllTakes={patch => {
+        try { settle(); } catch { return; }
+        apply(value => patchVisualClips(value, new Map(allTakes.map(id => [id, patch]))));
+      }} getColorCanvas={() => canvas.current} onExtractAudio={canExtractAudio ? extractSelectedAudio : undefined} onRemovePauses={canRemoveSelectedPauses ? removeSelectedPauses : undefined} canApplyTrack={trackTargets.length > 0} onApplyTrack={applyInspectorToTrack} comparing={comparing} onCompare={batchVideo ? undefined : () => { try { settle(); engine.current?.pause(); setComparing(value => !value); } catch { /* Preserve draft on save failure. */ } }} onSignature={engine.current ? () => analyzeInspectorClips('signature') : undefined} onEnhance={() => analyzeInspectorClips('adjustment')} onPortrait={enablePortrait} clip={inspectorClip} selectionCount={inspectorIds.length} disabled={blocked || !!recorder} canSplit={canSplit} outputHeight={recipe.output.height} onDraft={draftPatch} onCommit={() => { try { settle(); } catch { /* keep error visible */ } }} onDuplicate={() => { if (selected) { settle(); apply(value => duplicateClip(value, selected)); } }} onRemove={remove} onSplit={split} /></ResizablePanel>
     </ResizablePanelGroup></div></ResizablePanel><ResizableHandle className="se-resize-handle" /><ResizablePanel defaultSize={33} minSize={20} maxSize={65}><StudioDesktopTimeline zoomCommand={timelineZoom} loop={loop} onToggleLoop={() => runShortcut('loop')} project={effective} position={position} playing={playing} selectedIds={selection} tool={timelineTool} onTool={setTimelineTool} onSelectMany={selectMany} onBlade={splitAt} disabled={blocked || !!recorder} thumbnails={thumbnails} waveforms={waveforms} onSelect={select} onSeek={value => void seek(value)} onPreview={value => { if (confirmation.current) return; engine.current?.pause(); setPreview(value); }} onCommit={apply} onAdd={() => openImport('main')} onMainMute={() => apply(value => setMainMuted(value, !value.editing!.mainMuted))} onLayerHide={id => apply(value => setLayerHidden(value, id, !value.editing!.layers.find(l => l.id === id)?.hidden))} onLayerMute={id => apply(value => setLayerMuted(value, id, !value.editing!.layers.find(l => l.id === id)?.muted))} /></ResizablePanel></ResizablePanelGroup>
     <input ref={input} className="se-sr" tabIndex={-1} type="file" multiple onChange={e => { const files = Array.from(e.target.files ?? []), pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && files.length && pending?.type === 'media' && scope(pending.token)) void importFiles(files, pending.target, pending.at); }} />
     <input ref={captionsInput} className="se-sr" tabIndex={-1} type="file" accept=".srt,text/plain" onChange={e => { const file = e.target.files?.[0], pending = picker.current; e.currentTarget.value = ''; cancelPicker(); if (!confirmation.current && file && pending?.type === 'captions' && scope(pending.token)) void external('Importando legendas', async (token, signal) => { const cues = parseDesktopCaptions(await file.text()); if (!scope(token) || signal.aborted) return; const current = workspace.current.current!, length = studioSeconds(compileStudioRecipe(current).durationTicks); if (cues.some(c => c.start >= length || c.end > length + .01)) throw new Error('Uma legenda ultrapassa a duração da montagem. Revise o arquivo SRT.'); workspace.apply(value => addCaptionTrack(value, cues, captionStyles[captionStyle].style)); await workspace.flush(); }); }} />

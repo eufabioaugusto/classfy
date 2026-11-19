@@ -3,7 +3,7 @@ import {
   deriveStudioTakes, duplicateStudioLayer, extractStudioClipAudio, duplicateStudioTake, locateStudioTime, moveStudioLayerItemToLane, moveStudioTake,
   patchStudioClipGrade, patchStudioClipEnhancement, patchStudioClipPortrait, patchStudioClipSignature, patchStudioClipProperties, patchStudioLayerItem, reconcileStudioTakes, removeStudioLayerItem,
   removeStudioTake, setStudioLayerHidden, setStudioLayerMuted, setStudioMainMuted, splitStudioLayer, splitStudioTake,
-  studioEditing, studioSeconds, studioTicks, validateStudioEditing, withStudioTakes,
+  studioEditing, studioGrade, studioSeconds, studioTicks, validateStudioEditing, withStudioTakes,
   type StudioAsset, type StudioClipPropertiesPatch, type StudioEditing, type StudioEffect, type StudioGrade,
   type StudioLayerItem, type StudioProject, type StudioRect, type StudioTextStyle, type StudioEnhancement, type StudioPortrait, type StudioSignature,
 } from '../../../../shared/studio';
@@ -256,6 +256,31 @@ export function rollStudioBoundary(project: StudioProject, leftId: string, right
 export function extractClipAudio(project: StudioProject, id: string, audioId: string): StudioProject {
   return edit(project, extractStudioClipAudio(studioEditing(project), id, audioId));
 }
+export type StudioVisualPatch = Pick<StudioWebClipPatch, 'grade' | 'effect' | 'enhancement' | 'signature' | 'portrait'>;
+
+export function patchVisualClips(project: StudioProject, patches: ReadonlyMap<string, StudioVisualPatch>): StudioProject {
+  const editing = studioEditing(project);
+  const remaining = new Set(patches.keys());
+  const update = <T extends StudioEditing['main'][number] | StudioLayerItem>(clip: T): T => {
+    const patch = patches.get(clip.id);
+    if (!patch) return clip;
+    remaining.delete(clip.id);
+    const { grade, effect, enhancement, signature, portrait } = patch;
+    const updated = { ...clip,
+      ...(grade ? { grade: { ...studioGrade(clip.effect), ...clip.grade, ...grade } } : {}),
+      ...(effect !== undefined ? { effect } : {}),
+    };
+    if (enhancement !== undefined) updated.enhancement = enhancement ?? undefined;
+    if (signature !== undefined) updated.signature = signature ?? undefined;
+    if (portrait !== undefined) updated.portrait = portrait ?? undefined;
+    return updated;
+  };
+  const main = editing.main.map(update);
+  const layers = editing.layers.map(layer => ({ ...layer, items: layer.items.map(update) }));
+  if (remaining.size) throw new Error('Um dos takes não está mais na montagem.');
+  return edit(project, { ...editing, main, layers });
+}
+
 export function patchClip(project: StudioProject, id: string, patch: StudioWebClipPatch): StudioProject {
   const allowed = new Set(['name', 'rect', 'grade', 'effect', 'text', 'enhancement', 'portrait', 'signature', 'playbackRate', 'flipHorizontal', 'flipVertical', 'opacity', 'gain', 'fadeInTicks', 'fadeOutTicks', 'motion', 'fit', 'rotationDegrees', 'mask']);
   if (Object.keys(patch).some(key => !allowed.has(key))) throw new Error('Use uma operação de corte ou movimento para alterar o intervalo do clip.');

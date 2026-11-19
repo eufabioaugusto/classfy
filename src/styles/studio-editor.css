@@ -2059,3 +2059,10 @@
   font: 10px ui-monospace, monospace;
 }
 .se-inspector-segments svg { margin-bottom: 2px; }
+.se-treatment-actions:empty { display: none; }
+.se-treatment-actions { margin-top: 10px; }
+.se-treatment-actions .se-inspector-apply { width: 100%; margin-left: 0; padding-block: 7px; }
+.se-treatment-presets { margin-top: 8px; }
+.se-treatment-preset-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.se-treatment-preset-name input { flex: 1; min-width: 100px; border: 0; }
+.se-treatment-preset-name input:focus-visible { outline: 2px solid var(--se-accent); }

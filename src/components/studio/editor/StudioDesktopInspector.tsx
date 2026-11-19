@@ -1,3 +1,5 @@
+import { StudioTreatmentPresets } from './StudioTreatmentPresets';
+import type { StudioVisualPatch } from '@/lib/studio/editor/commands';
 import { StudioColorPicker } from './StudioColorPicker';
 import { useRef, useState } from 'react';
 import { StudioFontPicker } from './StudioFontPicker';
@@ -7,14 +9,21 @@ import { AlignCenter, AlignLeft, AlignRight, AlignStartVertical, AlignCenterVert
 import { studioGrade, studioSeconds, type StudioRecipeClip } from '../../../../shared/studio';
 
 export type StudioInspectorTrackProperty = 'style' | 'transform' | 'opacity';
-type Props = { owner?: string; getColorCanvas?(): HTMLCanvasElement | null; clip?: StudioRecipeClip; disabled?: boolean; canSplit: boolean; canApplyTrack?: boolean; onApplyTrack?(property: StudioInspectorTrackProperty): void; outputHeight: number; comparing?: boolean; onExtractAudio?(): void; onRemovePauses?(): void; onCompare?(): void; onSignature?(): void; onEnhance?(): void; onPortrait?(): void; onDraft(patch: Record<string, unknown>): void; onCommit(): void; onRemove(): void; onDuplicate(): void; onSplit(): void };
-export function StudioDesktopInspector({ owner = '', getColorCanvas, clip, disabled, canSplit, canApplyTrack, onApplyTrack, outputHeight, comparing, onExtractAudio, onRemovePauses, onCompare, onSignature, onEnhance, onPortrait, onDraft, onCommit, onRemove, onDuplicate, onSplit }: Props) {
+type Props = { owner?: string; getColorCanvas?(): HTMLCanvasElement | null; clip?: StudioRecipeClip; selectionCount?: number; canApplyAllTakes?: boolean; onApplyAllTakes?(patch: StudioVisualPatch): void; disabled?: boolean; canSplit: boolean; canApplyTrack?: boolean; onApplyTrack?(property: StudioInspectorTrackProperty): void; outputHeight: number; comparing?: boolean; onExtractAudio?(): void; onRemovePauses?(): void; onCompare?(): void; onSignature?(): void; onEnhance?(): void; onPortrait?(): void; onDraft(patch: Record<string, unknown>): void; onCommit(): void; onRemove(): void; onDuplicate(): void; onSplit(): void };
+export function StudioDesktopInspector({ owner = '', getColorCanvas, clip, selectionCount = 1, canApplyAllTakes, onApplyAllTakes, disabled, canSplit, canApplyTrack, onApplyTrack, outputHeight, comparing, onExtractAudio, onRemovePauses, onCompare, onSignature, onEnhance, onPortrait, onDraft, onCommit, onRemove, onDuplicate, onSplit }: Props) {
   const [textTab, setTextTab] = useState('style');
   const [soundTab, setSoundTab] = useState('volume');
   const [adjustmentTab, setAdjustmentTab] = useState('light');
   const volumes = useRef(new Map<string, number>());
   if (!clip) return <aside className="se-inspector"><header>Propriedades</header><div className="se-inspector-empty"><span>Selecione um elemento</span><p>Edite o enquadramento, o texto ou o áudio da montagem.</p></div></aside>;
   const grade = clip.grade ?? studioGrade(clip.effect), visual = clip.kind !== 'audio', text = !!clip.text;
+  const adjustmentPatch: StudioVisualPatch = { grade, effect: clip.effect, enhancement: clip.enhancement ?? null };
+  const signaturePatch: StudioVisualPatch | undefined = clip.signature || clip.portrait
+    ? { signature: clip.signature ?? null, portrait: clip.portrait ?? null, ...(clip.signature ? { enhancement: null } : {}) }
+    : undefined;
+  const applyToAll = (patch: StudioVisualPatch | undefined, label: string) => canApplyAllTakes && patch &&
+    <button type="button" className="se-inspector-apply" aria-label={label} disabled={disabled}
+      onClick={() => onApplyAllTakes?.(patch)}>Aplicar a todos os takes</button>;
   const immediate = (patch: Record<string, unknown>) => { onDraft(patch); onCommit(); };
   const numeric = (label: string, value: number, makePatch: (value: number) => Record<string, unknown>, min?: number, max?: number, step = .01) => <label className="se-field se-number"><span>{label}</span><input aria-label={label} type="number" disabled={disabled} value={Number.isFinite(value) ? Math.round(value * 1000) / 1000 : 0} min={min} max={max} step={step} onChange={e => { const next = e.target.valueAsNumber; if (Number.isFinite(next)) onDraft(makePatch(Math.max(min ?? -Infinity, Math.min(max ?? Infinity, next)))); }} onBlur={onCommit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>;
   const range = (label: string, value: number, makePatch: (value: number) => Record<string, unknown>, min: number, max: number, step = .01, format: (value: number) => string = value => `${Math.round(value * 100)}%`) => <label className="se-range"><span>{label}<output>{format(value)}</output></span><input type="range" className="se-slider" style={studioSliderFill(value, min, max)} aria-label={label} disabled={disabled} min={min} max={max} step={step} value={value} onChange={e => onDraft(makePatch(+e.target.value))} onPointerUp={onCommit} onPointerCancel={onCommit} onBlur={onCommit} onKeyUp={onCommit} /></label>;
@@ -23,7 +32,7 @@ export function StudioDesktopInspector({ owner = '', getColorCanvas, clip, disab
   const color = (label: string, value: string, field: 'color' | 'backgroundColor' | 'secondaryColor') =>
     <StudioColorPicker key={`${clip.id}:${field}`} label={label} value={value} disabled={disabled} getCanvas={getColorCanvas}
       onDraft={color => onDraft({ text: { [field]: color } })} onCommit={onCommit} />;
-  return <aside className="se-inspector"><header>{text ? clip.kind === 'caption' ? 'Legenda' : 'Texto' : clip.kind === 'audio' ? 'Áudio' : 'Imagem e vídeo'}<span className="se-inspector-tools"><button className="se-icon" aria-label="Duplicar elemento" disabled={disabled} onClick={onDuplicate}><Copy size={16} /></button><button className="se-icon" aria-label="Dividir no cursor" disabled={disabled || !canSplit} onClick={onSplit}><Scissors size={16} /></button><button className="se-icon se-danger" aria-label="Excluir elemento" disabled={disabled} onClick={onRemove}><Trash2 size={16} /></button></span></header>
+  return <aside className="se-inspector"><header>{selectionCount > 1 ? `${selectionCount} takes de vídeo` : text ? clip.kind === 'caption' ? 'Legenda' : 'Texto' : clip.kind === 'audio' ? 'Áudio' : 'Imagem e vídeo'}<span className="se-inspector-tools"><button className="se-icon" aria-label="Duplicar elemento" disabled={disabled || selectionCount > 1} onClick={onDuplicate}><Copy size={16} /></button><button className="se-icon" aria-label="Dividir no cursor" disabled={disabled || !canSplit} onClick={onSplit}><Scissors size={16} /></button><button className="se-icon se-danger" aria-label="Excluir elemento" disabled={disabled} onClick={onRemove}><Trash2 size={16} /></button></span></header>
     <div className="se-inspector-content">
       {text && <section><h3><Captions size={16} />{clip.kind === 'caption' ? 'Texto da legenda' : 'Conteúdo'}{applyToTrack('style')}</h3><textarea aria-label="Texto da cena" data-studio-text-input value={clip.text!.content} disabled={disabled} onChange={e => onDraft({ text: { content: e.target.value } })} onBlur={onCommit} />
         <div className="se-inspector-segments se-text-tabs" role="group" aria-label="Propriedades do texto">
@@ -140,18 +149,22 @@ export function StudioDesktopInspector({ owner = '', getColorCanvas, clip, disab
           {range('Saturação', grade.saturation, saturation => ({ grade: { saturation } }), -1, 1)}
           {range('Temperatura', grade.temperature, temperature => ({ grade: { temperature } }), -1, 1)}
         </>}
+        <div className="se-treatment-actions">{applyToAll(adjustmentPatch, 'Aplicar ajuste a todos os takes')}</div>
+        <StudioTreatmentPresets key={`${owner}:adjustment`} owner={owner} section="adjustment" current={adjustmentPatch} disabled={disabled} onApply={immediate} />
       </section>}
       {visual && !text && <section className="se-magic-panel"><div className="se-magic-heading"><img src="/brand/classfy-icone-principal.svg" alt="" width={18} height={18} /><h3>Assinatura Classfy</h3></div><p className="se-muted">Você em foco. Fundo mais profundo, luz suave no rosto e cor de cinema.</p><button className="se-button se-ai-action se-magic-button se-wide" disabled={disabled || !onSignature} onClick={onSignature}><Sparkles size={16} />{clip.signature ? 'Refinar assinatura' : 'Aplicar assinatura'}</button>
         {clip.signature && <><div className="se-magic-result"><span>Luz no rosto</span><span>Fundo separado</span><span>Cor Classfy</span></div>{range('Intensidade da assinatura', clip.signature.strength, strength => ({ signature: { ...clip.signature!, strength } }), 0, 1)}{range('Suavidade do fundo', clip.signature.backgroundBlur, backgroundBlur => ({ signature: { ...clip.signature!, backgroundBlur } }), 0, 1)}{range('Luz do fundo', clip.signature.backgroundExposure, backgroundExposure => ({ signature: { ...clip.signature!, backgroundExposure } }), -2, 0, .05, value => `${value > 0 ? '+' : ''}${value.toFixed(2)} EV`)}{range('Luz no rosto', clip.signature.subjectExposure, subjectExposure => ({ signature: { ...clip.signature!, subjectExposure } }), -.5, 1, .05, value => `${value > 0 ? '+' : ''}${value.toFixed(2)} EV`)}<button className="se-text-button" disabled={disabled} onClick={() => immediate({ signature: null })}><RotateCcw size={12} />Remover assinatura</button></>}
         {clip.enhancement && <><div className="se-magic-result"><span>Luz</span><span>Cor</span><span>{clip.enhancement.analyzedFrames} {clip.enhancement.analyzedFrames === 1 ? 'quadro analisado' : 'quadros analisados'}</span></div>{range('Melhoria da cena', clip.enhancement.strength, strength => ({ enhancement: { ...clip.enhancement!, strength } }), 0, 1)}<button className="se-text-button" disabled={disabled} onClick={() => immediate({ enhancement: null })}><RotateCcw size={12} />Remover melhoria</button></>}
         <div className="se-portrait-heading"><ScanFace size={16} /><h3>Retoque natural</h3><button className={`se-effect-toggle ${clip.portrait ? 'active' : ''}`} role="switch" aria-label="Retoque natural" aria-checked={!!clip.portrait} disabled={disabled} onClick={() => clip.portrait ? immediate({ portrait: null }) : onPortrait?.()}><span /></button></div><p className="se-muted">Controle a suavização da pele. Use pouco para um acabamento natural ou aumente para um retoque intenso.</p>
         {clip.portrait && range('Suavização do rosto', clip.portrait.strength, strength => ({ portrait: { version: 2, strength } }), 0, 1)}
-        {!!(clip.signature || clip.enhancement || clip.portrait || grade.preset !== 'natural' || grade.exposure || grade.contrast || grade.saturation || grade.temperature) && <button className={`se-button se-wide ${comparing ? 'active' : ''}`} aria-pressed={comparing ?? false} disabled={disabled} onClick={onCompare}>{comparing ? 'Voltar aos ajustes' : 'Comparar com original'}</button>}
+        <div className="se-treatment-actions">{applyToAll(signaturePatch, 'Aplicar assinatura a todos os takes')}</div>
+        <StudioTreatmentPresets key={`${owner}:signature`} owner={owner} section="signature" current={signaturePatch} disabled={disabled} onApply={immediate} />
+        {onCompare && !!(clip.signature || clip.enhancement || clip.portrait || grade.preset !== 'natural' || grade.exposure || grade.contrast || grade.saturation || grade.temperature) && <button className={`se-button se-wide ${comparing ? 'active' : ''}`} aria-pressed={comparing ?? false} disabled={disabled} onClick={onCompare}>{comparing ? 'Voltar aos ajustes' : 'Comparar com original'}</button>}
       </section>}
       <section><h3><Wrench size={16} />Utilitários</h3>
         <div className="se-inspector-segments" role="group" aria-label="Ações do clipe">
           <button type="button" disabled={disabled || !canSplit} onClick={onSplit}><Scissors size={16} />Dividir</button>
-          <button type="button" disabled={disabled} onClick={onDuplicate}><Copy size={16} />Duplicar</button>
+          <button type="button" disabled={disabled || selectionCount > 1} onClick={onDuplicate}><Copy size={16} />Duplicar</button>
           <button type="button" disabled={disabled} onClick={onRemove}><Trash2 size={16} />Excluir</button>
           {onExtractAudio && <button type="button" disabled={disabled} onClick={onExtractAudio}><Music2 size={16} />Extrair áudio</button>}
           {onRemovePauses && <button type="button" disabled={disabled} onClick={onRemovePauses}><AudioLines size={16} />Remover pausas</button>}
