@@ -113,6 +113,25 @@ describe('comparação e histórico reais do editor', () => {
     expect(latestRecipe().clips.map(clip => clip.grade?.preset ?? clip.effect)).toEqual(['cinematic', 'cinematic', 'cinematic']);
     await click('Ajuste automático de luz e cor');
     expect(saved?.editing?.main.map(clip => clip.enhancement)).toEqual([priorEnhancement, priorEnhancement, undefined]);
+    const key = 'classfy-studio-treatment-v1:owner:complete';
+    try {
+      await click('Salvar visual completo');
+      const input = host.querySelector<HTMLInputElement>('input[aria-label="Nome do favorito"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Visual da aula');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await click('Salvar');
+      expect(JSON.parse(localStorage.getItem(key) ?? '[]')).toEqual([{ name: 'Visual da aula', patch: {
+        grade: studioGrade('cinematic'), effect: 'cinematic', enhancement: priorEnhancement, signature, portrait: null,
+      } }]);
+      const controls = host.querySelector('[aria-label="Favoritos de visual completo"]')!.closest('section')!;
+      await act(async () => controls.querySelector<HTMLButtonElement>('.se-inspector-apply')!.click());
+      expect(latestRecipe().clips.map(clip => [clip.grade?.preset, clip.enhancement, clip.signature])).toEqual(
+        Array.from({ length: 3 }, () => ['cinematic', priorEnhancement, signature]),
+      );
+    } finally { localStorage.removeItem(key); }
+
   });
 
   it('abre o painel compartilhado e direciona contas Free para o Premium', async () => {

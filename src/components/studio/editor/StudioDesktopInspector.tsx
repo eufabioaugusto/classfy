@@ -161,6 +161,11 @@ export function StudioDesktopInspector({ owner = '', getColorCanvas, clip, selec
         <StudioTreatmentPresets key={`${owner}:signature`} owner={owner} section="signature" current={signaturePatch} disabled={disabled} onApply={immediate} />
         {onCompare && !!(clip.signature || clip.enhancement || clip.portrait || grade.preset !== 'natural' || grade.exposure || grade.contrast || grade.saturation || grade.temperature) && <button className={`se-button se-wide ${comparing ? 'active' : ''}`} aria-pressed={comparing ?? false} disabled={disabled} onClick={onCompare}>{comparing ? 'Voltar aos ajustes' : 'Comparar com original'}</button>}
       </section>}
+      {visual && !text && <section><h3><Palette size={16} />Visual completo</h3>
+        <StudioTreatmentPresets key={`${owner}:complete`} owner={owner} section="complete"
+          current={{ ...adjustmentPatch, signature: clip.signature ?? null, portrait: clip.portrait ?? null }}
+          disabled={disabled} onApply={immediate} onApplyAll={canApplyAllTakes ? onApplyAllTakes : undefined} />
+      </section>}
       <section><h3><Wrench size={16} />Utilitários</h3>
         <div className="se-inspector-segments" role="group" aria-label="Ações do clipe">
           <button type="button" disabled={disabled || !canSplit} onClick={onSplit}><Scissors size={16} />Dividir</button>
