@@ -1,6 +1,7 @@
+import { StudioPromotionArtwork } from './StudioPromotionArtwork';
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Clapperboard, Download, Sparkles, X } from 'lucide-react';
+import { Download, Sparkles, X } from 'lucide-react';
 import { compileStudioRecipe, type StudioProject } from '../../../../shared/studio';
 import { addCaptionTrack } from '@/lib/studio/editor/commands';
 import { exportStudioRecipe, releaseStudioExport } from '@/lib/studio/editor/export';
@@ -125,13 +126,9 @@ export default function StudioPromotionDialog({ project, open, artwork, range, o
       <Dialog.Content className="se-promotion-dialog" onEscapeKeyDown={event => { if (busy) event.preventDefault(); }}
         onPointerDownOutside={event => event.preventDefault()}>
         {!busy && <Dialog.Close className="se-promotion-close" aria-label="Fechar"><X size={20} /></Dialog.Close>}
-        <Dialog.Title>{files.length ? 'Cortes prontos para divulgar' : 'Vamos gerar três cortes para divulgar?'}</Dialog.Title>
+        <Dialog.Title>{files.length === 1 ? 'Corte pronto para divulgar' : files.length ? 'Cortes prontos para divulgar' : 'Vamos gerar três cortes para divulgar?'}</Dialog.Title>
         <Dialog.Description>{files.length ? 'Confira a prévia de cada corte antes de divulgar.' : 'O Studio encontra trechos da sua edição e prepara vídeos verticais com legendas.'}</Dialog.Description>
-        {!files.length && <div className={`se-promotion-art${progress !== undefined ? ' generating' : ''}`} aria-hidden="true">
-          {artwork && <img src={artwork} alt="" />}
-          <div className="se-promotion-wave" />
-          <Clapperboard size={44} />
-        </div>}
+        {!files.length && <StudioPromotionArtwork project={project} artwork={artwork} generating={progress !== undefined} />}
         {progress !== undefined && <div className="se-promotion-progress" role="status">
           <span>{stage}</span><span>{Math.round(progress * 100)}%</span>
           <progress aria-label={stage} max={1} value={progress} />
@@ -154,11 +151,11 @@ export default function StudioPromotionDialog({ project, open, artwork, range, o
             <button type="button" onClick={onClose}>Depois</button>
             <button type="button" className="se-promotion-primary" onClick={() => void generate()}><Sparkles size={17} /> Gerar cortes</button>
           </> : <>
-            <button type="button" disabled={saving} onClick={() => void downloadAll()}><Download size={16} /> {files.length === 3 ? 'Baixar os três' : 'Baixar todos'}</button>
+            {files.length > 1 && <button type="button" disabled={saving} onClick={() => void downloadAll()}><Download size={16} /> {files.length === 3 ? 'Baixar os três' : 'Baixar todos'}</button>}
             {!published && (confirmPublish ? <>
               <button type="button" disabled={saving} onClick={() => setConfirmPublish(false)}>Voltar</button>
               <button type="button" className="se-promotion-primary" disabled={saving} onClick={() => void publish()}>Enviar para análise</button>
-            </> : <button type="button" className="se-promotion-primary" disabled={saving} onClick={() => setConfirmPublish(true)}>{files.length === 3 ? 'Publicar os três' : 'Publicar todos'}</button>)}
+            </> : <button type="button" className="se-promotion-primary" disabled={saving} onClick={() => setConfirmPublish(true)}>{files.length === 3 ? 'Publicar os três' : files.length === 1 ? 'Publicar corte' : 'Publicar todos'}</button>)}
           </>}
         </>}</footer>
       </Dialog.Content>

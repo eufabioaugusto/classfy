@@ -1,4 +1,5 @@
 import { pipeline } from '@huggingface/transformers';
+import { detectStudioCaptionLanguage } from './studioCaptionLanguage';
 
 self.onmessage = async ({ data }: MessageEvent<{ audio: Float32Array; language: string }>) => {
   try {
@@ -22,6 +23,8 @@ self.onmessage = async ({ data }: MessageEvent<{ audio: Float32Array; language: 
         if (total) self.postMessage({ stage: modelStage, progress: loaded / total });
       },
     });
+    if (!data.language) self.postMessage({ stage: 'Detectando idioma' });
+    const language = data.language || await detectStudioCaptionLanguage(transcribe, data.audio);
     self.postMessage({ stage: transcriptionStage, progress: 0 });
     const sampleRate = 16000;
     const windowSize = 20 * sampleRate;
@@ -32,7 +35,7 @@ self.onmessage = async ({ data }: MessageEvent<{ audio: Float32Array; language: 
       const from = Math.max(0, offset - context);
       const to = Math.min(data.audio.length, end + context);
       const result = await transcribe(data.audio.subarray(from, to), {
-        language: data.language || undefined,
+        language,
         task: 'transcribe',
         return_timestamps: 'word',
       });
