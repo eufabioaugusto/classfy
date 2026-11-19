@@ -119,6 +119,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const [comparing, setComparing] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null), engine = useRef<StudioRenderer | null>(null), input = useRef<HTMLInputElement>(null), captionsInput = useRef<HTMLInputElement>(null);
   const pendingPatch = useRef<{ ids: string[]; patch: StudioWebClipPatch } | null>(null), importTarget = useRef<'main' | 'layer'>('main'), locked = useRef(false), controller = useRef<AbortController | null>(null), alive = useRef(true), seekSequence = useRef(0);
+  const backgroundExport = useRef<AbortController | null>(null);
   const picker = useRef<{ token: number; type: 'media' | 'captions'; target: 'main' | 'layer'; at: number } | null>(null);
   const recordingImports = useRef(new WeakMap<File, RecordingImport>());
   const recorderEntry = useRef<{ token: number; at: number; mode: 'camera' | 'screen' | 'audio' } | null>(null);
@@ -177,7 +178,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     return () => abort.abort();
   }, [owner, projectId, waveformAssets]);
 
-  const scope = useCallback((token: number) => alive.current && workspace.isCurrent(token) && document.visibilityState !== 'hidden', [workspace.isCurrent]);
+  const scope = useCallback((token: number, allowBackground = false) => alive.current && workspace.isCurrent(token) && (allowBackground || document.visibilityState !== 'hidden'), [workspace.isCurrent]);
   const apply = (change: (value: StudioProject) => StudioProject) => { if (locked.current || confirmation.current) return; try { workspace.apply(change); setError(null); setExportReady(false); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Revise esta edição.'); } };
   const settle = () => {
     const draft = pendingPatch.current; if (!draft) return;
@@ -204,7 +205,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   };
   useEffect(() => {
     alive.current = true;
-    confirmation.current = null; locked.current = false; controller.current = null; recorderEntry.current = null; pendingPatch.current = null;
+    confirmation.current = null; locked.current = false; controller.current = null; backgroundExport.current = null; recorderEntry.current = null; pendingPatch.current = null;
     clipboard.current = undefined; shuttle.current = 0;
     setClassEditResults([]); setClassEditRunning(false); setBusy(null); setRecorder(null); setPreview(null); setSelected(undefined); setExitPreparing(false); setComparing(false);
     return () => { alive.current = false; confirmation.current = null; picker.current = null; controller.current?.abort(); ++seekSequence.current; engine.current?.dispose(); };
@@ -232,19 +233,23 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   }, [owner, projectId, project?.editing?.assets]);
   useEffect(() => {
     const before = (event: BeforeUnloadEvent) => { if (workspace.hasPendingChanges() || locked.current || pendingPatch.current || recorder) { event.preventDefault(); event.returnValue = ''; } };
-    const visibility = () => { if (document.visibilityState === 'hidden') { cancelConfirmation(); engine.current?.pause(); controller.current?.abort(); if (picker.current) { picker.current = null; locked.current = false; setBusy(null); } } };
+    const visibility = () => { if (document.visibilityState === 'hidden') { cancelConfirmation(); engine.current?.pause(); if (controller.current !== backgroundExport.current) controller.current?.abort(); if (picker.current) { picker.current = null; locked.current = false; setBusy(null); } } };
     window.addEventListener('beforeunload', before); document.addEventListener('visibilitychange', visibility);
     return () => { window.removeEventListener('beforeunload', before); document.removeEventListener('visibilitychange', visibility); };
   }, [workspace.dirty, recorder, cancelConfirmation]);
   const recordError = (cause: unknown) => { if (cause instanceof DOMException && cause.name === 'AbortError') return; setError(cause instanceof Error ? cause.message : 'Não foi possível concluir a operação.'); };
-  const external = async (label: string, task: (token: number, signal: AbortSignal) => Promise<void>, propagateError = false, classEdit = false): Promise<boolean> => {
+  const external = async (label: string, task: (token: number, signal: AbortSignal) => Promise<void>, { propagateError = false, classEdit = false, allowBackground = false } = {}): Promise<boolean> => {
     if (locked.current || confirmation.current || !alive.current || document.visibilityState === 'hidden') return false;
     try { settle(); } catch (cause) { if (propagateError) throw cause; return false; }
     locked.current = true; shuttle.current = 0; ++seekSequence.current; engine.current?.pause(); setBusy(label); setClassEditRunning(classEdit); setError(null); setProgress(0);
     const token = workspace.epoch.current, abort = new AbortController(); controller.current = abort;
-    try { await workspace.flush(); if (!scope(token) || abort.signal.aborted) return false; await task(token, abort.signal); return scope(token) && !abort.signal.aborted; }
+    if (allowBackground) backgroundExport.current = abort;
+    try { await workspace.flush(); if (!scope(token, allowBackground) || abort.signal.aborted) return false; await task(token, abort.signal); return scope(token, allowBackground) && !abort.signal.aborted; }
     catch (cause) { if (workspace.isCurrent(token) && alive.current) recordError(cause); if (propagateError) throw cause; return false; }
-    finally { if (workspace.isCurrent(token) && alive.current) { locked.current = false; setBusy(null); setClassEditRunning(false); if (controller.current === abort) controller.current = null; } }
+    finally {
+      if (backgroundExport.current === abort) backgroundExport.current = null;
+      if (workspace.isCurrent(token) && alive.current) { locked.current = false; setBusy(null); setClassEditRunning(false); if (controller.current === abort) controller.current = null; }
+    }
   };
   const downloadOriginal = (asset: StudioAsset) => {
     if (downloadLock.current || locked.current || confirmation.current) return;
@@ -295,7 +300,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       await workspace.flush(); if (!scope(token)) return; setProgress((index + 1) / files.length);
       if (entry.warnings.length) setError(entry.warnings.join(' '));
     }
-  }, recorded);
+  }, { propagateError: recorded });
   const cancelPicker = () => { const pending = picker.current; picker.current = null; if (pending && workspace.isCurrent(pending.token) && alive.current) { locked.current = false; setBusy(null); } };
   const cancelPickerLatest = useRef(cancelPicker); cancelPickerLatest.current = cancelPicker;
   useEffect(() => {
@@ -480,7 +485,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       // Give the last portion of the border time to reach 100% before revealing the result.
       await new Promise(resolve => setTimeout(resolve, 320));
       if (scope(token)) setClassEditResults([{ key: classEditReviewKey(saved.editing), cuts: pauses.length, imageAdjusted: !!enhancement, portraitStatus, retakes, finishStatus: finish.join(' · '), removed: pauses.reduce((total, pause) => total + pause.end - pause.start, 0) }]);
-    }, false, true);
+    }, { classEdit: true });
   };
   const keepRetake = (group: StudioRetakeGroup, chosen: StudioRetakeGroup[number]) => {
     const result = classEditResult;
@@ -584,16 +589,16 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     const snapshot = workspace.current.current!; let file: File | null = null;
     try {
       const cached = await getExport(owner, projectId, snapshot.revision, studioRenderVersion);
-      if (!scope(token) || signal.aborted) return;
-      file = cached ?? await exportStudioProject(snapshot, assetId => getAsset(owner, projectId, assetId), { signal, onProgress: value => { if (scope(token) && !signal.aborted) setProgress(value); } });
-      if (!scope(token) || signal.aborted) return;
+      if (!scope(token, true) || signal.aborted) return;
+      file = cached ?? await exportStudioProject(snapshot, assetId => getAsset(owner, projectId, assetId), { signal, onProgress: value => { if (scope(token, true) && !signal.aborted) setProgress(value); } });
+      if (!scope(token, true) || signal.aborted) return;
       if (!cached) await storeExport(owner, projectId, file, snapshot.revision, studioRenderVersion);
-      if (!scope(token) || signal.aborted) return;
+      if (!scope(token, true) || signal.aborted) return;
       setProgress(1); setExportReady(true); setExportMenu(false);
       if (publication) navigate(`/studio/upload?type=${snapshot.kind}&studioProject=${encodeURIComponent(projectId)}&studioRevision=${snapshot.revision}`);
-      else { const stored = await getExport(owner, projectId, snapshot.revision, studioRenderVersion); if (!scope(token) || !stored) return; const url = URL.createObjectURL(stored), link = document.createElement('a'); link.href = url; link.download = stored.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 30000); }
+      else { const stored = await getExport(owner, projectId, snapshot.revision, studioRenderVersion); if (!scope(token, true) || signal.aborted || !stored) return; const url = URL.createObjectURL(stored), link = document.createElement('a'); link.href = url; link.download = stored.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 30000); }
     } finally { if (file) await releaseStudioExport(file); }
-  });
+  }, { allowBackground: true });
   const chooseOutput = (patch: Partial<StudioOutputSelection>, aspectRatio?: StudioCanvasRatio) => {
     if (confirmation.current || locked.current) return;
     try { settle(); } catch { return; }
@@ -862,10 +867,10 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
         <button className="se-button" disabled={progress >= .94} onClick={() => controller.current?.abort()}>Cancelar</button>
       </section>
     </div>}
-    {busy && !classEditRunning && <div className="se-modal-backdrop"><section className="se-progress-modal" role="dialog" aria-modal="true" aria-label={busy}><Loader2 size={23} className="se-spin" /><h2>{busy}</h2>{busy !== 'Escolhendo arquivo' && busy !== 'Detectando pausas' && busy !== 'Transcrevendo áudio' && !busy.startsWith('Preparando') && <><progress aria-label={busy} max={1} value={progress} /><p>{Math.round(progress * 100)}%{busy.startsWith('Exportando') && ' · Mantenha esta aba aberta'}</p></>}<button className="se-button" onClick={() => { if (picker.current) cancelPicker(); else controller.current?.abort(); }}>Cancelar</button></section></div>}
+    {busy && !classEditRunning && <div className="se-modal-backdrop"><section className="se-progress-modal" role="dialog" aria-modal="true" aria-label={busy}><Loader2 size={23} className="se-spin" /><h2>{busy}</h2>{busy !== 'Escolhendo arquivo' && busy !== 'Detectando pausas' && busy !== 'Transcrevendo áudio' && !busy.startsWith('Preparando') && <><progress aria-label={busy} max={1} value={progress} /><p>{Math.round(progress * 100)}%{busy.startsWith('Exportando') && ' · Pode usar outras abas ou janelas. Deixe o Studio aberto.'}</p></>}<button className="se-button" onClick={() => { if (picker.current) cancelPicker(); else controller.current?.abort(); }}>Cancelar</button></section></div>}
     {recorder && <div className="se-modal-backdrop"><StudioRecorder key={`${owner}:${projectId}`} scopeKey={`${owner}:${projectId}`} mode={recorder} aspectRatio={project.kind==='short'?'9:16':'16:9'} disabled={blocked} onClose={() => { const entry = recorderEntry.current; if (entry && scope(entry.token)) { recorderEntry.current = null; setRecorder(null); } }} onRecorded={async file => { const entry = recorderEntry.current; if (!entry || !scope(entry.token)) throw new DOMException('Gravação cancelada.', 'AbortError'); const saved = await importFiles([file], entry.mode === 'audio' ? 'layer' : 'main', entry.at, true); if (!saved || !scope(entry.token)) throw new DOMException('A gravação permanece disponível para tentar novamente.', 'AbortError'); }} /></div>}
     {rename && <div className="se-modal-backdrop"><section className="se-modal" role="dialog" aria-modal="true" aria-label="Nome do projeto"><header><h2>Nome do projeto</h2><button className="se-icon" aria-label="Fechar nome" onClick={() => setRename(false)}><X size={17} /></button></header><input autoFocus value={title} maxLength={160} onChange={e => setTitle(e.target.value)} /><button className="se-button se-primary se-wide" disabled={!title.trim()} onClick={() => { apply(value => withStudioTakes({ ...value, editing: value.editing!, title: title.trim() })); setRename(false); }}>Salvar nome</button></section></div>}
     {dialog}
-    {exportReady && !busy && <div className="se-toast" role="status"><Check size={15} />Arquivo preparado</div>}
+    {exportReady && !busy && <div className="se-toast" role="status"><Check size={15} />Arquivo preparado <button type="button" className="se-text-button" onClick={() => exportFile(false)}>Baixar novamente</button></div>}
   </div>;
 }

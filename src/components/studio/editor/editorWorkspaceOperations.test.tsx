@@ -7,15 +7,15 @@ import { StudioEditorWorkspace } from './StudioEditorWorkspace';
 import { addMainAsset, addText } from '@/lib/studio/editor/commands';
 import { initializeStudioExitGuard } from './useStudioExitGuard';
 
-const boundaries = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), put: vi.fn(), inspect: vi.fn(), capture: vi.fn() }));
+const boundaries = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), put: vi.fn(), inspect: vi.fn(), capture: vi.fn(), exportProject: vi.fn(), getExport: vi.fn(), storeExport: vi.fn() }));
 vi.mock('@/lib/studio/editor/storage', () => ({
   getProject: boundaries.get, saveProject: boundaries.save, putAsset: boundaries.put, getAsset: vi.fn(async () => null),
-  getExport: vi.fn(async () => null), storeExport: vi.fn(), studioAssetUri: (owner: string, project: string, id: string, name: string) => `file://classfy-studio/${owner}/${project}/${id}/${name}`,
+  getExport: boundaries.getExport, storeExport: boundaries.storeExport, studioAssetUri: (owner: string, project: string, id: string, name: string) => `file://classfy-studio/${owner}/${project}/${id}/${name}`,
 }));
 vi.mock('@/lib/studio/editor/media', () => ({ inspectStudioMedia: boundaries.inspect }));
 vi.mock('@/lib/studio/editor/capture', () => ({ createStudioCapture: boundaries.capture }));
 vi.mock('@/lib/studio/editor/export', () => ({
-  getStudioExportCapabilities: vi.fn(async () => ({ available: true, audio: true, colorSpace: 'rec709', profiles: [{ resolution: 'hd', width: 1920, height: 1080, frameRate: 30 }] })), exportStudioProject: vi.fn(), releaseStudioExport: vi.fn(),
+  getStudioExportCapabilities: vi.fn(async () => ({ available: true, audio: true, colorSpace: 'rec709', profiles: [{ resolution: 'hd', width: 1920, height: 1080, frameRate: 30 }] })), exportStudioProject: boundaries.exportProject, releaseStudioExport: vi.fn(),
 }));
 vi.mock('@/lib/studio/editor/renderer', () => ({ createStudioRenderer: vi.fn(async () => ({
   subscribe: (callback: (state: unknown) => void) => { callback({ position: 0, playing: false, loading: false, error: null }); return () => undefined; },
@@ -45,6 +45,7 @@ beforeEach(() => {
   boundaries.get.mockReset().mockResolvedValue(project()); boundaries.save.mockReset().mockImplementation(async (_owner: string, value: StudioProject) => { lastSaved = withStudioTakes({ ...value, editing: value.editing!, revision: value.revision + 1 }); return lastSaved; });
   const originals = new Set<string>();
   boundaries.put.mockReset().mockImplementation(async (_owner: string, _project: string, id: string) => { if (originals.has(id)) throw new Error('Original imutável já existe'); originals.add(id); });
+  boundaries.exportProject.mockReset(); boundaries.getExport.mockReset().mockResolvedValue(null); boundaries.storeExport.mockReset();
   boundaries.inspect.mockReset().mockResolvedValue(info);
   boundaries.capture.mockReset().mockImplementation(() => ({
     subscribe: (callback: (state: unknown) => void) => { callback({ phase: 'recorded', stream: null, elapsed: 2, file: recording, error: null, input: null, levels: [] }); return () => undefined; },
@@ -54,6 +55,38 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
 describe('fronteiras reais workspace → Recorder → persistência', () => {
+  it('continua o download quando a aba fica oculta e usa o arquivo salvo ao baixar novamente', async () => {
+    boundaries.get.mockResolvedValue(addMainAsset(project(), {
+      id: 'video', kind: 'video', name: 'Aula', uri: 'file://original', durationTicks: studioTicks(2), width: 1920, height: 1080,
+    }));
+    const result = deferred<File>();
+    boundaries.exportProject.mockReturnValue(result.promise);
+    const file = new File(['vídeo'], 'Aula.mp4', { type: 'video/mp4' });
+    boundaries.getExport.mockResolvedValueOnce(null).mockResolvedValue(file);
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL: vi.fn(() => 'blob:export'), revokeObjectURL: vi.fn() }));
+    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      await mount();
+      await click('Exportar');
+      await click('Baixar arquivo');
+      const { signal, onProgress } = boundaries.exportProject.mock.calls[0][2];
+      await act(async () => onProgress(.8));
+      await act(async () => {
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+        onProgress(.9);
+      });
+      expect(signal.aborted).toBe(false);
+      expect(host.querySelector('progress')?.value).toBe(.9);
+      await act(async () => result.resolve(file));
+      expect(boundaries.storeExport).toHaveBeenCalledWith('owner', 'project', file, 0, expect.any(Number));
+      expect(download).toHaveBeenCalledOnce();
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      await click('Baixar novamente');
+      expect(download).toHaveBeenCalledTimes(2);
+      expect(boundaries.exportProject).toHaveBeenCalledOnce();
+    } finally { download.mockRestore(); }
+  });
   it('só conclui uma gravação depois da escrita durável, mantendo o original enquanto a escrita está pendente', async () => {
     await mount(); await openRecording(); const pending = deferred<StudioProject>(); boundaries.save.mockImplementationOnce(() => pending.promise);
     await click('Usar gravação');
