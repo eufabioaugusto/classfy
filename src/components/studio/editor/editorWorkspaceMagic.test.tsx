@@ -130,6 +130,28 @@ describe('comparação e histórico reais do editor', () => {
       expect(latestRecipe().clips.map(clip => [clip.grade?.preset, clip.enhancement, clip.signature])).toEqual(
         Array.from({ length: 3 }, () => ['cinematic', priorEnhancement, signature]),
       );
+      await act(async () => Array.from(host.querySelectorAll<HTMLButtonElement>('.se-inspector button')).find(element => element.textContent === 'Natural')!.click());
+      await click('Atualizar com o visual atual');
+      const persisted = () => JSON.parse(localStorage.getItem(key) ?? '[]');
+      expect(persisted()).toHaveLength(1);
+      expect(persisted()[0]).toMatchObject({ name: 'Visual da aula', patch: { grade: { preset: 'natural' }, signature } });
+      await click('Renomear');
+      const rename = host.querySelector<HTMLInputElement>('input[aria-label="Nome do favorito"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(rename, 'Visual revisado');
+        rename.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await click('Salvar');
+      expect(persisted()[0]).toMatchObject({ name: 'Visual revisado', patch: { grade: { preset: 'natural' }, signature } });
+      const group = controls.querySelector('[aria-label="Gerenciar favorito"]')!;
+      const removeFavorite = () => Array.from(group.querySelectorAll('button')).find(element => element.textContent === 'Excluir')!;
+      await act(async () => removeFavorite().click());
+      await click('Cancelar');
+      expect(persisted()).toHaveLength(1);
+      await act(async () => Array.from(controls.querySelectorAll('button')).find(element => element.textContent === 'Excluir')!.click());
+      await click('Confirmar exclusão');
+      expect(persisted()).toEqual([]);
+      expect(latestRecipe().clips.every(clip => clip.signature?.strength === signature.strength)).toBe(true);
     } finally { localStorage.removeItem(key); }
 
   });

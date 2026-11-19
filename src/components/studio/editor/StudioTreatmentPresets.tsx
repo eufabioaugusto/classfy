@@ -24,42 +24,68 @@ export function StudioTreatmentPresets({ owner, section, current, disabled, onAp
   const [chosen, setChosen] = useState('');
   const favorite = chosen === '' ? undefined : presets[Number(chosen)];
   const complete = section === 'complete';
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<'create' | 'rename' | 'delete'>();
   const [name, setName] = useState('');
   const [notice, setNotice] = useState('');
-  const save = () => {
-    if (!current || !name.trim()) return;
-    const title = name.trim();
-    const next = [...presets, { name: title, patch: current }];
-    if (presets.some(preset => preset.name.toLocaleLowerCase() === title.toLocaleLowerCase())) {
-      setNotice('Já existe um favorito com esse nome.');
-      return;
-    }
+  const start = (action: 'create' | 'rename' | 'delete') => {
+    setEditing(action);
+    setName(action === 'rename' ? favorite?.name ?? '' : '');
+    setNotice('');
+  };
+  const persist = (next: Preset[], selected: string, message: string) => {
+    if (disabled) return;
     try {
       localStorage.setItem(key, JSON.stringify(next));
       setPresets(next);
-      if (complete) setChosen(String(next.length - 1));
-      setEditing(false);
+      setChosen(selected);
+      setEditing(undefined);
       setName('');
-      setNotice('Favorito salvo.');
-    } catch { setNotice('Não foi possível salvar o favorito neste navegador.'); }
+      setNotice(message);
+    } catch { setNotice('Não foi possível salvar a alteração neste navegador.'); }
   };
+  const save = () => {
+    const title = name.trim();
+    const rename = editing === 'rename';
+    if (!title || (rename ? !favorite : !current)) return;
+    if (presets.some((preset, index) => (!rename || String(index) !== chosen) && preset.name.toLocaleLowerCase() === title.toLocaleLowerCase())) {
+      setNotice('Já existe um favorito com esse nome.');
+      return;
+    }
+    if (rename) {
+      persist(presets.map((preset, index) => String(index) === chosen ? { ...preset, name: title } : preset), chosen, 'Favorito renomeado.');
+    } else if (current) {
+      persist([...presets, { name: title, patch: current }], String(presets.length), 'Favorito salvo.');
+    }
+  };
+  const cancel = () => { setEditing(undefined); setNotice(''); };
   return <div className="se-treatment-presets">
     {presets.length > 0 && <StudioSelect label="Favoritos" accessibleLabel={complete ? 'Favoritos de visual completo' : section === 'adjustment' ? 'Favoritos de ajuste' : 'Favoritos de assinatura'}
-      value={complete ? chosen : ''} disabled={disabled} options={[['', 'Escolher favorito'], ...presets.map(({ name }, index) => [String(index), name] as const)]}
-      onChange={value => { if (complete) setChosen(value); else if (value) onApply(presets[+value].patch); }} />}
-    {complete && favorite && <div className="se-treatment-actions">
+      value={chosen} disabled={disabled || !!editing} options={[['', 'Escolher favorito'], ...presets.map(({ name }, index) => [String(index), name] as const)]}
+      onChange={value => { setChosen(value); setNotice(''); }} />}
+    {favorite && !editing && <div className="se-treatment-actions">
       {onApplyAll && <button type="button" className="se-inspector-apply" disabled={disabled}
         onClick={() => onApplyAll(favorite.patch)}>Aplicar a todos os takes</button>}
       <button type="button" className="se-text-button" disabled={disabled} onClick={() => onApply(favorite.patch)}>Aplicar à seleção</button>
+      <div className="se-treatment-preset-name" role="group" aria-label="Gerenciar favorito">
+        <button type="button" className="se-text-button" disabled={disabled || !current} onClick={() => {
+          if (current) persist(presets.map((preset, index) => String(index) === chosen ? { ...preset, patch: current } : preset), chosen, 'Favorito atualizado.');
+        }}>Atualizar com o visual atual</button>
+        <button type="button" className="se-text-button" disabled={disabled} onClick={() => start('rename')}>Renomear</button>
+        <button type="button" className="se-text-button" disabled={disabled} onClick={() => start('delete')}>Excluir</button>
+      </div>
     </div>}
-    {editing ? <div className="se-treatment-preset-name">
+    {editing === 'delete' && favorite ? <div className="se-treatment-preset-name">
+      <p>Excluir o favorito “{favorite.name}”?</p>
+      <button type="button" className="se-inspector-apply" disabled={disabled}
+        onClick={() => persist(presets.filter((_, index) => String(index) !== chosen), '', 'Favorito excluído.')}>Confirmar exclusão</button>
+      <button type="button" className="se-text-button" onClick={cancel}>Cancelar</button>
+    </div> : editing ? <div className="se-treatment-preset-name">
       <input type="text" aria-label="Nome do favorito" placeholder="Nome do favorito" value={name} maxLength={50}
         disabled={disabled} onChange={event => setName(event.target.value)}
         onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); save(); } }} />
       <button type="button" className="se-inspector-apply" disabled={disabled || !name.trim()} onClick={save}>Salvar</button>
-      <button type="button" className="se-text-button" onClick={() => { setEditing(false); setNotice(''); }}>Cancelar</button>
-    </div> : <button type="button" className="se-text-button" disabled={disabled || !current} onClick={() => { setNotice(''); setEditing(true); }}>
+      <button type="button" className="se-text-button" onClick={cancel}>Cancelar</button>
+    </div> : <button type="button" className="se-text-button" disabled={disabled || !current} onClick={() => start('create')}>
       <Bookmark size={14} />{complete ? 'Salvar visual completo' : 'Salvar favorito'}
     </button>}
     {notice && <p className="se-muted" role="status">{notice}</p>}
