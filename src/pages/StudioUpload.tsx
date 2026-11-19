@@ -1,3 +1,4 @@
+import { changePromotionInvitation, type StudioPromotionSource } from "@/lib/studio/editor/promotionInvitation";
 import {
   useCallback,
   useEffect,
@@ -138,6 +139,7 @@ function StudioUpload() {
   const { user, role, profile, loading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const promotionSource = useRef<StudioPromotionSource>();
   const editId = searchParams.get("edit");
   const [contentType, setContentType] = useState<StandaloneKind>(() =>
     requestedKind(searchParams),
@@ -680,6 +682,12 @@ function StudioUpload() {
       setFileUrl(result.fileUrl);
       setMediaAssetId(result.mediaAssetId);
       setVideoProvider(result.provider);
+      if (promotionSource.current) {
+        promotionSource.current = {
+          ...promotionSource.current,
+          range: requiresTrim ? { start: trimStart ?? 0, end: trimEnd ?? sourceDuration } : undefined,
+        };
+      }
       toast.success(
         contentType === "podcast"
           ? "Áudio enviado. Agora estamos preparando a reprodução."
@@ -731,6 +739,7 @@ function StudioUpload() {
           .trim(),
       );
     }
+    promotionSource.current = undefined;
     pendingFileRef.current = file;
     if (contentType === "podcast") {
       setWizardStep(1);
@@ -845,6 +854,7 @@ function StudioUpload() {
     setCaptureReady(false);
     setMediaAssetId(null);
     setVideoProvider(null);
+    promotionSource.current = undefined;
     pendingFileRef.current = null;
     if (fileInputRef.current) fileInputRef.current.value = "";
     setWizardStep(0);
@@ -909,6 +919,9 @@ function StudioUpload() {
         { p_draft_id: activeDraftId },
       );
       if (error) throw error;
+      if (user && data?.submissionId && promotionSource.current) {
+        changePromotionInvitation(user.id, data.submissionId, promotionSource.current);
+      }
       draft.clearLocal();
       toast.success(
         data?.isRevision
@@ -1100,6 +1113,9 @@ function StudioUpload() {
             if (!description.trim()) setDescription(project.description);
             if (!tags.length) setTags(project.tags);
             await handleFileSelect(file, project.title);
+            if (pendingFileRef.current === file && project.kind !== "podcast") {
+              promotionSource.current = { projectId: project.id, revision: project.revision, snapshot: project };
+            }
           }}
         />}
         <nav className="studio-wizard-steps" aria-label="Etapas da publicação">

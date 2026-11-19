@@ -1,3 +1,6 @@
+import { changePromotionInvitation, promotionInvitations, type StudioPromotionSource } from "@/lib/studio/editor/promotionInvitation";
+import { getProject } from "@/lib/studio/editor/storage";
+import type { StudioProject } from "../../shared/studio";
 import {
   lazy,
   Suspense,
@@ -275,10 +278,52 @@ const editRoute = (content: Content) =>
       ? `/studio/upload/curso?edit=${content.id}`
       : `/studio/upload?type=${content.content_type}&edit=${content.id}`;
 
+const StudioPromotionDialog = lazy(() => import("@/components/studio/editor/StudioPromotionDialog"));
+
 export default function StudioContents() {
   const { user, role, loading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const owner = user?.id;
+  const [promotion, setPromotion] = useState<{ project: StudioProject; submissionId: string; range?: StudioPromotionSource["range"] }>();
+  useEffect(() => {
+    if (!owner || promotion?.project.ownerId === owner) return;
+    let cancelled = false, running = false;
+    const check = async () => {
+      const pending = promotionInvitations(owner);
+      if (!pending.length || running || cancelled) return;
+      running = true;
+      try {
+        const { data } = await supabase.from("publication_submissions")
+          .select("id,status").eq("owner_id", owner).in("id", pending.map(entry => entry.submissionId));
+        for (const entry of pending) {
+          if (cancelled) return;
+          const status = data?.find(row => row.id === entry.submissionId)?.status;
+          if (status === "rejected" || status === "superseded")
+            changePromotionInvitation(owner, entry.submissionId);
+          if (status !== "approved") continue;
+          const project = await getProject(owner, entry.projectId);
+          if (cancelled) return;
+          const snapshot = project?.revision === entry.revision ? project : project && entry.snapshot;
+          if (snapshot?.ownerId === owner && snapshot.id === entry.projectId && snapshot.revision === entry.revision) {
+            setPromotion({ project: snapshot, submissionId: entry.submissionId, range: entry.range });
+            return;
+          }
+          changePromotionInvitation(owner, entry.submissionId);
+        }
+      } catch { /* Retry when the page regains focus or the next check runs. */ }
+      finally { running = false; }
+    };
+    if (!promotionInvitations(owner).length) return;
+    void check();
+    const timer = window.setInterval(() => void check(), 5000);
+    window.addEventListener("focus", check);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", check);
+    };
+  }, [owner, promotion]);
   const [contents, setContents] = useState<Content[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterType, setFilterType] = useState("all");
@@ -781,6 +826,12 @@ export default function StudioContents() {
       title="Conteúdos"
       contentClassName="studio-page-shell"
     >
+      {promotion && promotion.project.ownerId === owner && <Suspense fallback={null}>
+        <StudioPromotionDialog project={promotion.project} range={promotion.range} open onClose={() => {
+          changePromotionInvitation(promotion.project.ownerId, promotion.submissionId);
+          setPromotion(undefined);
+        }} />
+      </Suspense>}
       <CreatorTemplate
         className="studio-template"
         width="wide"

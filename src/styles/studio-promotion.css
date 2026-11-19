@@ -1,0 +1,45 @@
+.se-promotion-overlay { position: fixed; inset: 0; z-index: 160; background: #09080cb8; backdrop-filter: blur(7px); }
+.se-promotion-dialog {
+  position: fixed; z-index: 161; inset: 50% auto auto 50%; transform: translate(-50%, -50%);
+  width: min(820px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); overflow: auto;
+  padding: clamp(20px, 4vw, 36px); border-radius: 20px; background: #191821; color: #fcf4f7;
+  box-shadow: 0 24px 80px #000a; font: 14px/1.5 system-ui, sans-serif;
+}
+.se-promotion-dialog h2 { margin: 0 32px 6px 0; font-size: clamp(23px, 4vw, 34px); line-height: 1.13; letter-spacing: -.035em; }
+.se-promotion-dialog p { margin: 0 24px 15px 0; color: #bab4c2; }
+.se-promotion-dialog button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 7px 14px; border: 0; border-radius: 8px; background: #34303e; color: inherit; font: inherit; font-weight: 650; cursor: pointer; }
+.se-promotion-dialog button:focus-visible { outline: 2px solid #ff9ab8; outline-offset: 3px; }
+.se-promotion-dialog button:disabled { opacity: .5; cursor: default; }
+.se-promotion-dialog .se-promotion-close { position: absolute; top: 14px; right: 14px; padding: 8px; background: transparent; }
+.se-promotion-dialog .se-promotion-primary { background: linear-gradient(120deg,#d54764,#9a39a4); }
+.se-promotion-dialog footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.se-promotion-dialog footer:empty { display: none; }
+.se-promotion-art { height: clamp(180px, 31vh, 330px); position: relative; display: grid; place-items: center; overflow: hidden; border-radius: 14px; background: linear-gradient(135deg,#432536,#302044 74%); isolation: isolate; }
+.se-promotion-art img, .se-promotion-wave { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.se-promotion-art img { opacity: .62; }
+.se-promotion-wave { background: radial-gradient(ellipse at 20% 20%,#f54e845e,transparent 70%), radial-gradient(ellipse at 82% 75%,#a57aff75,transparent 70%); }
+.se-promotion-art.generating img { filter: blur(8px); transform: scale(1.08); }
+.se-promotion-art.generating .se-promotion-wave { inset: -20%; width: 140%; height: 140%; background-image: repeating-linear-gradient(0deg,#1410217d 0 2px,transparent 2px 6px), radial-gradient(ellipse at 30% 25%,#f44dada6,transparent 65%), radial-gradient(ellipse at 70% 80%,#917affbd,transparent 70%); animation: se-promotion-ripple 3.8s ease-in-out infinite alternate; }
+.se-promotion-art.generating::after {
+  content: ''; position: absolute; inset: -10%; opacity: .34; pointer-events: none;
+  background-image: repeating-conic-gradient(#ffc2df 0 25%, transparent 0 50%);
+  background-size: 7px 7px; mix-blend-mode: screen;
+  mask-image: repeating-linear-gradient(164deg, transparent 0 9%, #000 14%, transparent 25%);
+  animation: se-promotion-pixels 1.8s steps(12, end) infinite alternate;
+}
+@keyframes se-promotion-pixels { from { transform: translate(-3%, -4%); } to { transform: translate(3%, 4%); } }
+.se-promotion-art svg { position: relative; filter: drop-shadow(0 6px 14px #170921); }
+@keyframes se-promotion-ripple { from { transform: translate(-5%,-5%) skewY(-5deg); } to { transform: translate(6%,5%) skewY(7deg) scale(1.12); } }
+.se-promotion-progress { display: grid; grid-template-columns: 1fr auto; gap: 7px; margin-top: 12px; }
+.se-promotion-progress progress { grid-column: 1 / -1; width: 100%; height: 6px; border: 0; appearance: none; border-radius: 99px; overflow: hidden; }
+.se-promotion-progress progress::-webkit-progress-bar { background: #34303e; }
+.se-promotion-progress progress::-webkit-progress-value { background: linear-gradient(90deg,#ff6c80,#c36cff); }
+.se-promotion-progress progress::-moz-progress-bar { background: linear-gradient(90deg,#ff6c80,#c36cff); }
+.se-promotion-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 10px; }
+.se-promotion-cards article { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 12px; background: #252330; }
+.se-promotion-cards video { width: 100%; aspect-ratio: 9 / 16; max-height: 49vh; background: #111018; border-radius: 7px; }
+.se-promotion-cards strong { line-height: 1.3; overflow-wrap: anywhere; }
+.se-promotion-cards span { color: #bdb4c1; font-size: 12px; }
+.se-promotion-cards button { margin-top: auto; }
+.se-promotion-dialog .se-promotion-error { color: #ffadbd; margin: 12px 0 0; }
+@media (prefers-reduced-motion: reduce) { .se-promotion-art.generating .se-promotion-wave, .se-promotion-art.generating::after { animation: none; } }

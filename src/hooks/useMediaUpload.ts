@@ -149,7 +149,7 @@ export function useMediaUpload({
                   progress: nextProgress,
                 });
               },
-              onSuccess: resolve,
+              onSuccess: () => resolve(),
               onError: reject,
             });
             tusRef.current = request;

@@ -1,7 +1,7 @@
 import { StudioSelect } from './StudioSelect';
 import { studioSliderFill } from './studioSliderFill';
 import { StudioHeaderVideoControls, studioCanvasRatioLabel } from './StudioHeaderVideoControls';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, ChevronDown, Download, Film, Image, Loader2, Mic, Monitor, Music2, Pause, Play, Plus, Redo2, Scissors, SlidersHorizontal, Sparkles, Subtitles, Type, Undo2, Upload, Video, X } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -30,6 +30,8 @@ import { useStudioExitGuard } from './useStudioExitGuard';
 import { useStudioConfirmation } from './useStudioConfirmation';
 import { parseDesktopCaptions } from './captionImport';
 import '@/styles/studio-editor.css';
+
+const StudioPromotionDialog = lazy(() => import('./StudioPromotionDialog'));
 
 const tools = [
   { id: 'media', label: 'Mídia', Icon: Film },
@@ -62,6 +64,7 @@ function classEditReviewKey(editing: StudioProject['editing']) {
 export function StudioEditorWorkspace({ owner, projectId, premium = false, premiumLoading = false, premiumError }: { owner: string; projectId: string; premium?: boolean; premiumLoading?: boolean; premiumError?: string | null }) {
   const navigate = useNavigate(), workspace = useStudioWorkspace(owner, projectId);
   const { project } = workspace;
+  const [promotion, setPromotion] = useState<{ project: StudioProject; open: boolean }>();
   const [preview, setPreview] = useState<StudioProject | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [timelineTool, setTimelineTool] = useState<TimelineTool>('select');
@@ -596,7 +599,19 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       if (!scope(token, true) || signal.aborted) return;
       setProgress(1); setExportReady(true); setExportMenu(false);
       if (publication) navigate(`/studio/upload?type=${snapshot.kind}&studioProject=${encodeURIComponent(projectId)}&studioRevision=${snapshot.revision}`);
-      else { const stored = await getExport(owner, projectId, snapshot.revision, studioRenderVersion); if (!scope(token, true) || signal.aborted || !stored) return; const url = URL.createObjectURL(stored), link = document.createElement('a'); link.href = url; link.download = stored.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 30000); }
+      else {
+        const stored = await getExport(owner, projectId, snapshot.revision, studioRenderVersion);
+        if (!scope(token, true) || signal.aborted || !stored) return;
+        const url = URL.createObjectURL(stored), link = document.createElement('a');
+        link.href = url;
+        link.download = stored.name;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        if (snapshot.kind !== 'podcast') {
+          setPromotion(previous => previous?.project.ownerId === owner && previous.project.id === projectId &&
+            previous.project.revision === snapshot.revision ? previous : { project: snapshot, open: true });
+        }
+      }
     } finally { if (file) await releaseStudioExport(file); }
   }, { allowBackground: true });
   const chooseOutput = (patch: Partial<StudioOutputSelection>, aspectRatio?: StudioCanvasRatio) => {
@@ -871,6 +886,18 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     {recorder && <div className="se-modal-backdrop"><StudioRecorder key={`${owner}:${projectId}`} scopeKey={`${owner}:${projectId}`} mode={recorder} aspectRatio={project.kind==='short'?'9:16':'16:9'} disabled={blocked} onClose={() => { const entry = recorderEntry.current; if (entry && scope(entry.token)) { recorderEntry.current = null; setRecorder(null); } }} onRecorded={async file => { const entry = recorderEntry.current; if (!entry || !scope(entry.token)) throw new DOMException('Gravação cancelada.', 'AbortError'); const saved = await importFiles([file], entry.mode === 'audio' ? 'layer' : 'main', entry.at, true); if (!saved || !scope(entry.token)) throw new DOMException('A gravação permanece disponível para tentar novamente.', 'AbortError'); }} /></div>}
     {rename && <div className="se-modal-backdrop"><section className="se-modal" role="dialog" aria-modal="true" aria-label="Nome do projeto"><header><h2>Nome do projeto</h2><button className="se-icon" aria-label="Fechar nome" onClick={() => setRename(false)}><X size={17} /></button></header><input autoFocus value={title} maxLength={160} onChange={e => setTitle(e.target.value)} /><button className="se-button se-primary se-wide" disabled={!title.trim()} onClick={() => { apply(value => withStudioTakes({ ...value, editing: value.editing!, title: title.trim() })); setRename(false); }}>Salvar nome</button></section></div>}
     {dialog}
-    {exportReady && !busy && <div className="se-toast" role="status"><Check size={15} />Arquivo preparado <button type="button" className="se-text-button" onClick={() => exportFile(false)}>Baixar novamente</button></div>}
+    {promotion?.project.id === projectId && promotion.project.ownerId === owner && <Suspense fallback={null}>
+      <StudioPromotionDialog
+        key={`${owner}:${projectId}:${promotion.project.revision}`}
+        project={promotion.project}
+        open={promotion.open && !busy}
+        artwork={thumbnails[promotion.project.editing?.assets.find(asset => asset.kind === 'video')?.id ?? '']}
+        onClose={() => setPromotion(current => current && { ...current, open: false })}
+      />
+    </Suspense>}
+    {exportReady && !busy && <div className="se-toast" role="status"><Check size={15} />Arquivo preparado <button type="button" className="se-text-button" onClick={() => exportFile(false)}>Baixar novamente</button>
+      {promotion?.project.revision === project.revision && promotion.project.id === projectId && promotion.project.ownerId === owner &&
+        <button type="button" className="se-text-button" onClick={() => setPromotion({ ...promotion, open: true })}>Cortes para divulgar</button>}
+    </div>}
   </div>;
 }
