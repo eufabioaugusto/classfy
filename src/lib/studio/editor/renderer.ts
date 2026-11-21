@@ -211,16 +211,16 @@ export class StudioRenderKernel {
     const font = studioBrowserFont(style.fontFamily); ctx.font = `${fontSize}px ${font}`; ctx.textBaseline = 'middle';
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${fontSize * (style.letterSpacing ?? 0)}px`;
     const inset = Math.min(8 * height / Math.max(1, clip.rect.height * this.recipe.output.height), width / 8, height / 8), available = Math.max(1, width - inset * 2);
-    const lines = wrapStudioText(ctx, fullText, available), lineHeight = fontSize * (style.lineHeight ?? 1.2);
+    const lines = layoutStudioText(ctx, fullText, available), lineHeight = fontSize * (style.lineHeight ?? 1.2);
     const top = (height - lines.length * lineHeight) / 2 + lineHeight / 2;
     const secondary = style.secondaryColor ?? '#000000', inverse = style.decoration?.endsWith('inverse');
     const fill = inverse ? secondary : style.color, decoration = inverse ? style.color : secondary;
     if (style.backgroundColor && style.backgroundColor !== '#00000000') { ctx.fillStyle = style.backgroundColor; ctx.fillRect(0, 0, width, height); }
     if (style.decoration?.startsWith('background')) { ctx.fillStyle = decoration; ctx.fillRect(0, 0, width, height); }
-    let remaining = graphemes(content).length;
-    lines.forEach((line, index) => {
-      const clusters = graphemes(line); const visible = style.animation === 'typewriter' ? clusters.slice(0, Math.max(0, remaining)).join('') : line;
-      remaining -= clusters.length; const fullWidth = ctx.measureText(line).width;
+    const revealed = graphemes(content).length;
+    lines.forEach(({ text: line, start }, index) => {
+      const clusters = graphemes(line); const visible = style.animation === 'typewriter' ? clusters.slice(0, Math.max(0, revealed - start)).join('') : line;
+      const fullWidth = ctx.measureText(line).width;
       const x = style.alignment === 'left' ? inset : style.alignment === 'right' ? width - inset - fullWidth : (width - fullWidth) / 2, y = top + index * lineHeight;
       ctx.fillStyle = fill;
       if (style.gradientColors) { const gradient = ctx.createLinearGradient(0, 0, width, 0); gradient.addColorStop(0, style.gradientColors[0]); gradient.addColorStop(1, style.gradientColors[1]); ctx.fillStyle = gradient; }
@@ -375,14 +375,43 @@ async function prepareStudioPreviewFonts(recipe: { clips: readonly StudioRecipeC
   }));
 }
 export { studioBrowserFont } from './studioFonts';
-export function wrapStudioText(ctx: Pick<CanvasRenderingContext2D, 'measureText'>, content: string, width: number): string[] {
-  const lines: string[] = [];
-  for (const paragraph of content.split('\n')) {
-    let line = '';
-    for (const cluster of graphemes(paragraph)) { const next = line + cluster; if (line && ctx.measureText(next).width > width) { lines.push(line); line = cluster; } else line = next; }
-    lines.push(line);
+// Original grapheme offsets retain typewriter timing across soft and explicit breaks.
+type StudioTextLine = { text: string; start: number };
+
+function layoutStudioText(ctx: Pick<CanvasRenderingContext2D, 'measureText'>, content: string, width: number): StudioTextLine[] {
+  const lines: StudioTextLine[] = [];
+  const paragraphs = content.split(/(\r\n|\r|\n)/);
+  let offset = 0;
+  for (let paragraphIndex = 0; paragraphIndex < paragraphs.length; paragraphIndex += 2) {
+    const paragraph = paragraphs[paragraphIndex];
+    let line = '', start = offset, spaces = '';
+    // Non-breaking spaces remain part of their word, including punctuation.
+    for (const token of paragraph.split(/([^\S\u00a0\u202f]+)/u).filter(Boolean)) {
+      const clusters = graphemes(token), tokenStart = offset;
+      offset += clusters.length;
+      if (/^[^\S\u00a0\u202f]+$/u.test(token)) { spaces += token; continue; }
+      const next = line + spaces + token;
+      if (line && ctx.measureText(next).width <= width) {
+        line = next; spaces = ''; continue;
+      }
+      if (line) lines.push({ text: line, start });
+      line = ''; spaces = ''; start = tokenStart;
+      if (ctx.measureText(token).width <= width) { line = token; continue; }
+      // Only an individually oversized token needs a grapheme fallback.
+      for (const [index, cluster] of clusters.entries()) {
+        if (line && ctx.measureText(line + cluster).width > width) {
+          lines.push({ text: line, start }); line = cluster; start = tokenStart + index;
+        } else line += cluster;
+      }
+    }
+    lines.push({ text: line, start });
+    offset += graphemes(paragraphs[paragraphIndex + 1] ?? '').length;
   }
   return lines;
+}
+
+export function wrapStudioText(ctx: Pick<CanvasRenderingContext2D, 'measureText'>, content: string, width: number): string[] {
+  return layoutStudioText(ctx, content, width).map(line => line.text);
 }
 
 export async function createStudioRenderer(recipe: StudioRenderRecipe, resolveAsset: StudioAssetResolver, { canvas = null, maxDimension = 1080 }: { canvas?: HTMLCanvasElement | null; maxDimension?: number } = {}): Promise<StudioRenderer> {

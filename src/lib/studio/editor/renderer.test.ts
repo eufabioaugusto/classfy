@@ -96,9 +96,46 @@ describe('compositor compartilhado',()=>{
     const rgb=[.1,.3,.7],grade={...studioGrade('cinematic'),intensity:0};expect(studioGradePixel(rgb,grade)).toEqual(rgb);
     const full=studioGradePixel(rgb,{...grade,intensity:1}),half=studioGradePixel(rgb,{...grade,intensity:.5});expect(full).not.toEqual(rgb);half.forEach((v,i)=>expect(v).toBeCloseTo((rgb[i]+full[i])/2));
   });
-  it('contain/cover preservam proporção e texto quebra sem perder caracteres',()=>{
+  it('contain/cover preservam proporção e palavras que cabem permanecem inteiras',()=>{
     expect(studioFitRect(100,50,100,100,'contain')).toEqual({x:0,y:25,width:100,height:50});expect(studioFitRect(100,50,100,100,'cover')).toEqual({x:-50,y:0,width:200,height:100});
-    const lines=wrapStudioText({measureText:(v:string)=>({width:Array.from(v).length*10}as TextMetrics)},'Aula longa',30);expect(lines.join('')).toBe('Aula longa');expect(lines.every(line=>line.length<=3)).toBe(true);
+    expect(wrapStudioText({ measureText: value => ({ width: value.length * 10 } as TextMetrics) }, 'Aula longa', 50)).toEqual(['Aula', 'longa']);
+  });
+  it('legendas dos cortes quebram nos espaços e conservam pontuação e acentos', () => {
+    const measure = { measureText: (value: string) => ({ width: value.length * 10 } as TextMetrics) };
+    expect(wrapStudioText(measure, 'Quantas vezes na vida a gente se perguntou?', 300))
+      .toEqual(['Quantas vezes na vida a gente', 'se perguntou?']);
+    for (const phrase of ['Querem muitas vezes a gente quer a nossa vontade, né?', 'você vai ter sido transformado por uma coisa']) {
+      const lines = wrapStudioText(measure, phrase, 300);
+      expect(lines.flatMap(line => line.split(' '))).toEqual(phrase.split(' '));
+      expect(lines.every(line => measure.measureText(line).width <= 300)).toBe(true);
+    }
+    expect(wrapStudioText(measure, 'Olá, você!\n\nTudo bem?\r\nSim.', 100))
+      .toEqual(['Olá, você!', '', 'Tudo bem?', 'Sim.']);
+    expect(wrapStudioText(measure, 'a\u00a0gente faz', 70)).toEqual(['a\u00a0gente', 'faz']);
+  });
+  it('apenas um termo maior que a caixa quebra por grafema sem separar emoji ou acento combinado', () => {
+    const measure = { measureText: (value: string) => ({ width: Array.from(value.normalize('NFC').replaceAll('👩🏽‍🏫', 'X')).length * 10 } as TextMetrics) };
+    const word = 'ac\u0327a\u0303oac\u0327a\u0303o';
+    const lines = wrapStudioText(measure, word, 30);
+    expect(lines.join('')).toBe(word);
+    expect(lines.every(line => measure.measureText(line).width <= 30 && !/^\p{M}/u.test(line))).toBe(true);
+    expect(wrapStudioText(measure, '👩🏽‍🏫👩🏽‍🏫', 10)).toEqual(['👩🏽‍🏫', '👩🏽‍🏫']);
+  });
+  it('typewriter consome os espaços e as quebras originais sem antecipar a linha seguinte', async () => {
+    const caption = clip({ kind: 'caption', assetId: undefined, rect: { x: 0, y: 0, width: .24, height: 1 },
+      text: { content: 'Oi  você\nsim', fontFamily: 'System', fontSize: .04, color: '#ffffff', backgroundColor: '#00000000',
+        alignment: 'center', animation: 'typewriter', animationDurationTicks: 120000 } });
+    const kernel = new StudioRenderKernel(recipe([caption]), async () => new Blob());
+    const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180;
+    const textAt = async (count: number) => {
+      commands.length = 0;
+      await kernel.draw(canvas, count / 12 + 1e-8);
+      return commands.filter(command => command[0] === 'text').map(command => command[1]);
+    };
+    expect(await textAt(4)).toEqual(['Oi', '', '']);
+    expect(await textAt(9)).toEqual(['Oi', 'você', '']);
+    expect(await textAt(10)).toEqual(['Oi', 'você', 's']);
+    kernel.dispose();
   });
   it('dispose durante resolução impede original tardio de compor',async()=>{
     let resolve!:(blob:Blob)=>void;const pending=new Promise<Blob>(r=>resolve=r),kernel=new StudioRenderKernel(recipe(),()=>pending);const drawing=kernel.draw(document.createElement('canvas'),0);kernel.dispose();resolve(new Blob(['original']));await expect(drawing).rejects.toMatchObject({name:'AbortError'});expect(commands.some(c=>c[0]==='draw')).toBe(false);
