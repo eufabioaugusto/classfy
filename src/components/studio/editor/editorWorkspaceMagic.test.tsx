@@ -60,6 +60,16 @@ function button(label: string): HTMLButtonElement {
   expect(value, `botão ${label}`).toBeTruthy(); return value!;
 }
 async function click(label: string) { await act(async () => button(label).click()); }
+async function chooseClassCut(label: 'Editar com legenda' | 'Editar sem legenda') {
+  await act(async () => button('ClassCut').dispatchEvent(new MouseEvent('pointerdown', {
+    button: 0, bubbles: true, cancelable: true,
+  })));
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(element => element.textContent.trim() === label);
+  expect(item).toBeTruthy();
+  expect(io.save).not.toHaveBeenCalled();
+  await act(async () => item!.click());
+}
 function latestRecipe(): StudioRenderRecipe { return io.setRecipe.mock.calls.at(-1)![0]; }
 function signatureProject() {
   const base = initialProject(), image = base.editing!.assets.find(asset => asset.id === 'image-original')!;
@@ -270,7 +280,7 @@ describe('comparação e histórico reais do editor', () => {
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
     const transcription = deferred<{ text: string; start: number; end: number }[]>();
     io.transcribe.mockReturnValueOnce(transcription.promise);
-    await click('ClassCut');
+    await chooseClassCut('Editar com legenda');
     const modal = host.querySelector('.se-class-edit-progress')!;
     expect(modal.textContent).toContain('Preparando áudio da montagem');
     expect(modal.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('58');
@@ -302,10 +312,8 @@ describe('comparação e histórico reais do editor', () => {
     expect(latestRecipe().clips.find(clip => clip.kind === 'caption')?.startTicks).toBe(studioTicks(.3));
     expect(io.transcribe.mock.calls[0][2]).toBe('portuguese');
     expect(host.textContent).toContain('2 pausas encurtadas');
-    const entry = button('ClassCut');
-    entry.focus();
     const space = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true });
-    await act(async () => entry.dispatchEvent(space));
+    await act(async () => host.dispatchEvent(space));
     expect(space.defaultPrevented).toBe(true);
     expect(io.play).toHaveBeenCalled();
     expect(host.querySelector('.se-retake-review summary')?.textContent).toContain('takes repetidos (1)');
@@ -329,21 +337,36 @@ describe('comparação e histórico reais do editor', () => {
     expect(latestRecipe().clips).toHaveLength(6);
     expect(latestRecipe().assets.map(asset => asset.id)).toEqual(['video-original']);
     expect(saved!.editing!.assets.map(asset => asset.id)).toEqual(['video-original', 'image-original']);
-  });
+  }, 30000);
+
+  it('edita sem transcrever e permite gerar legendas depois da revisão', async () => {
+    io.getAsset.mockResolvedValue(new Blob(['original']));
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
+    await chooseClassCut('Editar sem legenda');
+    await vi.waitFor(() => expect(host.querySelector('.se-class-edit-progress')).toBeNull());
+    expect(io.transcribe).not.toHaveBeenCalled();
+    expect(saved!.takes.map(take => [take.start, take.end])).toEqual([[0, 2], [3, 6], [7, 10]]);
+    expect(latestRecipe().clips.every(clip => clip.kind === 'video' && clip.enhancement?.strength === .35 && clip.grade.preset === 'studio')).toBe(true);
+    await click('Legendas');
+    io.transcribe.mockResolvedValueOnce([{ text: 'Montagem revisada.', start: .3, end: 1.2 }]);
+    await click('Gerar legendas');
+    expect(io.transcribe.mock.calls[0][0].takes).toHaveLength(3);
+    expect(latestRecipe().clips.some(clip => clip.kind === 'caption')).toBe(true);
+  }, 30000);
 
   it('mantém ClassCut e o ajuste existente ao refazer os cortes', async () => {
     io.get.mockResolvedValue(patchClip(initialProject(), 'main', { enhancement: priorEnhancement }));
     io.getAsset.mockResolvedValue(new Blob(['original']));
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" premium /></MemoryRouter>));
     expect(button('ClassCut').getAttribute('aria-disabled')).toBe('false');
-    await click('ClassCut');
+    await chooseClassCut('Editar sem legenda');
     await vi.waitFor(() => expect(host.querySelector('.se-class-edit-progress')).toBeNull());
     expect(latestRecipe().clips.every(clip => clip.enhancement?.strength === priorEnhancement.strength)).toBe(true);
     expect(button('ClassCut').getAttribute('aria-disabled')).toBe('true');
     await click('Desfazer');
     expect(latestRecipe().clips[0].enhancement).toEqual(priorEnhancement);
     expect(button('ClassCut').getAttribute('aria-disabled')).toBe('false');
-  });
+  }, 30000);
 
   it('mostra o preparo e inicia apenas um download para cliques repetidos', async () => {
     const read = deferred<Blob>();

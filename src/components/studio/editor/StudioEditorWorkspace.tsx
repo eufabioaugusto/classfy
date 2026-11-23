@@ -1,3 +1,4 @@
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { StudioSelect } from './StudioSelect';
 import { studioSliderFill } from './studioSliderFill';
 import { StudioHeaderVideoControls, studioCanvasRatioLabel } from './StudioHeaderVideoControls';
@@ -80,7 +81,6 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const setSelected = (id?: string) => setSelection(id ? [id] : []);
   const [tab, setTab] = useState<Tab | null>('media'), [position, setPosition] = useState(0), [playing, setPlaying] = useState(false), [renderLoading, setRenderLoading] = useState(false);
   const [captionLanguage, setCaptionLanguage] = useState('portuguese'), [captionStyle, setCaptionStyle] = useState(0);
-  const [autoCaptions, setAutoCaptions] = useState(true);
   const [reviewRetakes, setReviewRetakes] = useState(true);
   const [colorPreset, setColorPreset] = useState<StudioEffect>('studio'), [colorIntensity, setColorIntensity] = useState(.65);
   const [captionNotice, setCaptionNotice] = useState('');
@@ -404,7 +404,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     });
   };
   const chosenGrade = { ...studioGrade(colorPreset), intensity: colorIntensity };
-  const runClassEdit = () => {
+  const runClassEdit = (withCaptions: boolean) => {
     if (!premium) return;
     void external('Detectando pausas', async (token, signal) => {
       const snapshot = workspace.current.current!;
@@ -447,7 +447,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       let edited = applyClassEdit(snapshot, clip.id, pauses, enhancement, portrait, chosenGrade);
       const finish = colorPreset === 'natural' ? [] : [`Filtro ${colorPresets.find(preset => preset.id === colorPreset)?.label} aplicado`];
       let retakes: StudioRetakeGroup[] = [];
-      if (autoCaptions || reviewRetakes) {
+      if (withCaptions) {
         measuredCaptionProgress.current = 0;
         setProgress(.58);
         setBusy('Preparando áudio da montagem');
@@ -464,14 +464,12 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
             retakes = findStudioRetakes(cues, words);
             if (!retakes.length) finish.push(cues.length ? 'Sem repetições semelhantes detectadas' : 'Sem fala para comparar');
           }
-          if (autoCaptions) {
-            const captioned = addCaptionTrack(edited, cues, captionStyles[captionStyle].style);
-            finish.push(captioned === edited ? 'Nenhuma fala identificada' : 'Legendas geradas');
-            edited = captioned;
-          }
+          const captioned = addCaptionTrack(edited, cues, captionStyles[captionStyle].style);
+          finish.push(captioned === edited ? 'Nenhuma fala identificada' : 'Legendas geradas');
+          edited = captioned;
         } catch (cause) {
           if (!scope(token) || signal.aborted) return;
-          const unavailable = autoCaptions && reviewRetakes ? 'Legendas e revisão de repetições indisponíveis' : autoCaptions ? 'Legendas indisponíveis' : 'Revisão de repetições indisponível';
+          const unavailable = reviewRetakes ? 'Legendas e revisão de repetições indisponíveis' : 'Legendas indisponíveis';
           finish.push(cause instanceof Error ? `${unavailable}. ${cause.message}` : unavailable);
         }
       }
@@ -736,7 +734,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     const keys = (event: KeyboardEvent) => {
       const target = event.target;
       if (event.defaultPrevented || event.isComposing || event.getModifierState('AltGraph') ||
-        target instanceof Element && target.closest('input, textarea, select, [role="combobox"], [role="listbox"], [contenteditable]:not([contenteditable="false"]), [role="dialog"]') ||
+        target instanceof Element && target.closest('input, textarea, select, [role="combobox"], [role="listbox"], [role="menu"], [contenteditable]:not([contenteditable="false"]), [role="dialog"]') ||
         blocked || recorder) return;
       const command = studioShortcutFor(event);
       if (!command || command === 'restart' && target instanceof Element && target.closest('button, summary, a')) return;
@@ -748,6 +746,20 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   if (workspace.loading) return <><div className="se-loading"><Loader2 className="se-spin" size={24} /><span>Abrindo projeto…</span></div>{dialog}</>;
   if (!project || !effective || !recipe) return <><div className="se-loading"><p role="alert">{workspace.error ?? 'Projeto indisponível.'}</p><button className="se-button" onClick={() => navigate('/studio/projects')}>Voltar aos projetos</button></div>{dialog}</>;
   const classEditAvailable = !!classEditTarget(project);
+  const classEditBlocked = blocked || !!recorder || premiumLoading || (premium && !classEditAvailable);
+  const classEditMenu = (trigger: React.ReactElement) => <DropdownMenu.Root modal={false} onOpenChange={open => { if (open) setExportMenu(false); }}>
+    <DropdownMenu.Trigger asChild disabled={classEditBlocked}>{trigger}</DropdownMenu.Trigger>
+    <DropdownMenu.Portal container={document.fullscreenElement ?? undefined}>
+      <DropdownMenu.Content className="se-class-edit-menu" aria-label="Opções do ClassCut" align="end" sideOffset={7} collisionPadding={10}>
+        <DropdownMenu.Item disabled={classEditBlocked} onSelect={() => runClassEdit(false)}>
+          <Scissors size={16} /> Editar sem legenda
+        </DropdownMenu.Item>
+        <DropdownMenu.Item disabled={classEditBlocked} onSelect={() => runClassEdit(true)}>
+          <Subtitles size={16} /> Editar com legenda
+        </DropdownMenu.Item>
+      </DropdownMenu.Content>
+    </DropdownMenu.Portal>
+  </DropdownMenu.Root>;
   const hasCaptions = project.editing!.layers.some(layer => layer.kind === 'caption' && layer.items.length);
   const hasAudio = recipe.clips.some(clip => clip.gain > 0 && (clip.kind === 'audio' ||
     clip.kind === 'video' && recipe.assets.find(asset => asset.id === clip.assetId)?.hasAudio !== false));
@@ -762,9 +774,11 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
           onRatio={ratio => chooseOutput({}, ratio)} output={recipe.output} onOutput={chooseOutput} duration={duration}
           capabilities={capabilities} disabled={blocked || !!recorder} audioOnly={project.kind === 'podcast'} />
         <StudioShortcutPanel open={shortcutsOpen} onOpen={setShortcutsOpen} onAction={runShortcut} disabled={blocked || !!recorder} />
-      </div><button className="se-button se-class-edit-button" aria-disabled={premiumLoading || (premium && !classEditAvailable) || blocked || !!recorder}
-      title={!premium ? 'ClassCut Premium' : !classEditAvailable ? 'Use um único vídeo com áudio, sem camadas ou efeitos de tempo e assinatura.' : undefined}
-      onClick={() => { if (blocked || recorder || premiumLoading) return; if (!premium) { setTab('adjustments'); return; } if (classEditAvailable) runClassEdit(); }}><Scissors size={15} />ClassCut</button><button className="se-button se-primary" disabled={blocked || !!recorder || !project.editing!.main.length} onClick={() => setExportMenu(!exportMenu)}><Upload size={15} /> Exportar<ChevronDown size={12} /></button></div>
+      </div>{premium ? classEditMenu(<button type="button" className="se-button se-class-edit-button" aria-disabled={classEditBlocked}
+        title={!classEditAvailable ? 'Use um único vídeo com áudio, sem camadas ou efeitos de tempo e assinatura.' : undefined}>
+        <Scissors size={15} />ClassCut<ChevronDown size={12} />
+      </button>) : <button type="button" className="se-button se-class-edit-button" disabled={classEditBlocked} title="ClassCut Premium"
+        onClick={() => setTab('adjustments')}><Scissors size={15} />ClassCut</button>}<button className="se-button se-primary" disabled={blocked || !!recorder || !project.editing!.main.length} onClick={() => setExportMenu(!exportMenu)}><Upload size={15} /> Exportar<ChevronDown size={12} /></button></div>
       {exportMenu && <div className="se-export-menu"><p>{recipe.output.width} × {recipe.output.height} · {Number((recipe.output.frameRateNumerator / recipe.output.frameRateDenominator).toFixed(2))} FPS · SDR</p>
         {capabilities?.reason && <p role="status">{capabilities.reason}</p>}<button disabled={!capabilities?.available && project.kind !== 'podcast'} onClick={() => exportFile(false)}><Download size={16} />Baixar arquivo</button><button disabled={!capabilities?.available && project.kind !== 'podcast'} onClick={() => exportFile(true)}><Upload size={16} />Preparar publicação</button></div>}
     </header>
@@ -827,9 +841,8 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
           <div className="se-tool-class-edit">
             <h3><Sparkles size={15} />ClassCut Premium</h3>
             {premium ? <>
-              <label><input type="checkbox" checked={autoCaptions} disabled={blocked} onChange={event => setAutoCaptions(event.target.checked)} /><span>Gerar legendas com o ClassCut</span></label>
-              <label><input type="checkbox" checked={reviewRetakes} disabled={blocked} onChange={event => setReviewRetakes(event.target.checked)} /><span>Sinalizar tomadas repetidas</span></label>
-              <button className="se-button se-ai-action se-wide" disabled={blocked || !!recorder || !classEditAvailable} onClick={runClassEdit}>Aplicar ClassCut</button>
+              <label><input type="checkbox" checked={reviewRetakes} disabled={blocked} onChange={event => setReviewRetakes(event.target.checked)} /><span>Sinalizar tomadas repetidas ao editar com legenda</span></label>
+              {classEditMenu(<button type="button" className="se-button se-ai-action se-wide">Aplicar ClassCut <ChevronDown size={12} /></button>)}
               {!classEditAvailable && <p className="se-muted">Comece com um único vídeo com áudio e sem camadas.</p>}
             </> : <p className="se-tool-plan">{premiumMessage}</p>}
           </div>
