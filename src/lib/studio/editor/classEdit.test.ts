@@ -34,12 +34,12 @@ describe('detecção de pausas do ClassCut', () => {
     const pauses = await findStudioPauses(new Blob(), 0, 6, new AbortController().signal);
     expect(pauses).toHaveLength(4);
     expect(pauses[0].start).toBe(0);
-    expect(pauses[0].end).toBeCloseTo(.995);
-    expect(pauses[1].start).toBeCloseTo(2.005);
-    expect(pauses[1].end).toBeCloseTo(3.195);
-    expect(pauses[2].start).toBeCloseTo(4.205);
-    expect(pauses[2].end).toBeCloseTo(4.595);
-    expect(pauses[3].start).toBeCloseTo(5.005);
+    expect(pauses[0].end).toBeCloseTo(.9);
+    expect(pauses[1].start).toBeCloseTo(2.18);
+    expect(pauses[1].end).toBeCloseTo(3.1);
+    expect(pauses[2].start).toBeCloseTo(4.38);
+    expect(pauses[2].end).toBeCloseTo(4.5);
+    expect(pauses[3].start).toBeCloseTo(5.18);
     expect(pauses[3].end).toBe(6);
     expect(source.dispose).toHaveBeenCalled();
   });
@@ -48,8 +48,8 @@ describe('detecção de pausas do ClassCut', () => {
     source.packets = [packet(0, 8000, .22), packet(8, 1300, .018), packet(9.3, 9000, .21)];
     const pauses = await findStudioPauses(new Blob(), 0, 18.3, new AbortController().signal);
     expect(pauses).toHaveLength(1);
-    expect(pauses[0].start).toBeCloseTo(8.005);
-    expect(pauses[0].end).toBeCloseTo(9.295);
+    expect(pauses[0].start).toBeCloseTo(8.18);
+    expect(pauses[0].end).toBeCloseTo(9.2);
   });
 
   it('encurta a espera até a primeira fala aos 2,8 s mesmo com som ambiente', async () => {
@@ -57,7 +57,7 @@ describe('detecção de pausas do ClassCut', () => {
     const pauses = await findStudioPauses(new Blob(), 0, 18.3, new AbortController().signal);
     expect(pauses).toHaveLength(1);
     expect(pauses[0].start).toBe(0);
-    expect(pauses[0].end).toBeCloseTo(2.795);
+    expect(pauses[0].end).toBeCloseTo(2.7);
   });
 
   it('corta as pontas mesmo quando batidas curtas interrompem o silêncio', async () => {
@@ -67,9 +67,20 @@ describe('detecção de pausas do ClassCut', () => {
     ];
     const pauses = await findStudioPauses(new Blob(), 0, 3, new AbortController().signal);
     expect(pauses).toHaveLength(2);
-    expect(pauses[0].end).toBeCloseTo(1.155);
-    expect(pauses[1].start).toBeCloseTo(2.065);
+    expect(pauses[0].end).toBeCloseTo(1.06);
+    expect(pauses[1].start).toBeCloseTo(2.24);
     expect(pauses[1].end).toBe(3);
+  });
+
+  it('espera a sílaba final bem mais baixa e encurta apenas o ruído que vem depois', async () => {
+    source.packets = [
+      packet(0, 1600, .12), packet(1.6, 240, .009), packet(1.84, 700, .003),
+      packet(2.54, 120, .008), packet(2.66, 1300, .10),
+    ];
+    const pauses = await findStudioPauses(new Blob(), 0, 3.96, new AbortController().signal);
+    expect(pauses).toHaveLength(1);
+    expect(pauses[0].start).toBeCloseTo(2.02);
+    expect(pauses[0].end).toBeCloseTo(2.44);
   });
 
   it('preserva voz baixa quando fica próxima do nível de fundo', async () => {
