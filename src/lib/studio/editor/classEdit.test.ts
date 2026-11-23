@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readStudioWaveform, studioWaveformPath } from './audioEnvelope';
+import { readStudioWaveform, studioAudioWindows, studioWaveformPath } from './audioEnvelope';
 import { findStudioPauses } from './classEdit';
 import { findStudioRetakes } from './studioRetakes';
 
@@ -42,6 +42,28 @@ describe('detecção de pausas do ClassCut', () => {
     expect(pauses[3].start).toBeCloseTo(5.18);
     expect(pauses[3].end).toBe(6);
     expect(source.dispose).toHaveBeenCalled();
+  });
+
+  it('continua a janela de análise no próximo pacote AAC e encurta o silêncio', async () => {
+    const length = 1024, rate = 48000;
+    source.packets = Array.from({ length: 150 }, (_, index) => {
+      const samples = Float32Array.from({ length }, (_, sample) => {
+        if (index >= 15 && index < 110) return sample >= 960 ? .008 : .003;
+        return .09;
+      });
+      return { timestamp: index * length / rate, buffer: {
+        sampleRate: rate, length, numberOfChannels: 1, getChannelData: () => samples,
+      } };
+    });
+    const signal = new AbortController().signal;
+    const windows = [];
+    for await (const window of studioAudioWindows(new Blob(), 0, 3.2, signal)) windows.push(window);
+    expect(windows).toHaveLength(160);
+    expect(windows.every(window => Math.abs(window.end - window.start - .02) < 1e-8)).toBe(true);
+    const pauses = await findStudioPauses(new Blob(), 0, 3.2, signal);
+    expect(pauses).toHaveLength(1);
+    expect(pauses[0].start).toBeCloseTo(.5);
+    expect(pauses[0].end).toBeCloseTo(2.24);
   });
 
   it('encurta uma pausa com ruído de fundo acima do limiar antigo', async () => {

@@ -8,25 +8,46 @@ export async function* studioAudioWindows(file: Blob, start: number, end: number
     const track = await input.getPrimaryAudioTrack();
     signal.throwIfAborted();
     if (!track || !await track.canDecode()) return;
+    // Decoder packets can be just over 20 ms. Carry their leftover samples
+    // forward so tiny packet tails cannot count as full analysis windows.
+    let rate = 0, windowStart = 0, count = 0;
+    let energy: number[] = [];
+    const window = (): StudioAudioWindow => ({
+      start: windowStart, end: windowStart + count / rate,
+      level: Math.max(-90, Math.min(0, 10 * Math.log10(Math.max(...energy) / count))),
+    });
     for await (const { buffer, timestamp } of new AudioBufferSink(track).buffers(start, end)) {
       signal.throwIfAborted();
       const { sampleRate, length, numberOfChannels } = buffer;
       const channels = Array.from({ length: numberOfChannels }, (_, index) => buffer.getChannelData(index));
-      const first = Math.max(0, Math.ceil((start - timestamp) * sampleRate));
+      let offset = Math.max(0, Math.ceil((start - timestamp) * sampleRate));
       const last = Math.min(length, Math.floor((end - timestamp) * sampleRate));
-      const windowSize = Math.max(1, Math.round(sampleRate * .02));
-      for (let offset = first; offset < last; offset += windowSize) {
-        const limit = Math.min(last, offset + windowSize);
-        let maxEnergy = 0;
-        for (const samples of channels) {
-          let energy = 0;
-          for (let index = offset; index < limit; index++) energy += samples[index] ** 2;
-          maxEnergy = Math.max(maxEnergy, energy);
+      if (offset >= last) continue;
+      if (count && (rate !== sampleRate || energy.length !== numberOfChannels ||
+        Math.abs(timestamp + offset / sampleRate - (windowStart + count / rate)) > 1.5 / sampleRate)) {
+        yield window();
+        count = 0;
+      }
+      rate = sampleRate;
+      const windowSize = Math.max(1, Math.round(rate * .02));
+      while (offset < last) {
+        if (!count) {
+          windowStart = timestamp + offset / rate;
+          energy = Array(numberOfChannels).fill(0);
         }
-        yield { start: timestamp + offset / sampleRate, end: timestamp + limit / sampleRate,
-          level: Math.max(-90, Math.min(0, 10 * Math.log10(maxEnergy / (limit - offset)))) };
+        const limit = Math.min(last, offset + windowSize - count);
+        for (const [channel, samples] of channels.entries()) {
+          for (let index = offset; index < limit; index++) energy[channel] += samples[index] ** 2;
+        }
+        count += limit - offset;
+        offset = limit;
+        if (count === windowSize) {
+          yield window();
+          count = 0;
+        }
       }
     }
+    if (count) yield window();
     signal.throwIfAborted();
   } finally {
     input.dispose();
