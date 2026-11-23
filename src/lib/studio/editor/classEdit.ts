@@ -2,9 +2,8 @@ import { studioAudioWindows, type StudioAudioWindow } from './audioEnvelope';
 
 export type StudioPause = { start: number; end: number };
 
-export const minimumStudioPause = .35;
-const speechTail = .18;
-const speechLead = .10;
+export const minimumStudioPause = .25;
+const speechContinuityGap = .12;
 
 // Decode a packet at a time to avoid holding the whole recording in memory.
 export async function findStudioPauses(file: Blob, start: number, end: number, signal: AbortSignal): Promise<StudioPause[]> {
@@ -33,36 +32,54 @@ export async function findStudioPauses(file: Blob, start: number, end: number, s
   const hasForeground = windows.reduce((seconds, window) =>
     window.level >= threshold + 6 ? seconds + window.end - window.start : seconds, 0) >= .16;
   if (!hasForeground) return [];
-  const runs: (StudioAudioWindow & { quiet: boolean })[] = [];
+  const runs: (StudioAudioWindow & { quiet: boolean; foregroundSeconds: number })[] = [];
   for (const window of windows) {
     const quiet = window.level < threshold;
+    const foregroundSeconds = window.level >= threshold + 8 ? window.end - window.start : 0;
     const last = runs.at(-1);
     if (last?.quiet === quiet && window.start - last.end <= .03) {
       last.end = window.end;
       last.level = Math.max(last.level, window.level);
-    }
-    else runs.push({ ...window, quiet });
+      last.foregroundSeconds += foregroundSeconds;
+    } else runs.push({ ...window, quiet, foregroundSeconds });
   }
 
-  // A click or bump inside otherwise sustained room tone should not keep a silent clip.
-  for (let i = 1; i + 1 < runs.length;) {
-    const [left, spike, right] = runs.slice(i - 1, i + 2);
-    if (left.quiet && !spike.quiet && right.quiet && spike.end - spike.start <= .085
-      && spike.level >= threshold + 16 && spike.start - left.start >= .18 && right.end - spike.end >= .18
-      && spike.start - left.end <= .03 && right.start - spike.end <= .03
-      && right.end - left.start >= minimumStudioPause) {
-      left.end = right.end;
-      runs.splice(i, 2);
-    } else i++;
+  // Group activity separated by small dips so a weak onset or final syllable
+  // stays attached to nearby speech. Reject short, isolated room-noise bursts.
+  const activity = runs.filter(run => !run.quiet);
+  for (let from = 0; from < activity.length;) {
+    let to = from;
+    let foregroundSeconds = activity[from].foregroundSeconds;
+    let activeSeconds = activity[from].end - activity[from].start;
+    let peak = activity[from].level;
+    while (to + 1 < activity.length && activity[to + 1].start - activity[to].end < speechContinuityGap) {
+      const next = activity[++to];
+      foregroundSeconds += next.foregroundSeconds;
+      activeSeconds += next.end - next.start;
+      peak = Math.max(peak, next.level);
+    }
+    const likelySpeech = foregroundSeconds > .085 || activeSeconds >= .3 ||
+      (activeSeconds >= .1 && peak >= threshold + 5);
+    if (!likelySpeech) {
+      for (let index = from; index <= to; index++) activity[index].quiet = true;
+    }
+    from = to + 1;
   }
-  for (const [i, run] of runs.entries()) {
+
+  const confirmed: typeof runs = [];
+  for (const run of runs) {
+    const previous = confirmed.at(-1);
+    if (previous?.quiet === run.quiet && run.start - previous.end <= .03) previous.end = run.end;
+    else confirmed.push(run);
+  }
+  for (const [index, run] of confirmed.entries()) {
     if (!run.quiet || run.end - run.start < minimumStudioPause) continue;
-    const leading = i === 0 && run.start - start <= .05;
-    const trailing = i === runs.length - 1 && end - run.end <= .05;
+    const leading = index === 0 && run.start - start <= .05;
+    const trailing = index === confirmed.length - 1 && end - run.end <= .05;
     if (leading && trailing) continue;
-    if (!leading && (!runs[i - 1] || run.start - runs[i - 1].end > .03)) continue;
-    if (!trailing && (!runs[i + 1] || runs[i + 1].start - run.end > .03)) continue;
-    addPause(leading ? start : run.start + speechTail, trailing ? end : run.end - speechLead);
+    if (!leading && (!confirmed[index - 1] || run.start - confirmed[index - 1].end > .03)) continue;
+    if (!trailing && (!confirmed[index + 1] || confirmed[index + 1].start - run.end > .03)) continue;
+    addPause(leading ? start : run.start, trailing ? end : run.end);
   }
   return pauses;
 }

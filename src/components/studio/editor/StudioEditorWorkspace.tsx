@@ -784,7 +784,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     </header>
     {(error || workspace.error) && <div className="se-editor-error" role="alert"><span>{workspace.error || error}</span>{workspace.error && <button onClick={() => void workspace.flush().catch(recordError)}>Tentar salvar</button>}<button className="se-icon" aria-label="Fechar mensagem" onClick={() => setError(null)}><X size={13} /></button></div>}
     {classEditResult && <div className="se-class-edit-result" role="status">
-      {classEditResult.cuts === 0 ? 'Nenhum corte aplicado · Sem pausas de pelo menos 0,35 s com queda clara no áudio'
+      {classEditResult.cuts === 0 ? 'Nenhum corte aplicado · Sem pausas de pelo menos 0,25 s com queda clara no áudio'
         : `${classEditResult.cuts === 1 ? '1 pausa encurtada' : `${classEditResult.cuts} pausas encurtadas`} · ${classEditResult.removed.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s removidos`}{classEditResult.imageAdjusted ? ' · Ajuste leve de imagem aplicado' : ''}{classEditResult.portraitStatus ? ` · ${classEditResult.portraitStatus}` : ''}{classEditResult.finishStatus ? ` · ${classEditResult.finishStatus}` : ''}
       {!!classEditResult.retakes.length && <details className="se-retake-review">
         <summary>Revisar possíveis takes repetidos ({classEditResult.retakes.length})</summary>

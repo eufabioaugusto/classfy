@@ -25,7 +25,7 @@ function packet(timestamp: number, length: number, level: number) {
 }
 
 describe('detecção de pausas do ClassCut', () => {
-  it('encurta uma pausa que atravessa pacotes, preserva respiro e encurta também as pontas', async () => {
+  it('encurta uma pausa que atravessa pacotes, corta nas bordas de áudio também nas pontas', async () => {
     source.packets = [
       packet(0, 1000, 0), packet(1, 1000, .1),
       packet(2, 500, .001), packet(2.5, 700, .001),
@@ -34,12 +34,12 @@ describe('detecção de pausas do ClassCut', () => {
     const pauses = await findStudioPauses(new Blob(), 0, 6, new AbortController().signal);
     expect(pauses).toHaveLength(4);
     expect(pauses[0].start).toBe(0);
-    expect(pauses[0].end).toBeCloseTo(.9);
-    expect(pauses[1].start).toBeCloseTo(2.18);
-    expect(pauses[1].end).toBeCloseTo(3.1);
-    expect(pauses[2].start).toBeCloseTo(4.38);
-    expect(pauses[2].end).toBeCloseTo(4.5);
-    expect(pauses[3].start).toBeCloseTo(5.18);
+    expect(pauses[0].end).toBeCloseTo(1);
+    expect(pauses[1].start).toBeCloseTo(2);
+    expect(pauses[1].end).toBeCloseTo(3.2);
+    expect(pauses[2].start).toBeCloseTo(4.2);
+    expect(pauses[2].end).toBeCloseTo(4.6);
+    expect(pauses[3].start).toBeCloseTo(5);
     expect(pauses[3].end).toBe(6);
     expect(source.dispose).toHaveBeenCalled();
   });
@@ -62,16 +62,16 @@ describe('detecção de pausas do ClassCut', () => {
     expect(windows.every(window => Math.abs(window.end - window.start - .02) < 1e-8)).toBe(true);
     const pauses = await findStudioPauses(new Blob(), 0, 3.2, signal);
     expect(pauses).toHaveLength(1);
-    expect(pauses[0].start).toBeCloseTo(.5);
-    expect(pauses[0].end).toBeCloseTo(2.24);
+    expect(pauses[0].start).toBeCloseTo(.32);
+    expect(pauses[0].end).toBeCloseTo(2.34);
   });
 
   it('encurta uma pausa com ruído de fundo acima do limiar antigo', async () => {
     source.packets = [packet(0, 8000, .22), packet(8, 1300, .018), packet(9.3, 9000, .21)];
     const pauses = await findStudioPauses(new Blob(), 0, 18.3, new AbortController().signal);
     expect(pauses).toHaveLength(1);
-    expect(pauses[0].start).toBeCloseTo(8.18);
-    expect(pauses[0].end).toBeCloseTo(9.2);
+    expect(pauses[0].start).toBeCloseTo(8);
+    expect(pauses[0].end).toBeCloseTo(9.3);
   });
 
   it('encurta a espera até a primeira fala aos 2,8 s mesmo com som ambiente', async () => {
@@ -79,7 +79,7 @@ describe('detecção de pausas do ClassCut', () => {
     const pauses = await findStudioPauses(new Blob(), 0, 18.3, new AbortController().signal);
     expect(pauses).toHaveLength(1);
     expect(pauses[0].start).toBe(0);
-    expect(pauses[0].end).toBeCloseTo(2.7);
+    expect(pauses[0].end).toBeCloseTo(2.8);
   });
 
   it('corta as pontas mesmo quando batidas curtas interrompem o silêncio', async () => {
@@ -89,9 +89,20 @@ describe('detecção de pausas do ClassCut', () => {
     ];
     const pauses = await findStudioPauses(new Blob(), 0, 3, new AbortController().signal);
     expect(pauses).toHaveLength(2);
-    expect(pauses[0].end).toBeCloseTo(1.06);
-    expect(pauses[1].start).toBeCloseTo(2.24);
+    expect(pauses[0].end).toBeCloseTo(1.16);
+    expect(pauses[1].start).toBeCloseTo(2.06);
     expect(pauses[1].end).toBe(3);
+  });
+
+  it('remove ruídos fracos isolados na abertura, no meio e na saída sem criar clipes vazios', async () => {
+    source.packets = [
+      packet(0, 300, .003), packet(.3, 220, .006), packet(.52, 480, .003),
+      packet(1, 800, .12), packet(1.8, 300, .003), packet(2.1, 180, .006),
+      packet(2.28, 320, .003), packet(2.6, 800, .12), packet(3.4, 320, .003),
+      packet(3.72, 160, .006), packet(3.88, 320, .003),
+    ];
+    const pauses = await findStudioPauses(new Blob(), 0, 4.2, new AbortController().signal);
+    expect(pauses).toEqual([{ start: 0, end: 1 }, { start: 1.8, end: expect.closeTo(2.6, 8) }, { start: 3.4, end: 4.2 }]);
   });
 
   it('espera a sílaba final bem mais baixa e encurta apenas o ruído que vem depois', async () => {
@@ -101,8 +112,8 @@ describe('detecção de pausas do ClassCut', () => {
     ];
     const pauses = await findStudioPauses(new Blob(), 0, 3.96, new AbortController().signal);
     expect(pauses).toHaveLength(1);
-    expect(pauses[0].start).toBeCloseTo(2.02);
-    expect(pauses[0].end).toBeCloseTo(2.44);
+    expect(pauses[0].start).toBeCloseTo(1.84);
+    expect(pauses[0].end).toBeCloseTo(2.54);
   });
 
   it('preserva voz baixa quando fica próxima do nível de fundo', async () => {
