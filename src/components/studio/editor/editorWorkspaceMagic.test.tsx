@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { emptyStudioEditing, studioGrade, studioTicks, withStudioTakes, type StudioEnhancement, type StudioProject, type StudioRenderRecipe } from '../../../../shared/studio';
 import { measureStudioScene } from '../../../../shared/studio/autoEnhance';
-import { addLayerAsset, addMainAsset, patchClip, splitMainClip } from '@/lib/studio/editor/commands';
+import { addCaptionTrack, addLayerAsset, addMainAsset, patchClip, splitMainClip } from '@/lib/studio/editor/commands';
 import { StudioEditorWorkspace } from './StudioEditorWorkspace';
 import { initializeStudioExitGuard } from './useStudioExitGuard';
 
@@ -207,6 +207,40 @@ describe('comparação e histórico reais do editor', () => {
     expect(host.querySelector('[data-timeline-clip]')).toBeNull();
     await press('z', { metaKey: true });
     expect(host.querySelector('[data-timeline-clip]')).toBeTruthy();
+  });
+
+  it('aplica visual e posição à faixa, edita legendas selecionadas e cola acima da origem', async () => {
+    const base = addCaptionTrack(initialProject(), [
+      { text: 'Primeira frase', start: 0, end: 2 },
+      { text: 'Segunda frase', start: 2, end: 4 },
+    ], {});
+    const [first, second] = base.editing!.layers[0].items;
+    io.get.mockResolvedValue(patchClip(base, first.id, { rect: { y: .61 }, text: { color: '#FFEFB5', fontFamily: 'Arial' } }));
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    const select = (id: string, shiftKey = false) => act(async () => host.querySelector(`[data-timeline-clip="${id}"]`)!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey })));
+    const shortcut = (key: string) => act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key, metaKey: true, cancelable: true })));
+    await select(first.id);
+    const applyStyle = [...host.querySelectorAll<HTMLButtonElement>('.se-inspector-apply')]
+      .find(element => element.textContent === 'Aplicar à faixa')!;
+    await act(async () => applyStyle.click());
+    expect(latestRecipe().clips.find(clip => clip.id === second.id)).toMatchObject({
+      rect: { y: .61 }, text: { content: 'Segunda frase', color: '#FFEFB5', fontFamily: 'Arial' },
+      startTicks: studioTicks(2),
+    });
+    await select(second.id, true);
+    expect(host.querySelector('.se-inspector header')?.textContent).toContain('2 legendas');
+    expect(host.querySelector('.se-inspector textarea')).toBeNull();
+    await click('Direita');
+    expect(latestRecipe().clips.filter(clip => clip.kind === 'caption').map(clip => clip.text?.alignment)).toEqual(['right', 'right']);
+    await shortcut('c');
+    await shortcut('v');
+    await vi.waitFor(() => expect(saved?.editing?.layers).toHaveLength(2));
+    expect(saved!.editing!.layers.map(layer => layer.items.map(item => item.text?.content))).toEqual([
+      ['Primeira frase', 'Segunda frase'], ['Primeira frase', 'Segunda frase'],
+    ]);
+    expect(saved!.editing!.layers[0].items.map(item => item.id)).not.toContain(first.id);
+    expect(host.querySelector('.se-track [aria-pressed="true"]')?.getAttribute('data-timeline-clip')).toBe(saved!.editing!.layers[0].items[0].id);
   });
 
   it('encurta início e fim no cursor com Q e W e divide com Ctrl+B', async () => {

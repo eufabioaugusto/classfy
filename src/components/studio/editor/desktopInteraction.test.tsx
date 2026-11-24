@@ -37,6 +37,27 @@ describe('componentes reais do editor desktop', () => {
     expect(svg.innerHTML).toBe(shape);
   });
 
+  it('centraliza a agulha após zoom por comando', async () => {
+    const project = fixture(), seek = vi.fn();
+    const render = (zoomCommand?: { direction: number }, position = 3) => act(async () => root.render(
+      <StudioDesktopTimeline {...toolProps} project={project} position={position} zoomCommand={zoomCommand} thumbnails={{}}
+        onSelect={vi.fn()} onSeek={seek} onPreview={vi.fn()} onCommit={vi.fn()} onAdd={vi.fn()}
+        onMainMute={vi.fn()} onLayerMute={vi.fn()} onLayerHide={vi.fn()} />));
+    await render();
+    const track = host.querySelector<HTMLElement>('.se-timeline-scroll')!;
+    Object.defineProperty(track, 'clientWidth', { value: 300 });
+    track.scrollLeft = 40;
+    const center = () => parseFloat(host.querySelector<HTMLElement>('.se-playhead')!.style.left)
+      + (parseFloat(host.querySelector<HTMLElement>('.se-timeline-content')!.style.marginInline) || 0) - track.scrollLeft;
+    await render({ direction: 1 });
+    expect(center()).toBeCloseTo(150);
+    await render({ direction: -1 });
+    expect(center()).toBeCloseTo(150);
+    await render({ direction: 1 }, 0);
+    expect(center()).toBeCloseTo(150);
+    expect(seek).not.toHaveBeenCalled();
+  });
+
   it('selecionar clipe mantém o cursor e clicar no espaço livre ou na régua move a agulha', async () => {
     const select = vi.fn(), seek = vi.fn();
     await act(async () => root.render(<StudioDesktopTimeline {...toolProps} project={fixture()} position={3} thumbnails={{}} onSelect={select} onSeek={seek} onPreview={() => {}} onCommit={() => {}} onAdd={() => {}} onMainMute={() => {}} onLayerMute={() => {}} onLayerHide={() => {}} />));

@@ -6,7 +6,7 @@ import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useStat
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, ChevronDown, Download, Film, Image, Loader2, Mic, Monitor, Music2, Pause, Play, Plus, Redo2, Scissors, SlidersHorizontal, Sparkles, Subtitles, Type, Undo2, Upload, Video, X } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { addCaption, addCaptionTrack, addLayerAsset, addMainAsset, addText, applyClassEdit, classEditTarget, duplicateClip, extractClipAudio, copyStudioClips, pasteStudioClips, groupStudioClips, patchClip, patchVisualClips, removeClassEditRetakes, removeClip, setLayerHidden, setLayerMuted, setMainMuted, splitLayerClip, splitMainClip, trimMainClip, trimLayerClip, type StudioWebClipPatch, type StudioVisualPatch } from '@/lib/studio/editor/commands';
+import { addCaption, addCaptionTrack, addLayerAsset, addMainAsset, addText, applyClassEdit, classEditTarget, duplicateClip, extractClipAudio, copyStudioClips, pasteStudioClips, groupStudioClips, patchClip, patchStudioCaptions, patchVisualClips, removeClassEditRetakes, removeClip, setLayerHidden, setLayerMuted, setMainMuted, splitLayerClip, splitMainClip, trimMainClip, trimLayerClip, type StudioWebClipPatch, type StudioVisualPatch } from '@/lib/studio/editor/commands';
 import { getAsset, getExport, putAsset, storeExport, studioAssetUri } from '@/lib/studio/editor/storage';
 import { inspectStudioMedia } from '@/lib/studio/editor/media';
 import { readStudioWaveform, type StudioWaveform } from '@/lib/studio/editor/audioEnvelope';
@@ -134,13 +134,19 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   const previewRecipe = useMemo(() => comparing && selected && effective && recipe?.clips.some(clip => clip.id === selected && (clip.kind === 'video' || clip.kind === 'image')) ? compileStudioRecipe(patchClip(effective, selected, { signature: null, enhancement: null, portrait: null, grade: studioGrade(), effect: 'natural' })) : recipe, [comparing, selected, effective, recipe]);
   const latestRecipe = useRef(previewRecipe); latestRecipe.current = previewRecipe;
   const selectedClip = recipe?.clips.find(c => c.id === selected), duration = recipe ? studioSeconds(recipe.durationTicks) : 0;
-  const selectedVideos = selection.length > 1 ? recipe?.clips.filter(clip => clip.kind === 'video' && selection.includes(clip.id)) ?? [] : [];
-  const batchVideo = selectedVideos.length > 1 && selectedVideos.length === selection.length;
-  const inspectorClip = selectedClip ?? (batchVideo ? selectedVideos[0] : undefined);
-  const inspectorIds = selectedClip ? [selectedClip.id] : batchVideo ? selectedVideos.map(clip => clip.id) : [];
+  const selectionIds = new Set(selection);
+  const batchClips = selection.length > 1 ? recipe?.clips.filter(clip => selectionIds.has(clip.id)) ?? [] : [];
+  const batchVideo = batchClips.length === selection.length && batchClips.length > 1 && batchClips.every(clip => clip.kind === 'video');
+  const batchCaption = batchClips.length === selection.length && batchClips.length > 1 && batchClips.every(clip => clip.kind === 'caption');
+  const inspectorClip = selectedClip ?? (batchVideo || batchCaption ? batchClips[0] : undefined);
+  const inspectorIds = selectedClip ? [selectedClip.id] : batchVideo || batchCaption ? batchClips.map(clip => clip.id) : [];
   const allTakes = inspectorClip && (inspectorClip.kind === 'video' || inspectorClip.kind === 'image')
     ? recipe?.clips.filter(clip => clip.kind === 'video' && clip.zIndex === 0).map(clip => clip.id) ?? [] : [];
   const patchInspector = (value: StudioProject, ids: string[], patch: StudioWebClipPatch) => {
+    if (ids.length > 1 && Object.keys(patch).every(key => ['text', 'rect', 'rotationDegrees', 'fit', 'flipHorizontal', 'flipVertical', 'opacity'].includes(key))) {
+      const captions = new Set(value.editing?.layers.filter(layer => layer.kind === 'caption').flatMap(layer => layer.items.map(item => item.id)));
+      if (ids.every(id => captions.has(id))) return patchStudioCaptions(value, ids, patch);
+    }
     if (ids.length > 1 && Object.keys(patch).every(key => ['grade', 'effect', 'enhancement', 'signature', 'portrait'].includes(key))) {
       return patchVisualClips(value, new Map(ids.map(id => [id, patch])));
     }
@@ -357,7 +363,7 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     let patch: StudioWebClipPatch;
     if (property === 'style' && text) {
       const { content: _content, ...style } = text;
-      patch = { text: {
+      patch = { ...(selectedClip.kind === 'caption' ? { rect, rotationDegrees, flipHorizontal: flipHorizontal ?? false, flipVertical: flipVertical ?? false, fit, opacity } : {}), text: {
         decoration: undefined, visualEffect: undefined, animation: undefined, animationDurationTicks: undefined,
         secondaryColor: undefined, gradientColors: undefined, casing: undefined, showPunctuation: undefined,
         lineHeight: undefined, letterSpacing: undefined, outlineWidth: undefined, outlineOpacity: undefined,
@@ -369,7 +375,9 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
       patch = { opacity };
     }
     try { settle(); } catch { return; }
-    apply(value => trackTargets.reduce((next, target) => patchClip(next, target.id, patch), value));
+    apply(value => selectedClip.kind === 'caption'
+      ? patchStudioCaptions(value, trackTargets.map(target => target.id), patch)
+      : trackTargets.reduce((next, target) => patchClip(next, target.id, patch), value));
   };
   const canExtractAudio = selectedClip?.kind === 'video' && selectedClip.gain > 0 &&
     project?.editing?.assets.some(asset => asset.id === selectedClip.assetId && asset.hasAudio === true);

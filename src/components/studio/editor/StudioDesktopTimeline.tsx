@@ -1,5 +1,5 @@
 import { studioSliderFill } from './studioSliderFill';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Eye, EyeOff, Hand, Repeat, Magnet, Mic, Minus, MousePointer2, Plus, Scissors, StretchHorizontal, Volume2, VolumeX } from 'lucide-react';
 import { compileStudioRecipe, formatStudioEditorTime, studioSeconds, type StudioProject } from '../../../../shared/studio';
 import { moveLayerClip, moveMainClip, patchClip, rollStudioBoundary, trimLayerClip, trimMainClip } from '@/lib/studio/editor/commands';
@@ -43,25 +43,48 @@ export function StudioDesktopTimeline(props: Props) {
   const transaction = useRef<Drag | null>(null), scroll = useRef<HTMLDivElement>(null), suppress = useRef(false);
   const pan = useRef<{ pointer: number; x: number; left: number; background: HTMLDivElement | null; moved: boolean }>();
   const volumeDrag = useRef<{ pointer: number; id: string; base: StudioProject; last: number; bounds: DOMRect; maximum: number }>();
+  const [zoomPadding, setZoomPadding] = useState(0);
+  const zoomCenter = useRef<number>();
+  const centerPlayhead = (time: number, pixelsPerSecond: number, padding: number) => {
+    const view = scroll.current;
+    if (view) view.scrollLeft = Math.max(0, padding + time * pixelsPerSecond - view.clientWidth / 2);
+  };
+  const changeZoom = (next: number) => {
+    const clamped = Math.max(.001, Math.min(240, next));
+    const padding = (scroll.current?.clientWidth ?? 0) / 2;
+    if (clamped === scale && padding === zoomPadding) centerPlayhead(position, scale, zoomPadding);
+    else {
+      zoomCenter.current = position;
+      setZoomPadding(padding);
+      setScale(clamped);
+    }
+  };
+  useLayoutEffect(() => {
+    if (zoomCenter.current === undefined) return;
+    centerPlayhead(zoomCenter.current, scale, zoomPadding);
+    zoomCenter.current = undefined;
+  }, [scale, zoomPadding]);
   const zoomCommand = props.zoomCommand;
   useEffect(() => {
     if (!zoomCommand) return;
     if (zoomCommand.direction === 0) {
+      zoomCenter.current = undefined;
+      setZoomPadding(0);
       setScale(Math.min(240, Math.max(.001, ((scroll.current?.clientWidth ?? 800) - 55) / Math.max(.1, duration))));
       if (scroll.current) scroll.current.scrollLeft = 0;
-    } else setScale(value => Math.max(.001, Math.min(240, value * (zoomCommand.direction > 0 ? 1.3 : 1 / 1.3))));
+    } else changeZoom(scale * (zoomCommand.direction > 0 ? 1.3 : 1 / 1.3));
   }, [zoomCommand]);
   const width = Math.max(800, duration * scale + 160), marks = Math.ceil(Math.max(duration, width / scale));
   const interval = scale < 8 ? Math.ceil(60 / scale / 10) * 10 : scale < 30 ? 10 : scale < 60 ? 5 : scale < 120 ? 2 : 1;
   useEffect(() => {
     const view = scroll.current;
     if (!props.playing || disabled || transaction.current || marquee.current || !view?.clientWidth) return;
-    const cursor = position * scale, margin = Math.min(40, view.clientWidth / 4);
+    const cursor = zoomPadding + position * scale, margin = Math.min(40, view.clientWidth / 4);
     let next = view.scrollLeft;
     if (cursor > next + view.clientWidth - margin) next = cursor - view.clientWidth + margin;
     else if (cursor < next + margin) next = Math.max(0, cursor - margin);
     if (Math.abs(next - view.scrollLeft) > .01) view.scrollTo({ left: next, behavior: 'auto' });
-  }, [position, scale, props.playing, disabled]);
+  }, [position, scale, zoomPadding, props.playing, disabled]);
   const point = (event: React.PointerEvent, rect: DOMRect) => ({
     x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
     y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
@@ -267,7 +290,7 @@ export function StudioDesktopTimeline(props: Props) {
         aria-pressed={tool === id} aria-label={label} aria-keyshortcuts={key} title={`${label} (${key})`} disabled={disabled}
         onClick={() => props.onTool(id)}><Icon size={16} /></button>)}
       {props.onToggleLoop && <button className={`se-icon ${props.loop ? 'active' : ''}`} aria-pressed={!!props.loop}
-        aria-label="Reprodução em loop" onClick={props.onToggleLoop}><Repeat size={16} /></button>}<button className={`se-icon ${snapping ? 'active' : ''}`} aria-label={snapping ? 'Desativar alinhamento' : 'Ativar alinhamento'} aria-pressed={snapping} onClick={() => setSnapping(!snapping)}><Magnet size={16} /></button><button className="se-icon" aria-label="Diminuir zoom da montagem" onClick={() => setScale(s => Math.max(.001, s / 1.3))}><Minus size={16} /></button><input aria-label="Zoom da montagem" type="range" className="se-slider" style={studioSliderFill(scale, .001, 240)} min=".001" max="240" step="any" value={scale} onChange={e => setScale(+e.target.value)} /><button className="se-icon" aria-label="Aumentar zoom da montagem" onClick={() => setScale(s => Math.min(240, s * 1.3))}><Plus size={16} /></button></div></header>
+        aria-label="Reprodução em loop" onClick={props.onToggleLoop}><Repeat size={16} /></button>}<button className={`se-icon ${snapping ? 'active' : ''}`} aria-label={snapping ? 'Desativar alinhamento' : 'Ativar alinhamento'} aria-pressed={snapping} onClick={() => setSnapping(!snapping)}><Magnet size={16} /></button><button className="se-icon" aria-label="Diminuir zoom da montagem" onClick={() => changeZoom(scale / 1.3)}><Minus size={16} /></button><input aria-label="Zoom da montagem" type="range" className="se-slider" style={studioSliderFill(scale, .001, 240)} min=".001" max="240" step="any" value={scale} onChange={e => changeZoom(+e.target.value)} /><button className="se-icon" aria-label="Aumentar zoom da montagem" onClick={() => changeZoom(scale * 1.3)}><Plus size={16} /></button></div></header>
     <div className="se-timeline-body"><aside className="se-track-rail"><div className="se-ruler-space" />{rows.map(({ layer, z }) => <div className="se-track-control" key={layer.id}><span>{z}</span>{layer.kind !== 'audio' && <button className="se-icon" disabled={disabled} aria-label={`${layer.hidden ? 'Mostrar' : 'Ocultar'} faixa ${z}`} onClick={() => props.onLayerHide(layer.id)}>{layer.hidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>}{(layer.kind === 'video' || layer.kind === 'audio') && <button className="se-icon" disabled={disabled} aria-label={`${layer.muted ? 'Ativar' : 'Silenciar'} áudio da faixa ${z}`} onClick={() => props.onLayerMute(layer.id)}>{layer.muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>}</div>)}<div className="se-track-control se-main-control"><button className="se-icon" disabled={disabled} aria-label={project.editing?.mainMuted ? 'Ativar áudio principal' : 'Silenciar áudio principal'} onClick={props.onMainMute}>{project.editing?.mainMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button></div></aside>
       <div className={`se-timeline-scroll ${tool === 'hand' ? 'hand' : ''}`} ref={scroll}
         onPointerDownCapture={event => {
@@ -290,7 +313,7 @@ export function StudioDesktopTimeline(props: Props) {
           pan.current = undefined;
           if (!disabled && drag.background && !drag.moved && Math.abs(drag.x - event.clientX) < 3) seekAt(event.clientX, drag.background);
         }}
-        onLostPointerCapture={event => { if (pan.current?.pointer === event.pointerId) pan.current = undefined; }}><div className={`se-timeline-content tool-${tool}`} style={{ width }} tabIndex={-1}
+        onLostPointerCapture={event => { if (pan.current?.pointer === event.pointerId) pan.current = undefined; }}><div className={`se-timeline-content tool-${tool}`} style={{ width, marginInline: zoomPadding }} tabIndex={-1}
         onPointerDown={beginMarquee} onPointerMove={updateMarquee} onPointerUp={finishMarquee}
         onPointerCancel={cancelMarquee} onLostPointerCapture={event => { if (event.target === event.currentTarget) cancelMarquee(); }}
         onKeyDown={event => { if (event.key === 'Escape') cancelMarquee(); }}><div className="se-ruler" role="slider" tabIndex={0} aria-label="Posição da montagem" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position}

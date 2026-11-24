@@ -61,6 +61,7 @@ export function studioShortcutFor(event: KeyboardEvent): StudioShortcut | undefi
     ?? (event.altKey && /^Key[A-Z]$/.test(event.code) ? event.code.slice(3).toLowerCase() : event.key.toLowerCase());
   const modifier = event.ctrlKey && event.metaKey ? 'ctrl+meta+' : event.ctrlKey || event.metaKey ? 'mod+' : '';
   const chord = modifier + (event.altKey ? 'alt+' : '') + (event.shiftKey ? 'shift+' : '') + key;
+  if (chord === 'mod+shift+=' || chord === 'mod++' || chord === 'mod+shift++') return 'timelineIn';
   return studioShortcuts.find(([, , binding]) => binding === chord)?.[0]
     ?? ({ 'shift+?': 'search', '?': 'search', delete: 'remove', s: 'split', 'mod+y': 'redo', 'alt+shift+a': 'similar', 'mod+shift+l': 'loop' } as const)[chord];
 }

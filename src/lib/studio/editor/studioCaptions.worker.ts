@@ -7,22 +7,31 @@ self.onmessage = async ({ data }: MessageEvent<{ audio: Float32Array; language: 
     const transcriptionStage = 'Transcrevendo áudio';
     const files = new Map<string, { loaded: number; total: number }>();
     self.postMessage({ stage: modelStage, progress: 0 });
-    const transcribe = await pipeline('automatic-speech-recognition', 'onnx-community/whisper-base_timestamped', {
-      revision: '608c49e61301901684bc36cac8f74b95ff6b5a8e',
-      device: 'wasm',
-      dtype: 'q8',
-      progress_callback: event => {
-        if (event.status === 'progress' && event.total > 0) {
-          files.set(event.file, { loaded: event.loaded, total: event.total });
-        } else if (event.status === 'done') {
-          const file = files.get(event.file);
-          if (file) file.loaded = file.total;
-        } else return;
-        let loaded = 0, total = 0;
-        for (const file of files.values()) { loaded += file.loaded; total += file.total; }
-        if (total) self.postMessage({ stage: modelStage, progress: loaded / total });
-      },
-    });
+    const load = (size: 'small' | 'base', revision: string) =>
+      pipeline('automatic-speech-recognition', `onnx-community/whisper-${size}_timestamped`, {
+        revision,
+        device: 'wasm',
+        dtype: 'q8',
+        progress_callback: event => {
+          if (event.status === 'progress' && event.total > 0) {
+            files.set(event.file, { loaded: event.loaded, total: event.total });
+          } else if (event.status === 'done') {
+            const file = files.get(event.file);
+            if (file) file.loaded = file.total;
+          } else return;
+          let loaded = 0, total = 0;
+          for (const file of files.values()) { loaded += file.loaded; total += file.total; }
+          if (total) self.postMessage({ stage: modelStage, progress: loaded / total });
+        },
+      });
+    let transcribe: Awaited<ReturnType<typeof load>>;
+    try {
+      transcribe = await load('small', '65caa70f294b46e1c33ff820aae6b16d048ab818');
+    } catch {
+      files.clear();
+      self.postMessage({ stage: modelStage, progress: 0 });
+      transcribe = await load('base', '608c49e61301901684bc36cac8f74b95ff6b5a8e');
+    }
     if (!data.language) self.postMessage({ stage: 'Detectando idioma' });
     const language = data.language || await detectStudioCaptionLanguage(transcribe, data.audio);
     self.postMessage({ stage: transcriptionStage, progress: 0 });

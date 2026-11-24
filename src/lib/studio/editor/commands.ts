@@ -230,9 +230,17 @@ export function pasteStudioClips(project: StudioProject, copied: ReturnType<type
   const offset = (copied.main.length ? position : atTicks) - copied.start;
   let next: StudioEditing = { ...editing, main, clipGroups: [...(editing.clipGroups ?? []), ...copied.groups.map(group => group.map(id => ids.get(id)!))] };
   for (const layer of copied.layers) {
-    for (const { anchor, ...item } of layer.items) {
-      next = addStudioLayerItem(next, { ...item, id: ids.get(item.id)!, atTicks: item.atTicks + offset,
-        ...(anchor && ids.has(anchor.clipId) ? { anchor: { ...anchor, clipId: ids.get(anchor.clipId)! } } : {}) }, layer.id);
+    const items = layer.items.map(({ anchor, ...item }) => ({
+      ...item, id: ids.get(item.id)!, atTicks: item.atTicks + offset,
+      ...(anchor && ids.has(anchor.clipId) ? { anchor: { ...anchor, clipId: ids.get(anchor.clipId)! } } : {}),
+    }));
+    if (layer.kind === 'caption') {
+      const layers = [...next.layers];
+      const sourceIndex = layers.findIndex(candidate => candidate.id === layer.id);
+      layers.splice(Math.max(0, sourceIndex), 0, { id: `layer:caption:${items[0].id}`, kind: 'caption', items });
+      next = { ...next, layers };
+    } else {
+      for (const item of items) next = addStudioLayerItem(next, item, layer.id);
     }
   }
   return edit(project, next);
@@ -279,6 +287,21 @@ export function patchVisualClips(project: StudioProject, patches: ReadonlyMap<st
   const layers = editing.layers.map(layer => ({ ...layer, items: layer.items.map(update) }));
   if (remaining.size) throw new Error('Um dos takes não está mais na montagem.');
   return edit(project, { ...editing, main, layers });
+}
+
+export function patchStudioCaptions(project: StudioProject, ids: readonly string[],
+  patch: Pick<StudioWebClipPatch, 'text' | 'rect' | 'rotationDegrees' | 'fit' | 'flipHorizontal' | 'flipVertical' | 'opacity'>): StudioProject {
+  const editing = studioEditing(project), remaining = new Set(ids);
+  const { text, rect, ...properties } = patch;
+  const layers = editing.layers.map(layer => layer.kind !== 'caption' ? layer : ({
+    ...layer, items: layer.items.map(item => !remaining.delete(item.id) ? item : {
+      ...item, ...properties,
+      ...(text && item.text ? { text: { ...item.text, ...text, content: item.text.content } } : {}),
+      ...(rect ? { rect: { ...(item.rect ?? { x: 0, y: 0, width: 1, height: 1 }), ...rect } } : {}),
+    }),
+  }));
+  if (remaining.size) throw new Error('Uma legenda selecionada não está mais na montagem.');
+  return edit(project, { ...editing, layers });
 }
 
 export function patchClip(project: StudioProject, id: string, patch: StudioWebClipPatch): StudioProject {
