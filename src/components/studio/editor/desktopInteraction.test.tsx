@@ -48,17 +48,19 @@ describe('componentes reais do editor desktop', () => {
     Object.defineProperty(track, 'clientWidth', { value: 300 });
     track.scrollLeft = 40;
     const center = () => parseFloat(host.querySelector<HTMLElement>('.se-playhead')!.style.left)
-      + (parseFloat(host.querySelector<HTMLElement>('.se-timeline-content')!.style.marginInline) || 0) - track.scrollLeft;
+      - track.scrollLeft;
     await render({ direction: 1 });
     expect(center()).toBeCloseTo(150);
     await render({ direction: -1 });
     expect(center()).toBeCloseTo(150);
     await render({ direction: 1 }, 0);
-    expect(center()).toBeCloseTo(150);
+    expect(center()).toBe(0);
+    await render({ direction: -1 }, .4);
+    expect(track.scrollLeft).toBe(0);
+    expect(center()).toBeCloseTo(.4 * 72);
     await render({ direction: 0 }, 0);
     const content = host.querySelector<HTMLElement>('.se-timeline-content')!;
     const clip = host.querySelector<HTMLElement>('[data-timeline-clip]')!;
-    expect(parseFloat(content.style.marginInline)).toBe(0);
     expect(track.scrollLeft).toBe(0);
     expect(center()).toBe(0);
     expect(parseFloat(content.style.width)).toBe(300);

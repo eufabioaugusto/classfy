@@ -43,25 +43,34 @@ export function StudioDesktopTimeline(props: Props) {
   const transaction = useRef<Drag | null>(null), scroll = useRef<HTMLDivElement>(null), suppress = useRef(false);
   const pan = useRef<{ pointer: number; x: number; left: number; background: HTMLDivElement | null; moved: boolean }>();
   const volumeDrag = useRef<{ pointer: number; id: string; base: StudioProject; last: number; bounds: DOMRect; maximum: number }>();
-  const [zoomPadding, setZoomPadding] = useState(0);
   const [fitWidth, setFitWidth] = useState<number>();
   const fitted = fitWidth !== undefined;
-  const scale = fitted ? Math.min(240, Math.max(.001, (fitWidth - 55) / Math.max(.1, duration))) : manualScale;
+  const fitScale = (width: number) => Math.min(240, Math.max(.001, (width - 55) / Math.max(.1, duration)));
+  const scale = fitted ? fitScale(fitWidth) : manualScale;
   const zoomCenter = useRef<number>();
-  const centerPlayhead = (time: number, pixelsPerSecond: number, padding: number) => {
+  const centerPlayhead = (time: number, pixelsPerSecond: number) => {
     const view = scroll.current;
-    if (view) view.scrollLeft = Math.max(0, padding + time * pixelsPerSecond - view.clientWidth / 2);
+    if (view) view.scrollLeft = Math.max(0, time * pixelsPerSecond - view.clientWidth / 2);
+  };
+  const fitTimeline = () => {
+    zoomCenter.current = undefined;
+    setFitWidth(scroll.current?.clientWidth || 800);
+    if (scroll.current) scroll.current.scrollLeft = 0;
   };
   const changeZoom = (next: number) => {
     const clamped = Math.max(.001, Math.min(240, next));
-    const padding = (scroll.current?.clientWidth ?? 0) / 2;
-    if (!fitted && clamped === scale && padding === zoomPadding) centerPlayhead(position, scale, zoomPadding);
-    else {
-      zoomCenter.current = position;
-      setFitWidth(undefined);
-      setZoomPadding(padding);
-      setScale(clamped);
+    const viewportWidth = scroll.current?.clientWidth;
+    if (next < scale && viewportWidth && scale >= fitScale(viewportWidth) && clamped <= fitScale(viewportWidth)) {
+      fitTimeline();
+      return;
     }
+    if (clamped === scale) {
+      if (!fitted) centerPlayhead(position, scale);
+      return;
+    }
+    zoomCenter.current = position;
+    setFitWidth(undefined);
+    setScale(clamped);
   };
   useLayoutEffect(() => {
     if (fitted) {
@@ -69,18 +78,14 @@ export function StudioDesktopTimeline(props: Props) {
       return;
     }
     if (zoomCenter.current === undefined) return;
-    centerPlayhead(zoomCenter.current, scale, zoomPadding);
+    centerPlayhead(zoomCenter.current, scale);
     zoomCenter.current = undefined;
-  }, [scale, zoomPadding, fitted]);
+  }, [scale, fitted]);
   const zoomCommand = props.zoomCommand;
   useEffect(() => {
     if (!zoomCommand) return;
-    if (zoomCommand.direction === 0) {
-      zoomCenter.current = undefined;
-      setZoomPadding(0);
-      setFitWidth(scroll.current?.clientWidth || 800);
-      if (scroll.current) scroll.current.scrollLeft = 0;
-    } else changeZoom(scale * (zoomCommand.direction > 0 ? 1.3 : 1 / 1.3));
+    if (zoomCommand.direction === 0) fitTimeline();
+    else changeZoom(scale * (zoomCommand.direction > 0 ? 1.3 : 1 / 1.3));
   }, [zoomCommand]);
   useLayoutEffect(() => {
     const view = scroll.current;
@@ -97,12 +102,12 @@ export function StudioDesktopTimeline(props: Props) {
   useEffect(() => {
     const view = scroll.current;
     if (fitted || !props.playing || disabled || transaction.current || marquee.current || !view?.clientWidth) return;
-    const cursor = zoomPadding + position * scale, margin = Math.min(40, view.clientWidth / 4);
+    const cursor = position * scale, margin = Math.min(40, view.clientWidth / 4);
     let next = view.scrollLeft;
     if (cursor > next + view.clientWidth - margin) next = cursor - view.clientWidth + margin;
     else if (cursor < next + margin) next = Math.max(0, cursor - margin);
     if (Math.abs(next - view.scrollLeft) > .01) view.scrollTo({ left: next, behavior: 'auto' });
-  }, [position, scale, zoomPadding, fitted, props.playing, disabled]);
+  }, [position, scale, fitted, props.playing, disabled]);
   const point = (event: React.PointerEvent, rect: DOMRect) => ({
     x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
     y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
@@ -331,7 +336,7 @@ export function StudioDesktopTimeline(props: Props) {
           pan.current = undefined;
           if (!disabled && drag.background && !drag.moved && Math.abs(drag.x - event.clientX) < 3) seekAt(event.clientX, drag.background);
         }}
-        onLostPointerCapture={event => { if (pan.current?.pointer === event.pointerId) pan.current = undefined; }}><div className={`se-timeline-content tool-${tool}`} style={{ width, marginInline: zoomPadding }} tabIndex={-1}
+        onLostPointerCapture={event => { if (pan.current?.pointer === event.pointerId) pan.current = undefined; }}><div className={`se-timeline-content tool-${tool}`} style={{ width }} tabIndex={-1}
         onPointerDown={beginMarquee} onPointerMove={updateMarquee} onPointerUp={finishMarquee}
         onPointerCancel={cancelMarquee} onLostPointerCapture={event => { if (event.target === event.currentTarget) cancelMarquee(); }}
         onKeyDown={event => { if (event.key === 'Escape') cancelMarquee(); }}><div className="se-ruler" role="slider" tabIndex={0} aria-label="Posição da montagem" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position}

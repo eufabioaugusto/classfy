@@ -742,10 +742,10 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
     const keys = (event: KeyboardEvent) => {
       const target = event.target;
       const command = studioShortcutFor(event);
-      const fitFromTimelineSlider = command === 'timelineFit' && target instanceof Element &&
+      const zoomFromTimelineSlider = (command === 'timelineFit' || command === 'timelineIn' || command === 'timelineOut') && target instanceof Element &&
         target.matches('input[type=range]') && target.closest('.se-timeline');
       if (event.defaultPrevented || event.isComposing || event.getModifierState('AltGraph') ||
-        target instanceof Element && !fitFromTimelineSlider && target.closest('input, textarea, select, [role="combobox"], [role="listbox"], [role="menu"], [contenteditable]:not([contenteditable="false"]), [role="dialog"]') ||
+        target instanceof Element && !zoomFromTimelineSlider && target.closest('input, textarea, select, [role="combobox"], [role="listbox"], [role="menu"], [contenteditable]:not([contenteditable="false"]), [role="dialog"]') ||
         blocked || recorder) return;
       if (!command || command === 'restart' && target instanceof Element && target.closest('button, summary, a')) return;
       event.preventDefault();

@@ -250,12 +250,15 @@ describe('comparação e histórico reais do editor', () => {
     const content = host.querySelector<HTMLElement>('.se-timeline-content')!;
     Object.defineProperty(track, 'clientWidth', { value: 400 });
     await click('Aumentar zoom da montagem');
-    expect(content.style.marginInline).toBe('200px');
     slider.focus();
     const event = new KeyboardEvent('keydown', { key: '0', code: 'Digit0', metaKey: true, bubbles: true, cancelable: true });
     await act(async () => slider.dispatchEvent(event));
     expect(event.defaultPrevented).toBe(true);
-    expect(parseFloat(content.style.marginInline)).toBe(0);
+    expect(content.style.width).toBe('400px');
+    expect(track.scrollLeft).toBe(0);
+    const zoomOut = new KeyboardEvent('keydown', { key: '-', code: 'Minus', metaKey: true, bubbles: true, cancelable: true });
+    await act(async () => slider.dispatchEvent(zoomOut));
+    expect(zoomOut.defaultPrevented).toBe(true);
     expect(content.style.width).toBe('400px');
     expect(track.scrollLeft).toBe(0);
   });
