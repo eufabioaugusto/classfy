@@ -243,6 +243,23 @@ describe('comparação e histórico reais do editor', () => {
     expect(host.querySelector('.se-track [aria-pressed="true"]')?.getAttribute('data-timeline-clip')).toBe(saved!.editing!.layers[0].items[0].id);
   });
 
+  it('encaixa a timeline com Command+0 mesmo com o controle de zoom focado', async () => {
+    await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
+    const slider = host.querySelector<HTMLInputElement>('input[aria-label="Zoom da montagem"]')!;
+    const track = host.querySelector<HTMLElement>('.se-timeline-scroll')!;
+    const content = host.querySelector<HTMLElement>('.se-timeline-content')!;
+    Object.defineProperty(track, 'clientWidth', { value: 400 });
+    await click('Aumentar zoom da montagem');
+    expect(content.style.marginInline).toBe('200px');
+    slider.focus();
+    const event = new KeyboardEvent('keydown', { key: '0', code: 'Digit0', metaKey: true, bubbles: true, cancelable: true });
+    await act(async () => slider.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    expect(parseFloat(content.style.marginInline)).toBe(0);
+    expect(content.style.width).toBe('400px');
+    expect(track.scrollLeft).toBe(0);
+  });
+
   it('encurta início e fim no cursor com Q e W e divide com Ctrl+B', async () => {
     await act(async () => root.render(<MemoryRouter><StudioEditorWorkspace owner="owner" projectId="magic-project" /></MemoryRouter>));
     const ruler = host.querySelector<HTMLElement>('[aria-label="Posição da montagem"]')!;

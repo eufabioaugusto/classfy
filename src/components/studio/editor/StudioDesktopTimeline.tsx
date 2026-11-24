@@ -36,7 +36,7 @@ const ClipWaveform = memo(function ClipWaveform({ waveform, start, end, muted, g
 export function StudioDesktopTimeline(props: Props) {
   const { project, position, selectedIds, tool, disabled, onSelect, onSeek, onCommit, onPreview, thumbnails } = props;
   const recipe = useMemo(() => compileStudioRecipe(project), [project]), duration = studioSeconds(recipe.durationTicks);
-  const [scale, setScale] = useState(72), [snapping, setSnapping] = useState(true), [dragging, setDragging] = useState<string>();
+  const [manualScale, setScale] = useState(72), [snapping, setSnapping] = useState(true), [dragging, setDragging] = useState<string>();
   const [marqueePreview, setMarqueePreview] = useState<{ box: Box; ids: Set<string> }>();
   const marquee = useRef<Marquee | null>(null);
   const frame = recipe.output.frameRateDenominator / recipe.output.frameRateNumerator;
@@ -44,6 +44,9 @@ export function StudioDesktopTimeline(props: Props) {
   const pan = useRef<{ pointer: number; x: number; left: number; background: HTMLDivElement | null; moved: boolean }>();
   const volumeDrag = useRef<{ pointer: number; id: string; base: StudioProject; last: number; bounds: DOMRect; maximum: number }>();
   const [zoomPadding, setZoomPadding] = useState(0);
+  const [fitWidth, setFitWidth] = useState<number>();
+  const fitted = fitWidth !== undefined;
+  const scale = fitted ? Math.min(240, Math.max(.001, (fitWidth - 55) / Math.max(.1, duration))) : manualScale;
   const zoomCenter = useRef<number>();
   const centerPlayhead = (time: number, pixelsPerSecond: number, padding: number) => {
     const view = scroll.current;
@@ -52,39 +55,54 @@ export function StudioDesktopTimeline(props: Props) {
   const changeZoom = (next: number) => {
     const clamped = Math.max(.001, Math.min(240, next));
     const padding = (scroll.current?.clientWidth ?? 0) / 2;
-    if (clamped === scale && padding === zoomPadding) centerPlayhead(position, scale, zoomPadding);
+    if (!fitted && clamped === scale && padding === zoomPadding) centerPlayhead(position, scale, zoomPadding);
     else {
       zoomCenter.current = position;
+      setFitWidth(undefined);
       setZoomPadding(padding);
       setScale(clamped);
     }
   };
   useLayoutEffect(() => {
+    if (fitted) {
+      if (scroll.current) scroll.current.scrollLeft = 0;
+      return;
+    }
     if (zoomCenter.current === undefined) return;
     centerPlayhead(zoomCenter.current, scale, zoomPadding);
     zoomCenter.current = undefined;
-  }, [scale, zoomPadding]);
+  }, [scale, zoomPadding, fitted]);
   const zoomCommand = props.zoomCommand;
   useEffect(() => {
     if (!zoomCommand) return;
     if (zoomCommand.direction === 0) {
       zoomCenter.current = undefined;
       setZoomPadding(0);
-      setScale(Math.min(240, Math.max(.001, ((scroll.current?.clientWidth ?? 800) - 55) / Math.max(.1, duration))));
+      setFitWidth(scroll.current?.clientWidth || 800);
       if (scroll.current) scroll.current.scrollLeft = 0;
     } else changeZoom(scale * (zoomCommand.direction > 0 ? 1.3 : 1 / 1.3));
   }, [zoomCommand]);
-  const width = Math.max(800, duration * scale + 160), marks = Math.ceil(Math.max(duration, width / scale));
+  useLayoutEffect(() => {
+    const view = scroll.current;
+    if (!fitted || !view) return;
+    const observer = new ResizeObserver(() => {
+      if (view.clientWidth) setFitWidth(view.clientWidth);
+    });
+    observer.observe(view);
+    return () => observer.disconnect();
+  }, [fitted]);
+  const width = fitWidth ?? Math.max(800, duration * scale + 160);
+  const marks = fitted ? duration : Math.ceil(Math.max(duration, width / scale));
   const interval = scale < 8 ? Math.ceil(60 / scale / 10) * 10 : scale < 30 ? 10 : scale < 60 ? 5 : scale < 120 ? 2 : 1;
   useEffect(() => {
     const view = scroll.current;
-    if (!props.playing || disabled || transaction.current || marquee.current || !view?.clientWidth) return;
+    if (fitted || !props.playing || disabled || transaction.current || marquee.current || !view?.clientWidth) return;
     const cursor = zoomPadding + position * scale, margin = Math.min(40, view.clientWidth / 4);
     let next = view.scrollLeft;
     if (cursor > next + view.clientWidth - margin) next = cursor - view.clientWidth + margin;
     else if (cursor < next + margin) next = Math.max(0, cursor - margin);
     if (Math.abs(next - view.scrollLeft) > .01) view.scrollTo({ left: next, behavior: 'auto' });
-  }, [position, scale, zoomPadding, props.playing, disabled]);
+  }, [position, scale, zoomPadding, fitted, props.playing, disabled]);
   const point = (event: React.PointerEvent, rect: DOMRect) => ({
     x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
     y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
@@ -319,7 +337,7 @@ export function StudioDesktopTimeline(props: Props) {
         onKeyDown={event => { if (event.key === 'Escape') cancelMarquee(); }}><div className="se-ruler" role="slider" tabIndex={0} aria-label="Posição da montagem" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position}
         onPointerDown={e => { if (disabled) return; e.currentTarget.setPointerCapture(e.pointerId); seekAt(e.clientX, e.currentTarget); }} onPointerMove={e => { if (e.buttons === 1 && !disabled) seekAt(e.clientX, e.currentTarget); }}
         onKeyDown={e => { if (!disabled && ['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); onSeek(clampStudioTime(position + (e.key === 'ArrowRight' ? frame : -frame) * (e.shiftKey ? 10 : 1), duration)); } }}>
-        {Array.from({ length: Math.ceil(marks / interval) + 1 }, (_, i) => <span key={i} style={{ left: i * interval * scale }}>{formatStudioEditorTime(i * interval).replace('.0', '')}</span>)}</div>
+        {Array.from({ length: (fitted ? Math.floor(marks / interval) : Math.ceil(marks / interval)) + 1 }, (_, i) => <span key={i} style={{ left: i * interval * scale }}>{formatStudioEditorTime(i * interval).replace('.0', '')}</span>)}</div>
         {rows.map(({ layer, z }) => <div className={`se-track ${layer.hidden ? 'hidden' : ''}`} key={layer.id} >{recipe.clips.filter(c => c.zIndex === z).map(clipView)}</div>)}
         <div className="se-track se-main-track">{recipe.clips.filter(c => c.zIndex === 0).map(clipView)}<button className="se-append" style={{ left: duration * scale + 8 }} aria-label="Adicionar take" disabled={disabled} onClick={props.onAdd}><Plus size={20} /></button></div>
         {marqueePreview && <div className="se-timeline-marquee" aria-hidden="true" style={marqueePreview.box} />}

@@ -55,6 +55,14 @@ describe('componentes reais do editor desktop', () => {
     expect(center()).toBeCloseTo(150);
     await render({ direction: 1 }, 0);
     expect(center()).toBeCloseTo(150);
+    await render({ direction: 0 }, 0);
+    const content = host.querySelector<HTMLElement>('.se-timeline-content')!;
+    const clip = host.querySelector<HTMLElement>('[data-timeline-clip]')!;
+    expect(parseFloat(content.style.marginInline)).toBe(0);
+    expect(track.scrollLeft).toBe(0);
+    expect(center()).toBe(0);
+    expect(parseFloat(content.style.width)).toBe(300);
+    expect(parseFloat(clip.style.width)).toBeCloseTo(245);
     expect(seek).not.toHaveBeenCalled();
   });
 

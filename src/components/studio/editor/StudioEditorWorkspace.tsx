@@ -741,10 +741,12 @@ export function StudioEditorWorkspace({ owner, projectId, premium = false, premi
   useEffect(() => {
     const keys = (event: KeyboardEvent) => {
       const target = event.target;
-      if (event.defaultPrevented || event.isComposing || event.getModifierState('AltGraph') ||
-        target instanceof Element && target.closest('input, textarea, select, [role="combobox"], [role="listbox"], [role="menu"], [contenteditable]:not([contenteditable="false"]), [role="dialog"]') ||
-        blocked || recorder) return;
       const command = studioShortcutFor(event);
+      const fitFromTimelineSlider = command === 'timelineFit' && target instanceof Element &&
+        target.matches('input[type=range]') && target.closest('.se-timeline');
+      if (event.defaultPrevented || event.isComposing || event.getModifierState('AltGraph') ||
+        target instanceof Element && !fitFromTimelineSlider && target.closest('input, textarea, select, [role="combobox"], [role="listbox"], [role="menu"], [contenteditable]:not([contenteditable="false"]), [role="dialog"]') ||
+        blocked || recorder) return;
       if (!command || command === 'restart' && target instanceof Element && target.closest('button, summary, a')) return;
       event.preventDefault();
       if (!event.repeat || ['nextFrame', 'previousFrame', 'nextTen', 'previousTen', 'timelineIn', 'timelineOut'].includes(command)) runShortcut(command);
